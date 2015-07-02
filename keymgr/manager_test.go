@@ -88,6 +88,17 @@ func TestOperation(t *testing.T) {
 		t.Error("did not get error importing duplicate identity")
 	}
 
+	// Try to retrieve private identity from address.
+	privacyAddr, _ := privacyChan.Address.Encode()
+	privacyRetrieved, err := mgr.LookupByAddress(privacyAddr)
+	if err != nil {
+		t.Errorf("LookupByAddress, got error %v", privacyRetrieved)
+	}
+	if !bytes.Equal(privacyRetrieved.Address.Ripe[:], privacyChan.Address.Ripe[:]) {
+		t.Errorf("got different ripe, expected %v got %v",
+			privacyChan.Address.Ripe, privacyRetrieved.Address.Ripe)
+	}
+
 	// Save and encrypt the private keys held by the key manager.
 	pass := []byte("a very nice and secure password for my keyfile")
 	encData, err := mgr.SaveEncrypted(pass)
@@ -134,6 +145,12 @@ func TestOperation(t *testing.T) {
 	err = mgr1.RemoveImported(privacyChan)
 	if err == nil {
 		t.Error("did not get error removing nonexistent identity")
+	}
+
+	// Try to retrieve non-existant private identity from address.
+	_, err = mgr1.LookupByAddress(privacyAddr)
+	if err != keymgr.ErrNonexistentIdentity {
+		t.Errorf("expected ErrNonexistentIdentity got %v", err)
 	}
 }
 

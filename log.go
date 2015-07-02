@@ -22,13 +22,17 @@ import (
 var (
 	backendLog = seelog.Disabled
 	log        = btclog.Disabled
-	rpcLog     = btclog.Disabled
+	serverLog  = btclog.Disabled
+	rpccLog    = btclog.Disabled
+	rpcsLog    = btclog.Disabled
 )
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
 var subsystemLoggers = map[string]btclog.Logger{
-	"BMC": log,
-	"RPC": rpcLog,
+	"BMC":  log,
+	"SRVR": serverLog,
+	"RPCC": rpccLog, // RPC Client log
+	"RPCS": rpcsLog, // RPC server log
 }
 
 // logClosure is used to provide a closure over expensive logging operations
@@ -60,8 +64,14 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 	case "BMC":
 		log = logger
 
-	case "RPC":
-		rpcLog = logger
+	case "SERVER":
+		serverLog = logger
+
+	case "RPCC":
+		rpccLog = logger
+
+	case "RPCS":
+		rpcsLog = logger
 	}
 }
 
