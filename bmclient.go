@@ -13,7 +13,11 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"runtime"
+	"time"
 
+	"github.com/jordwest/imap-server"
+	"github.com/monetas/bmclient/message"
+	"github.com/monetas/bmclient/message/email"
 	"github.com/monetas/bmclient/rpc"
 )
 
@@ -57,6 +61,16 @@ func bmclientMain() error {
 			log.Errorf("%v", http.ListenAndServe(listenAddr, nil))
 		}()
 	}
+
+	// Start the smtp and imap servers.
+	mailstore := message.NewBitmessageStore()
+	account, _ := mailstore.AddAccount("daniel", "54321")
+	//mailstore.AddUser("ishbir", "54321")
+	smtpServ := email.NewSMTPServer(5, account)
+	smtpServ.Start(net.JoinHostPort("", "25"))
+	imapServ := imap.NewServer(mailstore)
+	imapServ.Addr = ":4000"
+	imapServ.ListenAndServe()
 
 	// Load the identities and message databases. The identities database must
 	// have been created with the --create option already or this will return an
@@ -105,8 +119,12 @@ func bmclientMain() error {
 	// necessary since the main goroutine must be kept running long enough
 	// for the interrupt handler goroutine to finish.
 	go func() {
-		server.WaitForShutdown()
-		log.Infof("Server shutdown complete")
+		//server.WaitForShutdown()
+		//log.Infof("Server shutdown complete")
+
+		time.Sleep(time.Minute * 20)
+		smtpServ.Stop()
+		imapServ.Close()
 		shutdownChannel <- struct{}{}
 	}()
 

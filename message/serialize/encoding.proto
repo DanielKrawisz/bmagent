@@ -1,0 +1,30 @@
+// Copyright (c) 2015 Monetas.
+// Use of this source code is governed by an ISC
+// license that can be found in the LICENSE file.
+
+syntax="proto2";
+option go_package="serialize";
+
+// Entry is an entry in the database that contains a message and some related metadata.
+message Entry {
+	required bool      Sent         = 1;
+	required bool      AckReceived  = 2;
+	required bool      AckExpected  = 3;
+	required string    DateReceived = 4;
+	required int32     Flags        = 5;
+	required Encoding  Message      = 6;
+}
+
+// Encoding is a bitmessage encoded in format 2.
+message Encoding {
+	required uint64 Encoding    = 1;
+	required string From        = 2;
+	required string To          = 3;
+	required uint64 NonceTrials = 4;
+	required uint64 ExtraBytes  = 5;
+	required uint64 Behavior    = 6;
+	optional string Subject     = 7;
+	optional string Body        = 8;
+	optional string Ack         = 9;
+	optional string Expiration  = 10;
+}
