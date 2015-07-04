@@ -13,8 +13,6 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
-	"github.com/monetas/bmclient/keymgr"
-	"github.com/monetas/bmclient/msgdb"
 )
 
 // Loggers per subsytem. Note that backendLog is a seelog logger that all of
@@ -25,16 +23,12 @@ var (
 	backendLog = seelog.Disabled
 	log        = btclog.Disabled
 	rpcLog     = btclog.Disabled
-	keymgrLog  = btclog.Disabled
-	msgdbLog   = btclog.Disabled
 )
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
 var subsystemLoggers = map[string]btclog.Logger{
-	"BMC":    log,
-	"RPC":    rpcLog,
-	"KEYMGR": keymgrLog,
-	"MSGDB":  msgdbLog,
+	"BMC": log,
+	"RPC": rpcLog,
 }
 
 // logClosure is used to provide a closure over expensive logging operations
@@ -68,14 +62,6 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 	case "RPC":
 		rpcLog = logger
-
-	case "KEYMGR":
-		keymgrLog = logger
-		keymgr.UseLogger(logger)
-
-	case "MSGDB":
-		msgdbLog = logger
-		msgdb.UseLogger(logger)
 	}
 }
 
