@@ -5,10 +5,10 @@
 package store
 
 import (
-	"crypto/sha512"
 	"encoding/binary"
 
 	"github.com/boltdb/bolt"
+	"github.com/monetas/bmutil"
 )
 
 // PowQueue is a FIFO queue for objects that need proof-of-work done on them.
@@ -44,34 +44,34 @@ func newPowQueue(store *Store) (*PowQueue, error) {
 }
 
 // Enqueue adds an object message with a target value for PoW to the end of the
-// queue.
-func (q *PowQueue) Enqueue(target uint64, objHash *[sha512.Size]byte) error {
+// queue. It returns the index value of the stored element.
+func (q *PowQueue) Enqueue(target uint64, obj []byte) (uint64, error) {
 	// Key is the next index
+	idx := q.nextIndex
 	k := make([]byte, 8)
-	binary.BigEndian.PutUint64(k, q.nextIndex)
+	binary.BigEndian.PutUint64(k, idx)
 
-	// Value is stored as: target (8 bytes) || objHash (64 bytes)
-	v := make([]byte, 8+sha512.Size)
+	// Value is stored as: target (8 bytes) || object
+	v := make([]byte, 8+len(obj))
 	binary.BigEndian.PutUint64(v, target)
-	copy(v[8:], objHash[:])
+	copy(v[8:], obj)
 
 	err := q.store.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(powQueueBucket).Put(k, v)
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
-
 	q.nextIndex++
-	return nil
+
+	return idx, nil
 }
 
-// Dequeue removes an object message along with its target PoW value from the
-// beginning of the queue.
-func (q *PowQueue) Dequeue() (uint64, *[sha512.Size]byte, error) {
-	var target uint64
-	var objHash [sha512.Size]byte
-
+// Dequeue removes the object message at beginning of the queue and returns its
+// index and itself.
+func (q *PowQueue) Dequeue() (uint64, []byte, error) {
+	var idx uint64
+	var obj []byte
 	err := q.store.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(powQueueBucket)
 
@@ -79,9 +79,9 @@ func (q *PowQueue) Dequeue() (uint64, *[sha512.Size]byte, error) {
 		if k == nil || v == nil { // No elements
 			return ErrNotFound
 		}
-
-		target = binary.BigEndian.Uint64(v[:8])
-		copy(objHash[:], v[8:])
+		idx = binary.BigEndian.Uint64(k)
+		obj = make([]byte, len(v[8:]))
+		copy(obj, v[8:])
 
 		return bucket.Delete(k)
 	})
@@ -89,13 +89,14 @@ func (q *PowQueue) Dequeue() (uint64, *[sha512.Size]byte, error) {
 		return 0, nil, err
 	}
 
-	return target, &objHash, nil
+	return idx, obj, nil
 }
 
-// Peek returns the object that would be removed when Dequeue is run next.
-func (q *PowQueue) Peek() (uint64, *[sha512.Size]byte, error) {
+// PeekForPow returns the target and hash values for the object that would be
+// removed when Dequeue is run next.
+func (q *PowQueue) PeekForPow() (uint64, []byte, error) {
 	var target uint64
-	var objHash [sha512.Size]byte
+	var hash []byte
 
 	err := q.store.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(powQueueBucket)
@@ -106,7 +107,7 @@ func (q *PowQueue) Peek() (uint64, *[sha512.Size]byte, error) {
 		}
 
 		target = binary.BigEndian.Uint64(v[:8])
-		copy(objHash[:], v[8:])
+		hash = bmutil.Sha512(v[8:])
 		return nil
 
 	})
@@ -114,5 +115,5 @@ func (q *PowQueue) Peek() (uint64, *[sha512.Size]byte, error) {
 		return 0, nil, err
 	}
 
-	return target, &objHash, nil
+	return target, hash, nil
 }

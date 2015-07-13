@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
+	"github.com/monetas/bmclient/rpc"
 )
 
 // Loggers per subsytem. Note that backendLog is a seelog logger that all of
@@ -31,7 +32,7 @@ var (
 var subsystemLoggers = map[string]btclog.Logger{
 	"BMC":  log,
 	"SRVR": serverLog,
-	"RPCC": rpccLog, // RPC Client log
+	"RPCC": rpccLog, // RPC client log
 	"RPCS": rpcsLog, // RPC server log
 }
 
@@ -64,14 +65,16 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 	case "BMC":
 		log = logger
 
-	case "SERVER":
+	case "SRVR":
 		serverLog = logger
 
 	case "RPCC":
 		rpccLog = logger
+		rpc.UseClientLogger(logger)
 
 	case "RPCS":
 		rpcsLog = logger
+		rpc.UseServerLogger(logger)
 	}
 }
 

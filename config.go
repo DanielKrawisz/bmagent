@@ -13,12 +13,15 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/monetas/bmutil/pow"
+	ini "github.com/vaughan0/go-ini"
 )
 
 const (
@@ -38,6 +41,8 @@ const (
 
 	keyfileName = "keys.dat"
 	storeDbName = "store.db"
+
+	defaultPowHandler = "parallel"
 )
 
 var (
@@ -80,6 +85,10 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
+	ProofOfWork string `long:"pow" description:"Choose proof-of-work handler. Options: {sequential, parallel}"`
+	PowThreads  int    `long:"powthreads" description:"Number of threads to use for parallel proof-of-work calculation. It should not be greater than the number of cores"`
+
+	powHandler  func(target uint64, hash []byte) uint64
 	keyfilePath string
 	storePath   string
 	keyfilePass []byte
@@ -294,12 +303,14 @@ func checkCreateDir(path string) error {
 func loadConfig() (*config, []string, error) {
 	// Default config.
 	cfg := config{
-		DebugLevel: defaultLogLevel,
-		ConfigFile: defaultConfigFile,
-		DataDir:    defaultDataDir,
-		LogDir:     defaultLogDir,
-		TLSKey:     defaultTLSKeyFile,
-		TLSCert:    defaultTLSCertFile,
+		DebugLevel:  defaultLogLevel,
+		ConfigFile:  defaultConfigFile,
+		DataDir:     defaultDataDir,
+		LogDir:      defaultLogDir,
+		TLSKey:      defaultTLSKeyFile,
+		TLSCert:     defaultTLSCertFile,
+		PowThreads:  runtime.NumCPU(),
+		ProofOfWork: defaultPowHandler,
 	}
 
 	// A config file in the current directory takes precedence.
@@ -398,6 +409,25 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
+	// Verify proof-of-work parameters.
+	switch cfg.ProofOfWork {
+	case "sequential":
+		cfg.powHandler = pow.DoSequential
+	case "parallel":
+		if cfg.PowThreads < 2 {
+			err := errors.New("Number of threads for proof-of-work cannot be less than 2")
+			fmt.Fprintln(os.Stderr, err)
+			return nil, nil, err
+		}
+		cfg.powHandler = func(target uint64, hash []byte) uint64 {
+			return pow.DoParallel(target, hash, cfg.PowThreads)
+		}
+	default:
+		err := errors.New("Unknown proof-of-work handler")
+		fmt.Fprintln(os.Stderr, err)
+		return nil, nil, err
+	}
+
 	// Ensure the key file and data store exist or create them when the create
 	// flag is set.
 	cfg.keyfilePath = filepath.Join(cfg.DataDir, keyfileName)
@@ -438,7 +468,26 @@ func loadConfig() (*config, []string, error) {
 
 	// Import private keys from PyBitmessage's keys.dat file.
 	if cfg.ImportKeyFile != "" {
-		// TODO
+		// We need to open the keyfile and store.
+		keymgr, store, err := openDatabases(&cfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Unable to open databases:", err)
+			return nil, nil, err
+		}
+
+		file, err := ini.LoadFile(cfg.ImportKeyFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Unable to open keyfile for import:", err)
+			return nil, nil, err
+		}
+
+		importKeyfile(keymgr, store, file)
+
+		saveKeyfile(keymgr, cfg.keyfilePass, cfg.keyfilePath)
+		store.Close()
+
+		// Imported successfully, so exit now with success.
+		os.Exit(0)
 	}
 
 	// Username and password must be specified.

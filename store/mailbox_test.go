@@ -146,6 +146,16 @@ func TestMailbox(t *testing.T) {
 		t.Error("Got error", err)
 	}
 
+	// Check if the mailbox can be reached by ForEachBroadcastAddress.
+	counter = 0
+	s.ForEachBroadcastAddress(func(address string) error {
+		counter++
+		return nil
+	})
+	if counter != 1 {
+		t.Errorf("For counter expected %d got %d", 1, counter)
+	}
+
 	// Try deleting mailbox.
 	err = mbox.Delete()
 	if err != nil {

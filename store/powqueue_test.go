@@ -6,7 +6,6 @@ package store_test
 
 import (
 	"bytes"
-	"crypto/sha512"
 	"io/ioutil"
 	"os"
 	"testing"
@@ -33,18 +32,18 @@ func TestPowQueue(t *testing.T) {
 	// Start.
 	q := s.PowQueue
 
-	var hash [sha512.Size]byte
-	copy(hash[:], bmutil.Sha512([]byte("test")))
+	obj := []byte("test")
+	hash := bmutil.Sha512(obj)
 	target := uint64(123)
 
-	var hash1 [sha512.Size]byte
-	copy(hash1[:], bmutil.Sha512([]byte("test1")))
+	obj1 := []byte("test1")
+	hash1 := bmutil.Sha512(obj1)
 	target1 := uint64(456)
 
-	// Peek should fail.
-	_, _, err = q.Peek()
+	// PeekForPow should fail.
+	_, _, err = q.PeekForPow()
 	if err != store.ErrNotFound {
-		t.Errorf("Peek didn't give expected error %v, got %v",
+		t.Errorf("PeekForPow didn't give expected error %v, got %v",
 			store.ErrNotFound, err)
 	}
 
@@ -56,20 +55,23 @@ func TestPowQueue(t *testing.T) {
 	}
 
 	// First enqueue.
-	err = q.Enqueue(target, &hash)
+	idx, err := q.Enqueue(target, obj)
 	if err != nil {
 		t.Error("Enqueue failed:", err)
 	}
+	if idx != 1 {
+		t.Errorf("Expected %d got %d", 1, idx)
+	}
 
-	// First peek.
-	targetT, hashT, err := q.Peek()
+	// First PeekForPow.
+	targetT, hashT, err := q.PeekForPow()
 	if err != nil {
-		t.Error("Peek failed:", err)
+		t.Error("PeekForPow failed:", err)
 	}
 	if target != targetT {
 		t.Errorf("Expected %d got %d", target, targetT)
 	}
-	if !bytes.Equal(hash[:], hashT[:]) {
+	if !bytes.Equal(hash, hashT) {
 		t.Errorf("Expected %v got %v", hash, hashT)
 	}
 
@@ -85,63 +87,66 @@ func TestPowQueue(t *testing.T) {
 	q = s.PowQueue
 
 	// Second enqueue.
-	err = q.Enqueue(target1, &hash1)
+	idx1, err := q.Enqueue(target1, obj1)
 	if err != nil {
 		t.Error("Enqueue failed:", err)
 	}
+	if idx1 != 2 {
+		t.Errorf("Expected %d got %d", 2, idx1)
+	}
 
-	// Peek again, should still give same answers.
-	targetT, hashT, err = q.Peek()
+	// PeekForPow again, should still give same answers.
+	targetT, hashT, err = q.PeekForPow()
 	if err != nil {
-		t.Error("Peek failed:", err)
+		t.Error("PeekForPow failed:", err)
 	}
 	if target != targetT {
 		t.Errorf("Expected %d got %d", target, targetT)
 	}
-	if !bytes.Equal(hash[:], hashT[:]) {
+	if !bytes.Equal(hash, hashT) {
 		t.Errorf("Expected %v got %v", hash, hashT)
 	}
 
 	// First dequeue.
-	targetT, hashT, err = q.Dequeue()
+	idxT, objT, err := q.Dequeue()
 	if err != nil {
 		t.Error("Dequeue failed:", err)
 	}
-	if target != targetT {
-		t.Errorf("Expected %d got %d", target, targetT)
+	if !bytes.Equal(obj, objT) {
+		t.Errorf("Expected %v got %v", obj, objT)
 	}
-	if !bytes.Equal(hash[:], hashT[:]) {
-		t.Errorf("Expected %v got %v", hash, hashT)
+	if idx != idxT {
+		t.Errorf("Expected %d got %d", idx, idxT)
 	}
 
-	// Second peek. Second item should move to first now.
-	targetT, hashT, err = q.Peek()
+	// Second PeekForPow. Second item should move to first now.
+	targetT, hashT, err = q.PeekForPow()
 	if err != nil {
-		t.Error("Peek failed:", err)
+		t.Error("PeekForPow failed:", err)
 	}
 	if target1 != targetT {
 		t.Errorf("Expected %d got %d", target1, targetT)
 	}
-	if !bytes.Equal(hash1[:], hashT[:]) {
+	if !bytes.Equal(hash1, hashT) {
 		t.Errorf("Expected %v got %v", hash1, hashT)
 	}
 
 	// Second dequeue.
-	targetT, hashT, err = q.Dequeue()
+	idxT, objT, err = q.Dequeue()
 	if err != nil {
 		t.Error("Dequeue failed:", err)
 	}
-	if target1 != targetT {
-		t.Errorf("Expected %d got %d", target1, targetT)
+	if !bytes.Equal(obj1, objT) {
+		t.Errorf("Expected %v got %v", obj1, objT)
 	}
-	if !bytes.Equal(hash1[:], hashT[:]) {
-		t.Errorf("Expected %v got %v", hash1, hashT)
+	if idx1 != idxT {
+		t.Errorf("Expected %d got %d", idx, idxT)
 	}
 
-	// Peek should fail.
-	_, _, err = q.Peek()
+	// PeekForPow should fail.
+	_, _, err = q.PeekForPow()
 	if err != store.ErrNotFound {
-		t.Errorf("Peek didn't give expected error %v, got %v",
+		t.Errorf("PeekForPow didn't give expected error %v, got %v",
 			store.ErrNotFound, err)
 	}
 

@@ -70,3 +70,52 @@ func TestOpenClose(t *testing.T) {
 
 	os.Remove(fName)
 }
+
+func TestCounters(t *testing.T) {
+	// Open store.
+	f, err := ioutil.TempFile("", "tempstore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fName := f.Name()
+	f.Close()
+
+	pass := []byte("password")
+	s, err := store.Open(fName, pass)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Start.
+
+	// Try getting counter for when it doesn't exist.
+	c, err := s.GetCounter(0)
+	if err != nil {
+		t.Error(err)
+	}
+	if 1 != c {
+		t.Errorf("For counter expected %d got %d", 1, c)
+	}
+
+	// Try setting counter value.
+	err = s.SetCounter(0, 34)
+	if err != nil {
+		t.Error(err)
+	}
+
+	// Check if value was saved correctly.
+	c, err = s.GetCounter(0)
+	if err != nil {
+		t.Error(err)
+	}
+	if 34 != c {
+		t.Errorf("For counter expected %d got %d", 34, c)
+	}
+
+	// Close database.
+	err = s.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Remove(fName)
+}

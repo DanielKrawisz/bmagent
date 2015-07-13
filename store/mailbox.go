@@ -288,17 +288,19 @@ func (mbox *Mailbox) GetName() string {
 // type cannot have a matching name.
 func (mbox *Mailbox) SetName(name string) error {
 	err := mbox.store.db.Update(func(tx *bolt.Tx) error {
-		// Check if some other mailbox of the same type has the same name.
-		err := tx.Bucket(mailboxesBucket).ForEach(func(addr, _ []byte) error {
-			b := tx.Bucket(mailboxesBucket).Bucket(addr).Bucket(mailboxDataBucket)
-			if MailboxType(b.Get(mailboxTypeKey)[0]) == mbox.boxType &&
-				string(b.Get(mailboxName)) == name {
-				return ErrDuplicateName
+		if name != "" {
+			// Check if some other mailbox of the same type has the same name.
+			err := tx.Bucket(mailboxesBucket).ForEach(func(addr, _ []byte) error {
+				b := tx.Bucket(mailboxesBucket).Bucket(addr).Bucket(mailboxDataBucket)
+				if MailboxType(b.Get(mailboxTypeKey)[0]) == mbox.boxType &&
+					string(b.Get(mailboxName)) == name {
+					return ErrDuplicateName
+				}
+				return nil
+			})
+			if err != nil {
+				return err
 			}
-			return nil
-		})
-		if err != nil {
-			return err
 		}
 
 		return tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address)).
@@ -323,6 +325,9 @@ func (mbox *Mailbox) Delete() error {
 
 		// Delete mailbox from store.
 		delete(mbox.store.mailboxes, mbox.address)
+		if mbox.boxType == MailboxBroadcast {
+			delete(mbox.store.broadcastAddrs, mbox.address)
+		}
 		return nil
 	})
 }

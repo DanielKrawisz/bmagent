@@ -7,11 +7,13 @@ package store
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"errors"
 	"sync"
 	"time"
 
 	"github.com/boltdb/bolt"
+	"github.com/monetas/bmutil/wire"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -73,6 +75,7 @@ var (
 	powQueueBucket   = []byte("powQueue")
 	pkRequestsBucket = []byte("pubkeyRequests")
 	miscBucket       = []byte("misc")
+	countersBucket   = []byte("counters")
 	mailboxesBucket  = []byte("mailboxes")
 
 	// Addresses used for creating special mailboxes.
@@ -113,7 +116,8 @@ type Store struct {
 	PubkeyRequests *PKRequests
 	PowQueue       *PowQueue
 	mutex          sync.RWMutex        // For protecting the map.
-	mailboxes      map[string]*Mailbox // Map addresses to mailboxes
+	mailboxes      map[string]*Mailbox // Map addresses to all mailboxes.
+	broadcastAddrs map[string]struct{} // All broadcast addresses.
 	SentMailbox    *Mailbox
 	PendingMailbox *Mailbox
 }
@@ -135,13 +139,18 @@ func Open(file string, pass []byte) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
-		db:        db,
-		mailboxes: make(map[string]*Mailbox),
+		db:             db,
+		mailboxes:      make(map[string]*Mailbox),
+		broadcastAddrs: make(map[string]struct{}),
 	}
 
 	// Verify passphrase, or create it, if necessary.
 	err = db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(miscBucket)
+		if err != nil {
+			return err
+		}
+		_, err = bucket.CreateBucketIfNotExists(countersBucket)
 		if err != nil {
 			return err
 		}
@@ -253,6 +262,10 @@ func Open(file string, pass []byte) (*Store, error) {
 			db.Close()
 			return nil, err
 		}
+		// Load broadcast mailboxes.
+		if boxType == MailboxBroadcast {
+			store.broadcastAddrs[address] = struct{}{}
+		}
 	}
 
 	// Load special mailboxes.
@@ -296,6 +309,9 @@ func (s *Store) NewMailbox(address string, boxType MailboxType,
 	// Save mailbox in the local map.
 	s.mutex.Lock()
 	s.mailboxes[address] = mbox
+	if boxType == MailboxBroadcast {
+		s.broadcastAddrs[address] = struct{}{}
+	}
 	s.mutex.Unlock()
 
 	err = mbox.SetName(name)
@@ -321,6 +337,20 @@ func (s *Store) MailboxByAddress(address string) (*Mailbox, error) {
 	return mbox, nil
 }
 
+// ForEachBroadcastAddress runs the provided function for each broadcast address
+// that the user is subscribed to, breaking early on error.
+func (s *Store) ForEachBroadcastAddress(f func(address string) error) error {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
+	for addr := range s.broadcastAddrs {
+		if err := f(addr); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ChangePassphrase changes the passphrase of the data store. It does not
 // protect against a previous compromise of the data file. Refer to package docs
 // for more details.
@@ -344,6 +374,41 @@ func (s *Store) ChangePassphrase(pass []byte) error {
 		}
 
 		return nil
+	})
+}
+
+// GetCounter returns the stored counter value associated with the given object
+// type.
+func (s *Store) GetCounter(objType wire.ObjectType) (uint64, error) {
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint32(b, uint32(objType))
+	var res uint64
+
+	err := s.db.View(func(tx *bolt.Tx) error {
+		v := tx.Bucket(miscBucket).Bucket(countersBucket).Get(b)
+		if v == nil { // Counter doesn't exist so just return 1.
+			res = 1
+		} else {
+			res = binary.BigEndian.Uint64(v)
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return res, nil
+}
+
+// SetCounter sets the counter value associated with the given object type.
+func (s *Store) SetCounter(objType wire.ObjectType, counter uint64) error {
+	b := make([]byte, 4)
+	binary.BigEndian.PutUint32(b, uint32(objType))
+
+	bc := make([]byte, 8)
+	binary.BigEndian.PutUint64(bc, counter)
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(miscBucket).Bucket(countersBucket).Put(b, bc)
 	})
 }
 

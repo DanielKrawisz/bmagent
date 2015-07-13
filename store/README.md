@@ -16,6 +16,10 @@ Database structure:
 - misc (bucket)
 -- dbMasterKey (encrypted)
 -- salt
+-- counters (bucket)
+--- 0x00000000 (wire.ObjectTypeGetPubKey)
+--- 0x00000002 (wire.ObjectTypeMsg)
+--- 0x00000003 (wire.ObjectTypeBroadcast)
 
 - mailboxes (bucket)
 -- BM-blahblahblah (bucket)
