@@ -66,8 +66,8 @@ const (
 	numIters = 1 << 15
 
 	// latestStoreVersion is the most recent version of data store. This is how
-	// Store can know whether to update the keyfile or not.
-	latestStoreVersion = 1
+	// Store can know whether to update the database structure or not.
+	latestStoreVersion = 0x01
 )
 
 // Buckets for storing data in the database.
@@ -88,6 +88,9 @@ var (
 
 	// Used for PBKDF2, to generate key used to decrypt master key.
 	saltKey = []byte("salt")
+
+	// Version of the data store.
+	versionKey = []byte("version")
 )
 
 var (
@@ -185,6 +188,12 @@ func Open(file string, pass []byte) (*Store, error) {
 				return err
 			}
 
+			// Set database version.
+			err = bucket.Put(versionKey, []byte{latestStoreVersion})
+			if err != nil {
+				return err
+			}
+
 			return nil
 
 		} else if len(v) < nonceSize+keySize+secretbox.Overhead {
@@ -204,7 +213,9 @@ func Open(file string, pass []byte) (*Store, error) {
 		// Store decrypted master key in memory.
 		copy(masterKey[:], mKey)
 		store.masterKey = &masterKey
-		return nil
+
+		// Upgrade database if necessary.
+		return store.checkAndUpgrade(tx)
 	})
 	if err != nil {
 		db.Close()
@@ -286,6 +297,16 @@ func Open(file string, pass []byte) (*Store, error) {
 // Close performs any necessary cleanups and then closes the store.
 func (s *Store) Close() error {
 	return s.db.Close()
+}
+
+// checkAndUpgrade is responsible for checking the version of the data store
+// and upgrading itself if necessary.
+func (s *Store) checkAndUpgrade(tx *bolt.Tx) error {
+	bVersion := tx.Bucket(miscBucket).Get(versionKey)
+	if bVersion[0] != latestStoreVersion {
+		return errors.New("Unrecognized version of data store.")
+	}
+	return nil
 }
 
 // NewMailbox creates a new mailbox for an address. It takes the address,

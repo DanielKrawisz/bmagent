@@ -108,7 +108,7 @@ func testNewPKRequest(q *store.PKRequests, address string, t *testing.T) {
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	if d := time.Now().Sub(timestamp); d > time.Millisecond {
-		t.Errorf("Expected time to be within 1 ms margin, got %v", d)
+	if d := time.Now().Sub(timestamp); d > 50*time.Millisecond {
+		t.Errorf("Expected time to be within 50 ms margin, got %v", d)
 	}
 }

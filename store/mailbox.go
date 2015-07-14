@@ -7,6 +7,7 @@ package store
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,10 +22,10 @@ var (
 	// mailboxCreatedOnKey contains the time of creation of mailbox.
 	mailboxCreatedOnKey = []byte("createdOn")
 
-	// mailboxNewIndex contains the index of the next element. Kept here because
+	// mailboxNewID contains the index of the next element. Kept here because
 	// IMAP requires existence of unique message IDs that do not change over
 	// sessions.
-	mailboxNewIndex = []byte("newIndex")
+	mailboxNewID = []byte("newID")
 
 	// mailboxName is a user-friendly name for a mailbox.
 	mailboxName = []byte("name")
@@ -84,7 +85,7 @@ func newMailbox(store *Store, address string,
 				return err
 			}
 
-			err = data.Put(mailboxNewIndex, one)
+			err = data.Put(mailboxNewID, one)
 			if err != nil {
 				return err
 			}
@@ -113,7 +114,7 @@ func newMailbox(store *Store, address string,
 // the encoding type. For special use mailboxes like "Pending", suffix could be
 // used as a 'key', like a reason code (why the message is marked as Pending).
 func (mbox *Mailbox) InsertMessage(msg []byte, suffix uint64) (uint64, error) {
-	var index uint64
+	var id uint64
 
 	enc, err := mbox.store.encrypt(msg)
 	if err != nil {
@@ -124,24 +125,24 @@ func (mbox *Mailbox) InsertMessage(msg []byte, suffix uint64) (uint64, error) {
 		m := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address))
 		data := m.Bucket(mailboxDataBucket)
 
-		idxBytes := data.Get(mailboxNewIndex)
-		index = binary.BigEndian.Uint64(idxBytes)
+		idxBytes := data.Get(mailboxNewID)
+		id = binary.BigEndian.Uint64(idxBytes)
 
 		k := make([]byte, 16)
 		copy(k[:8], idxBytes)                     // first half
 		binary.BigEndian.PutUint64(k[8:], suffix) // second half
 
-		// Insert message using newIndex as the first 8 bytes and suffix as the
+		// Insert message using newID as the first 8 bytes and suffix as the
 		// latter 8 bytes of the key.
 		err := m.Put(k, enc)
 		if err != nil {
 			return err
 		}
 
-		// Increment newIndex.
-		newIndex := make([]byte, 8)
-		binary.BigEndian.PutUint64(newIndex, index+1)
-		err = data.Put(mailboxNewIndex, newIndex)
+		// Increment newID.
+		newID := make([]byte, 8)
+		binary.BigEndian.PutUint64(newID, id+1)
+		err = data.Put(mailboxNewID, newID)
 		if err != nil {
 			return err
 		}
@@ -152,20 +153,20 @@ func (mbox *Mailbox) InsertMessage(msg []byte, suffix uint64) (uint64, error) {
 		return 0, err
 	}
 
-	return index, nil
+	return id, nil
 }
 
 // GetMessage retrieves a message from the mailbox by its index. It returns the
 // suffix and the message. An error is returned if the message with the given
 // index doesn't exist in the database.
-func (mbox *Mailbox) GetMessage(index uint64) (uint64, []byte, error) {
+func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 	var suffix uint64
 	var msg []byte
 
 	var success bool
 
 	idxBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idxBytes, index)
+	binary.BigEndian.PutUint64(idxBytes, id)
 
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
 		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address)).Cursor()
@@ -191,80 +192,71 @@ func (mbox *Mailbox) GetMessage(index uint64) (uint64, []byte, error) {
 	return suffix, msg, nil
 }
 
-// ForEachMessage runs the given function for each message in the store,
-// terminating early if an error occurs. It iterates in the increasing order of
-// index.
+// ForEachMessage runs the given function for messages that have IDs between
+// lowID and highID with the given suffix. If lowID is 0, it starts from the
+// first message. If highID is 0, it returns all messages with id >= lowID with
+// the given suffix. If suffix is zero, it returns all messages between lowID
+// and highID, irrespective of the suffix. Note that any combination of lowID,
+// highID and suffix can be zero for the desired results. Both lowID and highID
+// are inclusive.
 //
-// Make sure the function doesn't take long to execute. DO NOT execute any other
-// database operations in it.
-func (mbox *Mailbox) ForEachMessage(f func(index uint64, suffix uint64,
-	msg []byte) error) error {
+// Suffix is useful for getting all messages of a particular type. For example,
+// retrieving all messages with encoding type 2.
+//
+// The function terminates early if an error occurs and iterates in the
+// increasing order of index. Make sure it doesn't take long to execute. DO NOT
+// execute any other database operations in it.
+func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
+	f func(id, suffix uint64, msg []byte) error) error {
+	if lowID > highID {
+		return errors.New("Nice try, son. But lowID cannot be greater than highID.")
+	}
+
+	bLowID := make([]byte, 8)
+	binary.BigEndian.PutUint64(bLowID, lowID)
 
 	return mbox.store.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address)).
-			ForEach(func(k, v []byte) error {
+		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address)).Cursor()
 
+		for k, v := cursor.Seek(bLowID); k != nil || v != nil; k, v = cursor.Next() {
 			// We need this safeguard because BoltDB also loops over buckets. We
 			// don't want to include the bucket "data" in our query.
-			if len(k) < 16 {
-				return nil
+			if len(k) != 16 {
+				continue
 			}
 
-			index := binary.BigEndian.Uint64(k[:8])
-			suffix := binary.BigEndian.Uint64(k[8:])
+			id := binary.BigEndian.Uint64(k[:8])
+			sfx := binary.BigEndian.Uint64(k[8:])
+
+			// We already exceeded the highest ID, so stop.
+			if highID != 0 && id > highID {
+				return nil // We're done with all the looping.
+			}
+
+			// The suffix doesn't match so go to next message.
+			if suffix != 0 && sfx != suffix {
+				continue
+			}
 
 			msg, success := mbox.store.decrypt(v)
 			if !success {
 				return ErrDecryptionFailed
 			}
 
-			return f(index, suffix, msg)
-		})
-	})
-}
-
-// ForEachMessageBySuffix runs the given function for each message which has
-// suffix as its key suffix. It's useful for getting all messages of a
-// particular type. For example, retrieving all messages with encoding type 2.
-// It iterates in the increasing order of index.
-//
-// Make sure the function doesn't take long to execute. DO NOT execute any other
-// database operations in it.
-func (mbox *Mailbox) ForEachMessageBySuffix(suffix uint64, f func(index uint64,
-	msg []byte) error) error {
-
-	sfxBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(sfxBytes, suffix)
-
-	return mbox.store.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address)).
-			ForEach(func(k, v []byte) error {
-
-			// We need this safeguard because BoltDB also loops over buckets. We
-			// don't want to include the bucket "data" in our query.
-			if len(k) < 16 {
-				return nil
+			if err := f(id, sfx, msg); err != nil {
+				return err
 			}
+		}
 
-			index := binary.BigEndian.Uint64(k[:8])
-			if bytes.Equal(k[8:], sfxBytes) { // Suffix matches what we expect.
-				msg, success := mbox.store.decrypt(v)
-				if !success {
-					return ErrDecryptionFailed
-				}
-
-				return f(index, msg)
-			}
-			return nil
-		})
+		return nil
 	})
 }
 
 // DeleteMessage deletes a message with the given index from the store. An error
 // is returned if the message doesn't exist in the store.
-func (mbox *Mailbox) DeleteMessage(index uint64) error {
+func (mbox *Mailbox) DeleteMessage(id uint64) error {
 	idxBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idxBytes, index)
+	binary.BigEndian.PutUint64(idxBytes, id)
 
 	return mbox.store.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address))
@@ -335,4 +327,55 @@ func (mbox *Mailbox) Delete() error {
 // GetType returns the type of the mailbox.
 func (mbox *Mailbox) GetType() MailboxType {
 	return mbox.boxType
+}
+
+// GetLastID returns the highest index value in the mailbox.
+func (mbox *Mailbox) GetLastID() (uint64, error) {
+	var id uint64
+
+	err := mbox.store.db.View(func(tx *bolt.Tx) error {
+		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address)).Cursor()
+
+		// Read from the end until we have a non-nil value.
+		for k, _ := cursor.Last(); ; k, _ = cursor.Prev() {
+			if k == nil { // No records
+				return ErrNotFound
+			}
+			if len(k) != 16 { // Don't want to read key from a bucket.
+				continue
+			}
+			id = binary.BigEndian.Uint64(k[:8])
+			return nil
+		}
+	})
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// GetLastIDBySuffix returns the highest index value from messages with the
+// specified suffix in the mailbox.
+func (mbox *Mailbox) GetLastIDBySuffix(suffix uint64) (uint64, error) {
+	var id uint64
+	err := mbox.store.db.View(func(tx *bolt.Tx) error {
+		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.address)).Cursor()
+
+		// Loop from the end, returning the first found match.
+		for k, _ := cursor.Last(); k != nil; k, _ = cursor.Prev() {
+			if len(k) != 16 { // Don't want to loop over buckets.
+				continue
+			}
+			sfx := binary.BigEndian.Uint64(k[8:])
+			if sfx == suffix {
+				id = binary.BigEndian.Uint64(k[:8])
+				return nil
+			}
+		}
+		return ErrNotFound
+	})
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
 }

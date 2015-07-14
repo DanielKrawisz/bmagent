@@ -67,6 +67,17 @@ func TestMailbox(t *testing.T) {
 		t.Error("Expected ErrNotFound got", err)
 	}
 
+	// Try getting last IDs when mailbox is empty.
+	_, err = mbox.GetLastID()
+	if err != store.ErrNotFound {
+		t.Error("Expected ErrNotFound got", err)
+	}
+
+	_, err = mbox.GetLastIDBySuffix(1)
+	if err != store.ErrNotFound {
+		t.Error("Expected ErrNotFound got", err)
+	}
+
 	// Try deleting non-existant message.
 	err = mbox.DeleteMessage(1)
 	if err != store.ErrNotFound {
@@ -94,31 +105,76 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Test ForEachMessage.
-	counter := 0
-	err = mbox.ForEachMessage(func(index uint64, suffix uint64, msg []byte) error {
-		counter++
-		return nil
-	})
+
+	// lowID = 0, highID = 0, suffix = 0 [Get all messages], expectedCount = 2
+	testForEachMessage(mbox, 0, 0, 0, 2, t)
+
+	// lowID = 0, highID = 1, suffix = 0, expectedCount = 1
+	testForEachMessage(mbox, 0, 1, 0, 1, t)
+
+	// lowID = 2, highID = 5, suffix = 0, expectedCount = 1
+	testForEachMessage(mbox, 0, 1, 0, 1, t)
+
+	// lowID = 3, highID = 5, suffix = 0, expectedCount = 0
+	testForEachMessage(mbox, 3, 5, 0, 0, t)
+
+	// lowID = 1, highID = 2, suffix = 1, expectedCount = 1
+	testForEachMessage(mbox, 1, 2, 1, 1, t)
+
+	// lowID = 1, highID = 2, suffix = 0, expectedCount = 2
+	testForEachMessage(mbox, 1, 2, 0, 2, t)
+
+	// lowID = 0, highID = 0, suffix = 1 [Get all messages of suffix 1],
+	// expectedCount = 1
+	testForEachMessage(mbox, 0, 0, 1, 1, t)
+
+	// lowID = 0, highID = 0, suffix = 2 [Get all messages of suffix 2],
+	// expectedCount = 1
+	testForEachMessage(mbox, 0, 0, 2, 1, t)
+
+	// lowID = 0, highID = 0, suffix = 3 [Get all messages of suffix 3],
+	// expectedCount = 0
+	testForEachMessage(mbox, 0, 0, 3, 0, t)
+
+	// Test GetLastID. Should be 2.
+	id, err := mbox.GetLastID()
 	if err != nil {
-		t.Error("Got error", err)
+		t.Error(err)
 	}
-	if 2 != counter {
-		t.Errorf("For counter expected %d got %d", 2, counter)
+	if id != 2 {
+		t.Errorf("Expected %d got %d", 2, id)
 	}
 
-	// Test ForEachMessageBySuffix.
-	// For suffix 1.
-	testForEachMessageBySuffix(mbox, 1, 1, t)
+	// Verify that the last ID for message with suffix 1 is 1.
+	testGetLastIDBySuffix(mbox, 1, 1, t)
 
-	// For suffix 2.
-	testForEachMessageBySuffix(mbox, 2, 1, t)
-
-	// For unknown suffix.
-	testForEachMessageBySuffix(mbox, 3, 0, t)
+	// Verify that the last ID for message with suffix 2 is 2.
+	testGetLastIDBySuffix(mbox, 2, 2, t)
 
 	// Try deleting messages.
 	testDeleteMessage(mbox, 1, t)
+
+	// Check the last ID now. Should still be 2.
+	testGetLastIDBySuffix(mbox, 2, 2, t)
+
+	// Verify that the last ID for message with suffix 1 that was just deleted
+	// is gone too.
+	_, err = mbox.GetLastIDBySuffix(1)
+	if err != store.ErrNotFound {
+		t.Error("Expected ErrNotFound got", err)
+	}
+
+	// Verify that the last ID for message with suffix 2 is 2, as expected.
+	testGetLastIDBySuffix(mbox, 2, 2, t)
+
+	// Delete the last message.
 	testDeleteMessage(mbox, 2, t)
+
+	// GetLastID should error out.
+	_, err = mbox.GetLastID()
+	if err != store.ErrNotFound {
+		t.Error("Expected ErrNotFound got", err)
+	}
 
 	// Try adding mailbox with a duplicate address.
 	_, err = s.NewMailbox(addr, store.MailboxBroadcast, "Name2")
@@ -147,7 +203,7 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Check if the mailbox can be reached by ForEachBroadcastAddress.
-	counter = 0
+	counter := 0
 	s.ForEachBroadcastAddress(func(address string) error {
 		counter++
 		return nil
@@ -204,19 +260,22 @@ func testInsertMessage(mbox *store.Mailbox, msg []byte, suffix uint64,
 	}
 }
 
-func testForEachMessageBySuffix(mbox *store.Mailbox, suffix uint64,
+func testForEachMessage(mbox *store.Mailbox, lowID, highID, suffix,
 	expectedCount uint64, t *testing.T) {
+
 	counter := uint64(0)
-	err := mbox.ForEachMessageBySuffix(suffix, func(index uint64, msg []byte) error {
-		counter++
-		return nil
-	})
+	err := mbox.ForEachMessage(lowID, highID, suffix,
+		func(index, suffix uint64, msg []byte) error {
+			counter++
+			return nil
+		})
 	if err != nil {
-		t.Errorf("For suffix %d got error %v", suffix, err)
+		t.Errorf("For lowID %d, highID %d, suffix %d, got error %v", lowID,
+			highID, suffix, err)
 	}
 	if expectedCount != counter {
-		t.Errorf("For suffix %d expected counter %d got %d", suffix,
-			expectedCount, counter)
+		t.Errorf("For lowID %d, highID %d, suffix %d, expected counter %d got %d",
+			lowID, highID, suffix, expectedCount, counter)
 	}
 }
 
@@ -228,5 +287,16 @@ func testDeleteMessage(mbox *store.Mailbox, id uint64, t *testing.T) {
 	_, _, err = mbox.GetMessage(id)
 	if err != store.ErrNotFound {
 		t.Errorf("For id %d got error %v", id, err)
+	}
+}
+
+func testGetLastIDBySuffix(mbox *store.Mailbox, suffix, expectedID uint64,
+	t *testing.T) {
+	id, err := mbox.GetLastIDBySuffix(suffix)
+	if err != nil {
+		t.Errorf("For suffix %d, got error %v", suffix, err)
+	}
+	if expectedID != id {
+		t.Errorf("For suffix %d, expected ID %d got %d", suffix, expectedID, id)
 	}
 }
