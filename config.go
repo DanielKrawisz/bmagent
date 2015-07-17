@@ -1,4 +1,4 @@
-// Originally derived from: btcsuite/btwallet/config.go
+// Originally derived from: btcsuite/btcwallet/config.go
 // Copyright (c) 2013-2014 The btcsuite developers
 
 // Copyright (c) 2015 Monetas.
@@ -13,12 +13,15 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
+	"github.com/monetas/bmutil/pow"
+	ini "github.com/vaughan0/go-ini"
 )
 
 const (
@@ -36,8 +39,10 @@ const (
 	defaultIMAPPort = 143
 	defaultSMTPPort = 587
 
-	keysDbName = "keys.db"
-	msgDbName  = "messages.db"
+	keyfileName = "keys.dat"
+	storeDbName = "store.db"
+
+	defaultPowHandler = "parallel"
 )
 
 var (
@@ -52,7 +57,7 @@ var (
 
 type config struct {
 	ShowVersion bool   `short:"V" long:"version" description:"Display version information and exit"`
-	DataDir     string `short:"D" long:"datadir" description:"Directory to store key and message databases"`
+	DataDir     string `short:"D" long:"datadir" description:"Directory to store key file and the data store"`
 	LogDir      string `long:"logdir" description:"Directory to log output"`
 
 	DebugLevel string `short:"d" long:"debuglevel" description:"Logging level {trace, debug, info, warn, error, critical}"`
@@ -79,6 +84,14 @@ type config struct {
 	BmdPassword string `long:"bmdpassword" default-mask:"-" description:"Alternative password for bmd authorization"`
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
+
+	ProofOfWork string `long:"pow" description:"Choose proof-of-work handler. Options: {sequential, parallel}"`
+	PowThreads  int    `long:"powthreads" description:"Number of threads to use for parallel proof-of-work calculation. It should not be greater than the number of cores"`
+
+	powHandler  func(target uint64, hash []byte) uint64
+	keyfilePath string
+	storePath   string
+	keyfilePass []byte
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -290,12 +303,14 @@ func checkCreateDir(path string) error {
 func loadConfig() (*config, []string, error) {
 	// Default config.
 	cfg := config{
-		DebugLevel: defaultLogLevel,
-		ConfigFile: defaultConfigFile,
-		DataDir:    defaultDataDir,
-		LogDir:     defaultLogDir,
-		TLSKey:     defaultTLSKeyFile,
-		TLSCert:    defaultTLSCertFile,
+		DebugLevel:  defaultLogLevel,
+		ConfigFile:  defaultConfigFile,
+		DataDir:     defaultDataDir,
+		LogDir:      defaultLogDir,
+		TLSKey:      defaultTLSKeyFile,
+		TLSCert:     defaultTLSCertFile,
+		PowThreads:  runtime.NumCPU(),
+		ProofOfWork: defaultPowHandler,
 	}
 
 	// A config file in the current directory takes precedence.
@@ -374,7 +389,6 @@ func loadConfig() (*config, []string, error) {
 	}
 
 	// Expand environment variable and leading ~ for filepaths.
-	cfg.CAFile = cleanAndExpandPath(cfg.CAFile)
 	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
 
 	// Special show command to list supported subsystems and exit.
@@ -395,41 +409,58 @@ func loadConfig() (*config, []string, error) {
 		return nil, nil, err
 	}
 
-	// Ensure the keys database exists or create it when the create flag is set.
-	keysDbPath := filepath.Join(cfg.DataDir, keysDbName)
-	msgDbPath := filepath.Join(cfg.DataDir, msgDbName)
+	// Verify proof-of-work parameters.
+	switch cfg.ProofOfWork {
+	case "sequential":
+		cfg.powHandler = pow.DoSequential
+	case "parallel":
+		if cfg.PowThreads < 2 {
+			err := errors.New("Number of threads for proof-of-work cannot be less than 2")
+			fmt.Fprintln(os.Stderr, err)
+			return nil, nil, err
+		}
+		cfg.powHandler = func(target uint64, hash []byte) uint64 {
+			return pow.DoParallel(target, hash, cfg.PowThreads)
+		}
+	default:
+		err := errors.New("Unknown proof-of-work handler")
+		fmt.Fprintln(os.Stderr, err)
+		return nil, nil, err
+	}
+
+	// Ensure the key file and data store exist or create them when the create
+	// flag is set.
+	cfg.keyfilePath = filepath.Join(cfg.DataDir, keyfileName)
+	cfg.storePath = filepath.Join(cfg.DataDir, storeDbName)
 
 	if cfg.Create {
-		// Error if the create flag is set and the key or message databases
+		// Error if the create flag is set and the key file or data store
 		// already exist.
-		if fileExists(keysDbPath) {
-			err := fmt.Errorf("The key database already exists.")
+		if fileExists(cfg.keyfilePath) {
+			err := fmt.Errorf("The key file already exists.")
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
 		}
 
-		if fileExists(msgDbPath) {
-			err := fmt.Errorf("The message database already exists.")
+		if fileExists(cfg.storePath) {
+			err := fmt.Errorf("The data store already exists.")
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
 		}
 
-		// TODO create databases
-		/*
-			if err := createWallet(&cfg); err != nil {
-				fmt.Fprintln(os.Stderr, "Unable to create wallet:", err)
-				return nil, nil, err
-			}
-		*/
+		// Create databases.
+		if err := createDatabases(&cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "Unable to create data:", err)
+			return nil, nil, err
+		}
 
 		// Created successfully, so exit now with success.
 		os.Exit(0)
 
-	} else if !fileExists(keysDbPath) || !fileExists(msgDbPath) {
+	} else if !fileExists(cfg.keyfilePath) || !fileExists(cfg.storePath) {
 
-		err := errors.New("The keys database and/or message database do not" +
-			" exist.  Run with the --create option to initialize and create" +
-			" them.")
+		err := errors.New("The key file and/or data store do not exist. " +
+			"Run with the --create option to\ninitialize and create them.")
 
 		fmt.Fprintln(os.Stderr, err)
 		return nil, nil, err
@@ -437,7 +468,26 @@ func loadConfig() (*config, []string, error) {
 
 	// Import private keys from PyBitmessage's keys.dat file.
 	if cfg.ImportKeyFile != "" {
-		// TODO
+		// We need to open the keyfile and store.
+		keymgr, store, err := openDatabases(&cfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Unable to open databases:", err)
+			return nil, nil, err
+		}
+
+		file, err := ini.LoadFile(cfg.ImportKeyFile)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Unable to open keyfile for import:", err)
+			return nil, nil, err
+		}
+
+		importKeyfile(keymgr, store, file)
+
+		saveKeyfile(keymgr, cfg.keyfilePass, cfg.keyfilePath)
+		store.Close()
+
+		// Imported successfully, so exit now with success.
+		os.Exit(0)
 	}
 
 	// Username and password must be specified.
@@ -483,6 +533,7 @@ func loadConfig() (*config, []string, error) {
 				}
 			}
 		}
+		cfg.CAFile = cleanAndExpandPath(cfg.CAFile)
 	}
 
 	// Default RPC, IMAP, SMTP to listen on localhost only.

@@ -14,6 +14,7 @@ import (
 
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/golangcrypto/nacl/secretbox"
+	"github.com/monetas/bmutil"
 	"github.com/monetas/bmutil/identity"
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -37,16 +38,16 @@ const (
 )
 
 var (
-	// ErrDecryptionFailed is returned when decryption of the database fails.
-	// This could be due to invalid key or corrupt/tampered data.
-	ErrDecryptionFailed = errors.New("invalid key or corrupt/tampered data")
+	// ErrDecryptionFailed is returned when decryption of the key file fails.
+	// This could be due to invalid passphrase or corrupt/tampered data.
+	ErrDecryptionFailed = errors.New("invalid passphrase")
 
 	// ErrDuplicateIdentity is returned by Import when the identity to be
 	// imported already exists in the key manager.
 	ErrDuplicateIdentity = errors.New("identity already in key manager")
 
-	// ErrNonexistentIdentity is returned by RemoveImported when the imported
-	// identity to be removed doesn't exist in the key manager.
+	// ErrNonexistentIdentity is returned when the identity doesn't exist in the
+	// key manager.
 	ErrNonexistentIdentity = errors.New("identity doesn't exist")
 )
 
@@ -160,6 +161,9 @@ func (mgr *Manager) SaveEncrypted(pass []byte) ([]byte, error) {
 // state. It's useful for debugging or manual inspection of keys. Note that
 // the key manager CANNOT import the unencrypted JSON format.
 func (mgr *Manager) ExportUnencrypted() ([]byte, error) {
+	mgr.mutex.RLock()
+	defer mgr.mutex.RUnlock()
+
 	return json.Marshal(mgr.db)
 }
 
@@ -272,6 +276,32 @@ func (mgr *Manager) ForEach(f func(*PrivateID) error) error {
 	defer mgr.mutex.RUnlock()
 
 	return mgr.forEach(f)
+}
+
+// LookupByAddress looks up a private identity in the key manager by its
+// address. If no matching identity can be found, ErrNonexistentIdentity is
+// returned.
+func (mgr *Manager) LookupByAddress(address string) (*PrivateID, error) {
+	addr, err := bmutil.DecodeAddress(address)
+	if err != nil {
+		return nil, err
+	}
+
+	var res PrivateID
+	err = mgr.ForEach(func(id *PrivateID) error {
+		if bytes.Equal(addr.Ripe[:], id.Address.Ripe[:]) &&
+			addr.Stream == id.Address.Stream &&
+			addr.Version == id.Address.Version {
+			res = *id
+			return errors.New("Found a match, so break.")
+		}
+		return nil
+	})
+	if err == nil { // No match.
+		return nil, ErrNonexistentIdentity
+	}
+	return &res, nil
+
 }
 
 // NumImported returns the number of imported identities that the key manager
