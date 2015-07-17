@@ -18,36 +18,6 @@ import (
 	"golang.org/x/crypto/pbkdf2"
 )
 
-// MailboxType is the type of mailbox.
-type MailboxType uint8
-
-const (
-	// MailboxPrivate is mailbox for private messages. A mailbox is considered
-	// private when only one person holds the private signing and encryption
-	// keys.
-	MailboxPrivate MailboxType = iota
-
-	// MailboxBroadcast is a mailbox for broadcasst. A broadcast can be
-	// decrypted by anyone who knows the sender's address.
-	MailboxBroadcast
-
-	// MailboxChannel is a mailbox for a channel subscription. A channel is a
-	// deterministically generated identity (from a passphrase). Anyone who
-	// knows the passphrase can generate the private signing and encryption
-	// keys. Thus, multiple people can use channels to communicate securely;
-	// effectively turning them into mailing lists.
-	MailboxChannel
-
-	// mailboxSent is the mailbox used for sent messages. Messages stored here
-	// could originate from any address and be destined for any address.
-	mailboxSent
-
-	// mailboxPending is the mailbox used for pending messages. Messages stored
-	// here need either the public key of the recipient or proof-of-work to be
-	// done on them.
-	mailboxPending
-)
-
 const (
 	// dbTimeout is the time duration after which an attempted connection to the
 	// database must time out.
@@ -72,16 +42,15 @@ const (
 
 // Buckets for storing data in the database.
 var (
-	powQueueBucket   = []byte("powQueue")
-	pkRequestsBucket = []byte("pubkeyRequests")
-	miscBucket       = []byte("misc")
-	countersBucket   = []byte("counters")
-	mailboxesBucket  = []byte("mailboxes")
+	powQueueBucket           = []byte("powQueue")
+	pkRequestsBucket         = []byte("pubkeyRequests")
+	miscBucket               = []byte("misc")
+	countersBucket           = []byte("counters")
+	broadcastAddressesBucket = []byte("broadcastAddresses")
+	mailboxesBucket          = []byte("mailboxes")
 
-	// Addresses used for creating special mailboxes.
-	sentMailboxAddr    = "Sent"
-	pendingMailboxAddr = "Pending"
-	mailboxDataBucket  = []byte("data") // Bucket is a sub-bucket of "mailboxes"
+	// Bucket is a sub-bucket of "mailboxes"
+	mailboxDataBucket = []byte("data")
 
 	// Used for storing the encrypted master key used for encryption/decryption.
 	dbMasterKeyKey = []byte("dbMasterKey")
@@ -91,6 +60,11 @@ var (
 
 	// Version of the data store.
 	versionKey = []byte("version")
+
+	// mailboxLatestIDKey contains the index of the last element. Exists because
+	// IMAP requires existence of unique message IDs that do not change over
+	// sessions.
+	mailboxLatestIDKey = []byte("mailboxLatestID")
 )
 
 var (
@@ -102,27 +76,21 @@ var (
 	// This could be due to invalid passphrase or corrupt/tampered data.
 	ErrDecryptionFailed = errors.New("invalid passphrase")
 
-	// ErrDuplicateName is returned by SetName when another mailbox of the same
-	// type already has the provided name.
-	ErrDuplicateName = errors.New("duplicate name")
-
 	// ErrDuplicateMailbox is returned by NewMailbox when a mailbox with the
-	// given address already exists.
+	// given name already exists.
 	ErrDuplicateMailbox = errors.New("duplicate mailbox")
 )
 
 // Store persists all information about public key requests, pending POW,
 // incoming/outgoing/pending messages to disk.
 type Store struct {
-	masterKey      *[keySize]byte
-	db             *bolt.DB
-	PubkeyRequests *PKRequests
-	PowQueue       *PowQueue
-	mutex          sync.RWMutex        // For protecting the map.
-	mailboxes      map[string]*Mailbox // Map addresses to all mailboxes.
-	broadcastAddrs map[string]struct{} // All broadcast addresses.
-	SentMailbox    *Mailbox
-	PendingMailbox *Mailbox
+	masterKey          *[keySize]byte
+	db                 *bolt.DB
+	PubkeyRequests     *PKRequests
+	PowQueue           *PowQueue
+	BroadcastAddresses *BroadcastAddresses
+	mutex              sync.RWMutex        // For protecting the map.
+	mailboxes          map[string]*Mailbox // Map addresses to all mailboxes.
 }
 
 // deriveKey is used to derive a 32 byte key for encryption/decryption
@@ -142,9 +110,8 @@ func Open(file string, pass []byte) (*Store, error) {
 		return nil, err
 	}
 	store := &Store{
-		db:             db,
-		mailboxes:      make(map[string]*Mailbox),
-		broadcastAddrs: make(map[string]struct{}),
+		db:        db,
+		mailboxes: make(map[string]*Mailbox),
 	}
 
 	// Verify passphrase, or create it, if necessary.
@@ -194,7 +161,8 @@ func Open(file string, pass []byte) (*Store, error) {
 				return err
 			}
 
-			return nil
+			// Set ID for messages to 0.
+			return bucket.Put(mailboxLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
 
 		} else if len(v) < nonceSize+keySize+secretbox.Overhead {
 			return errors.New("Encrypted master key too short.")
@@ -234,6 +202,12 @@ func Open(file string, pass []byte) (*Store, error) {
 		return nil, err
 	}
 
+	store.BroadcastAddresses, err = newBroadcastsStore(store)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	// Create bucket needed for mailboxes.
 	err = db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(mailboxesBucket)
@@ -248,44 +222,12 @@ func Open(file string, pass []byte) (*Store, error) {
 	}
 
 	// Load existing mailboxes.
-	mailboxes := make(map[string]MailboxType)
 	err = db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(mailboxesBucket).ForEach(func(address, _ []byte) error {
-			switch string(address) {
-			// Ignore these, because they are special mailboxes.
-			case sentMailboxAddr:
-			case pendingMailboxAddr:
-			default:
-				mailboxes[string(address)] = MailboxType(tx.Bucket(mailboxesBucket).
-					Bucket(address).Bucket(mailboxDataBucket).Get(mailboxTypeKey)[0])
-			}
+		return tx.Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
+			store.mailboxes[string(name)], _ = newMailbox(store, string(name), false)
 			return nil
 		})
 	})
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-
-	for address, boxType := range mailboxes {
-		store.mailboxes[address], err = newMailbox(store, address, boxType)
-		if err != nil {
-			db.Close()
-			return nil, err
-		}
-		// Load broadcast mailboxes.
-		if boxType == MailboxBroadcast {
-			store.broadcastAddrs[address] = struct{}{}
-		}
-	}
-
-	// Load special mailboxes.
-	store.SentMailbox, err = newMailbox(store, sentMailboxAddr, mailboxSent)
-	if err != nil {
-		db.Close()
-		return nil, err
-	}
-	store.PendingMailbox, err = newMailbox(store, pendingMailboxAddr, mailboxPending)
 	if err != nil {
 		db.Close()
 		return nil, err
@@ -312,64 +254,39 @@ func (s *Store) checkAndUpgrade(tx *bolt.Tx) error {
 // NewMailbox creates a new mailbox for an address. It takes the address,
 // MailboxType and a name for the mailbox. Address must be unique. Name must
 // be unique for a MailboxType.
-func (s *Store) NewMailbox(address string, boxType MailboxType,
-	name string) (*Mailbox, error) {
+func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 
-	// Check if address exists.
-	_, ok := s.mailboxes[address]
+	// Check if mailbox exists.
+	_, ok := s.mailboxes[name]
 	if ok {
 		return nil, ErrDuplicateMailbox
 	}
 
 	// We're good, so create the mailbox.
-	mbox, err := newMailbox(s, address, boxType)
+	mbox, err := newMailbox(s, name, true)
 	if err != nil {
 		return nil, err
 	}
 
 	// Save mailbox in the local map.
 	s.mutex.Lock()
-	s.mailboxes[address] = mbox
-	if boxType == MailboxBroadcast {
-		s.broadcastAddrs[address] = struct{}{}
-	}
+	s.mailboxes[name] = mbox
 	s.mutex.Unlock()
-
-	err = mbox.SetName(name)
-	if err != nil {
-		// We still want to return the mailbox so that the user can set a
-		// different name.
-		return mbox, err
-	}
 
 	return mbox, nil
 }
 
-// MailboxByAddress retrieves the mailbox associated with an address. If the
+// MailboxByName retrieves the mailbox associated with the name. If the
 // mailbox doesn't exist, an error is returned.
-func (s *Store) MailboxByAddress(address string) (*Mailbox, error) {
+func (s *Store) MailboxByName(name string) (*Mailbox, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	mbox, ok := s.mailboxes[address]
+	mbox, ok := s.mailboxes[name]
 	if !ok {
 		return nil, ErrNotFound
 	}
 	return mbox, nil
-}
-
-// ForEachBroadcastAddress runs the provided function for each broadcast address
-// that the user is subscribed to, breaking early on error.
-func (s *Store) ForEachBroadcastAddress(f func(address string) error) error {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	for addr := range s.broadcastAddrs {
-		if err := f(addr); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // ChangePassphrase changes the passphrase of the data store. It does not

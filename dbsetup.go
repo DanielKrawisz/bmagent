@@ -315,10 +315,6 @@ func importKeyfile(kmgr *keymgr.Manager, str *store.Store, f ini.File) {
 		extraBytes := readIniUint64(v, "payloadlengthextrabytes", pow.DefaultExtraBytes)
 		enabled := readIniBool(v, "enabled", true)
 		isChan := readIniBool(v, "chan", false)
-		label, ok := v["label"]
-		if !ok {
-			label = ""
-		}
 
 		// Now that we have read everything related to the identity, create it.
 		id, err := identity.ImportWIF(address, signingKey, encKey, nonceTrials, extraBytes)
@@ -338,19 +334,6 @@ func importKeyfile(kmgr *keymgr.Manager, str *store.Store, f ini.File) {
 			continue
 		}
 		i++
-
-		// Create mailbox for the identity.
-		boxType := store.MailboxPrivate
-		if isChan {
-			boxType = store.MailboxChannel
-		}
-
-		_, err = str.NewMailbox(address, boxType, label)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create mailbox for %s: %v\n",
-				address, err)
-			continue
-		}
 	}
 	fmt.Printf("Imported %d private identities.\n", i)
 }

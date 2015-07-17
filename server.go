@@ -45,6 +45,9 @@ const (
 	// getpubkeyExpiry is the time after which a getpubkey request sent out to
 	// the network expires.
 	getpubkeyExpiry = time.Hour * 24 * 14
+
+	// inboxName is the name of the inbox, as stored in the store.
+	inboxName = "Inbox"
 )
 
 // server struct manages everything that a running instance of bmclient
@@ -163,7 +166,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	}
 
 	// Decryption was successful. Add message to store.
-	_, err = s.store.MailboxByAddress(address)
+	_, err = s.store.MailboxByName(inboxName)
 	if err != nil {
 		serverLog.Errorf("Failed to get mailbox for %v", address)
 		return
@@ -219,14 +222,9 @@ func (s *server) newBroadcast(counter uint64, obj []byte) {
 
 	var fromAddress string
 
-	err = s.store.ForEachBroadcastAddress(func(address string) error {
-		addr, err := bmutil.DecodeAddress(address)
-		if err != nil { // BUG
-			serverLog.Critical("Got error decoding address:", err)
-			return nil
-		}
+	err = s.store.BroadcastAddresses.ForEach(func(addr *bmutil.Address) error {
 		if cipher.TryDecryptAndVerifyBroadcast(msg, addr) == nil {
-			fromAddress = address
+			fromAddress, _ = addr.Encode()
 			return errors.New("Broadcast decryption succeeded.")
 		}
 		return nil

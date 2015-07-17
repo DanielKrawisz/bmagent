@@ -83,7 +83,7 @@ func (r *PKRequests) Remove(addr string) error {
 }
 
 // ForEach runs the specified function for each item in the public key requests
-// store in a separate goroutine, breaking early if an error occurs.
+// store in a separate goroutine.
 func (r *PKRequests) ForEach(f func(address string, addTime time.Time)) error {
 	return r.store.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(pkRequestsBucket)

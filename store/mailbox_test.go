@@ -29,36 +29,24 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Start.
-	addr := "BM-2cV9RshwouuVKWLBoyH5cghj3kMfw5G7BJ"
+	name := "INBOX/Test Mailbox"
 
 	// Try to get a mailbox that doesn't yet exist.
-	_, err = s.MailboxByAddress(addr)
+	_, err = s.MailboxByName(name)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
 
 	// Try to create a mailbox.
-	name := "Primary"
-	boxType := store.MailboxPrivate
-
-	mbox, err := s.NewMailbox(addr, boxType, name)
+	mbox, err := s.NewMailbox(name)
 	if err != nil {
-		t.Error("Got error", err)
+		t.Fatal("Got error", err)
 	}
 
-	// Verify if the mailbox was created correctly.
 	// Check name.
 	testName := mbox.GetName()
 	if name != testName {
 		t.Errorf("Name, expected %s got %s", name, testName)
-	}
-	// Check mailbox type.
-	testType := mbox.GetType()
-	if err != nil {
-		t.Error("Got error", err)
-	}
-	if boxType != testType {
-		t.Errorf("Type, expected %v got %v", boxType, testType)
 	}
 
 	// Try getting non-existant message.
@@ -99,7 +87,7 @@ func TestMailbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mbox, err = s.MailboxByAddress(addr)
+	mbox, err = s.MailboxByName(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,40 +164,10 @@ func TestMailbox(t *testing.T) {
 		t.Error("Expected ErrNotFound got", err)
 	}
 
-	// Try adding mailbox with a duplicate address.
-	_, err = s.NewMailbox(addr, store.MailboxBroadcast, "Name2")
-	if err != store.ErrDuplicateMailbox {
-		t.Error("Expected ErrDuplicateMailbox got", err)
-	}
-
 	// Try adding mailbox with a duplicate name.
-	addr1 := "BM-GtovgYdgs7qXPkoYaRgrLFuFKz1SFpsw"
-	_, err = s.NewMailbox(addr1, boxType, name)
-	if err != store.ErrDuplicateName {
-		t.Error("Expected ErrDuplicateName got", err)
-	}
-
-	// Make sure that the previous mailbox was added.
-	_, err = s.NewMailbox(addr1, store.MailboxBroadcast, name)
+	_, err = s.NewMailbox(name)
 	if err != store.ErrDuplicateMailbox {
 		t.Error("Expected ErrDuplicateMailbox got", err)
-	}
-
-	// Try adding mailbox with a duplicate name but different type.
-	addr2 := "BM-2D7YvqcbRSv2j2zXmamTm4C3XGrTkZqdt3"
-	_, err = s.NewMailbox(addr2, store.MailboxBroadcast, name)
-	if err != nil {
-		t.Error("Got error", err)
-	}
-
-	// Check if the mailbox can be reached by ForEachBroadcastAddress.
-	counter := 0
-	s.ForEachBroadcastAddress(func(address string) error {
-		counter++
-		return nil
-	})
-	if counter != 1 {
-		t.Errorf("For counter expected %d got %d", 1, counter)
 	}
 
 	// Try deleting mailbox.
@@ -219,7 +177,7 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Check if mailbox was actually removed.
-	_, err = s.MailboxByAddress(addr)
+	_, err = s.MailboxByName(name)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
