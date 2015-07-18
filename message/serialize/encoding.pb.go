@@ -83,13 +83,9 @@ type Encoding struct {
 	Encoding         *uint64 `protobuf:"varint,1,req" json:"Encoding,omitempty"`
 	From             *string `protobuf:"bytes,2,req" json:"From,omitempty"`
 	To               *string `protobuf:"bytes,3,req" json:"To,omitempty"`
-	NonceTrials      *uint64 `protobuf:"varint,4,req" json:"NonceTrials,omitempty"`
-	ExtraBytes       *uint64 `protobuf:"varint,5,req" json:"ExtraBytes,omitempty"`
-	Behavior         *uint64 `protobuf:"varint,6,req" json:"Behavior,omitempty"`
-	Subject          *string `protobuf:"bytes,7,opt" json:"Subject,omitempty"`
-	Body             *string `protobuf:"bytes,8,opt" json:"Body,omitempty"`
-	Ack              *string `protobuf:"bytes,9,opt" json:"Ack,omitempty"`
-	Expiration       *string `protobuf:"bytes,10,opt" json:"Expiration,omitempty"`
+	Expiration       *string `protobuf:"bytes,4,opt" json:"Expiration,omitempty"`
+	Body             *string `protobuf:"bytes,5,opt" json:"Body,omitempty"`
+	Subject          *string `protobuf:"bytes,6,opt" json:"Subject,omitempty"`
 	XXX_unrecognized []byte  `json:"-"`
 }
 
@@ -118,30 +114,9 @@ func (m *Encoding) GetTo() string {
 	return ""
 }
 
-func (m *Encoding) GetNonceTrials() uint64 {
-	if m != nil && m.NonceTrials != nil {
-		return *m.NonceTrials
-	}
-	return 0
-}
-
-func (m *Encoding) GetExtraBytes() uint64 {
-	if m != nil && m.ExtraBytes != nil {
-		return *m.ExtraBytes
-	}
-	return 0
-}
-
-func (m *Encoding) GetBehavior() uint64 {
-	if m != nil && m.Behavior != nil {
-		return *m.Behavior
-	}
-	return 0
-}
-
-func (m *Encoding) GetSubject() string {
-	if m != nil && m.Subject != nil {
-		return *m.Subject
+func (m *Encoding) GetExpiration() string {
+	if m != nil && m.Expiration != nil {
+		return *m.Expiration
 	}
 	return ""
 }
@@ -153,16 +128,9 @@ func (m *Encoding) GetBody() string {
 	return ""
 }
 
-func (m *Encoding) GetAck() string {
-	if m != nil && m.Ack != nil {
-		return *m.Ack
-	}
-	return ""
-}
-
-func (m *Encoding) GetExpiration() string {
-	if m != nil && m.Expiration != nil {
-		return *m.Expiration
+func (m *Encoding) GetSubject() string {
+	if m != nil && m.Subject != nil {
+		return *m.Subject
 	}
 	return ""
 }

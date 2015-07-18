@@ -20,11 +20,7 @@ message Encoding {
 	required uint64 Encoding    = 1;
 	required string From        = 2;
 	required string To          = 3;
-	required uint64 NonceTrials = 4;
-	required uint64 ExtraBytes  = 5;
-	required uint64 Behavior    = 6;
-	optional string Subject     = 7;
-	optional string Body        = 8;
-	optional string Ack         = 9;
-	optional string Expiration  = 10;
+	optional string Expiration  = 4;
+	optional string Body        = 5;
+	optional string Subject     = 6;
 }
