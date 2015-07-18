@@ -194,7 +194,7 @@ func TestMailbox(t *testing.T) {
 func testInsertMessage(mbox *store.Mailbox, msg []byte, suffix uint64,
 	expectedID uint64, t *testing.T) {
 	// Try inserting a new message.
-	id, err := mbox.InsertMessage(msg, suffix)
+	id, err := mbox.InsertMessage(msg, 0, suffix)
 	if err != nil {
 		t.Errorf("For message #%d got error %v", expectedID, err)
 	}
@@ -215,6 +215,12 @@ func testInsertMessage(mbox *store.Mailbox, msg []byte, suffix uint64,
 	if !bytes.Equal(msg, testMsg) {
 		t.Errorf(`For message #%d expected "%s" got "%s"`, expectedID,
 			string(msg), string(testMsg))
+	}
+
+	// Try inserting message with the same ID but different suffix.
+	_, err = mbox.InsertMessage(msg, id, suffix+1)
+	if err != store.ErrDuplicateID {
+		t.Errorf("For message #%d expected ErrDuplicateID got %v", expectedID, err)
 	}
 }
 
