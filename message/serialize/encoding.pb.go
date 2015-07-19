@@ -9,7 +9,8 @@ It is generated from these files:
 	encoding.proto
 
 It has these top-level messages:
-	Entry
+	Message
+	ImapData
 	Encoding
 */
 package serialize
@@ -21,71 +22,117 @@ import math "math"
 var _ = proto.Marshal
 var _ = math.Inf
 
-// Entry is an entry in the database that contains a message and some related metadata.
-type Entry struct {
-	Sent             *bool     `protobuf:"varint,1,req" json:"Sent,omitempty"`
-	AckReceived      *bool     `protobuf:"varint,2,req" json:"AckReceived,omitempty"`
-	AckExpected      *bool     `protobuf:"varint,3,req" json:"AckExpected,omitempty"`
-	DateReceived     *string   `protobuf:"bytes,4,req" json:"DateReceived,omitempty"`
-	Flags            *int32    `protobuf:"varint,5,req" json:"Flags,omitempty"`
-	Message          *Encoding `protobuf:"bytes,6,req" json:"Message,omitempty"`
+// Message is a bitmessage.
+type Message struct {
+	Payload          *Encoding `protobuf:"bytes,1,req" json:"Payload,omitempty"`
+	Sent             *bool     `protobuf:"varint,2,req" json:"Sent,omitempty"`
+	AckReceived      *bool     `protobuf:"varint,3,req" json:"AckReceived,omitempty"`
+	AckExpected      *bool     `protobuf:"varint,4,req" json:"AckExpected,omitempty"`
+	From             *string   `protobuf:"bytes,5,req" json:"From,omitempty"`
+	To               *string   `protobuf:"bytes,6,opt" json:"To,omitempty"`
+	Expiration       *string   `protobuf:"bytes,7,opt" json:"Expiration,omitempty"`
+	Ack              *string   `protobuf:"bytes,8,opt" json:"Ack,omitempty"`
+	ImapData         *ImapData `protobuf:"bytes,9,opt" json:"ImapData,omitempty"`
 	XXX_unrecognized []byte    `json:"-"`
 }
 
-func (m *Entry) Reset()         { *m = Entry{} }
-func (m *Entry) String() string { return proto.CompactTextString(m) }
-func (*Entry) ProtoMessage()    {}
+func (m *Message) Reset()         { *m = Message{} }
+func (m *Message) String() string { return proto.CompactTextString(m) }
+func (*Message) ProtoMessage()    {}
 
-func (m *Entry) GetSent() bool {
+func (m *Message) GetPayload() *Encoding {
+	if m != nil {
+		return m.Payload
+	}
+	return nil
+}
+
+func (m *Message) GetSent() bool {
 	if m != nil && m.Sent != nil {
 		return *m.Sent
 	}
 	return false
 }
 
-func (m *Entry) GetAckReceived() bool {
+func (m *Message) GetAckReceived() bool {
 	if m != nil && m.AckReceived != nil {
 		return *m.AckReceived
 	}
 	return false
 }
 
-func (m *Entry) GetAckExpected() bool {
+func (m *Message) GetAckExpected() bool {
 	if m != nil && m.AckExpected != nil {
 		return *m.AckExpected
 	}
 	return false
 }
 
-func (m *Entry) GetDateReceived() string {
+func (m *Message) GetFrom() string {
+	if m != nil && m.From != nil {
+		return *m.From
+	}
+	return ""
+}
+
+func (m *Message) GetTo() string {
+	if m != nil && m.To != nil {
+		return *m.To
+	}
+	return ""
+}
+
+func (m *Message) GetExpiration() string {
+	if m != nil && m.Expiration != nil {
+		return *m.Expiration
+	}
+	return ""
+}
+
+func (m *Message) GetAck() string {
+	if m != nil && m.Ack != nil {
+		return *m.Ack
+	}
+	return ""
+}
+
+func (m *Message) GetImapData() *ImapData {
+	if m != nil {
+		return m.ImapData
+	}
+	return nil
+}
+
+// ImapData is an entry in the database that contains a message and some related metadata.
+type ImapData struct {
+	DateReceived     *string `protobuf:"bytes,1,req" json:"DateReceived,omitempty"`
+	Flags            *int32  `protobuf:"varint,2,req" json:"Flags,omitempty"`
+	XXX_unrecognized []byte  `json:"-"`
+}
+
+func (m *ImapData) Reset()         { *m = ImapData{} }
+func (m *ImapData) String() string { return proto.CompactTextString(m) }
+func (*ImapData) ProtoMessage()    {}
+
+func (m *ImapData) GetDateReceived() string {
 	if m != nil && m.DateReceived != nil {
 		return *m.DateReceived
 	}
 	return ""
 }
 
-func (m *Entry) GetFlags() int32 {
+func (m *ImapData) GetFlags() int32 {
 	if m != nil && m.Flags != nil {
 		return *m.Flags
 	}
 	return 0
 }
 
-func (m *Entry) GetMessage() *Encoding {
-	if m != nil {
-		return m.Message
-	}
-	return nil
-}
-
-// Encoding is a bitmessage encoded in format 2.
+// Encoding a bitmessage object payload.
 type Encoding struct {
-	Encoding         *uint64 `protobuf:"varint,1,req" json:"Encoding,omitempty"`
-	From             *string `protobuf:"bytes,2,req" json:"From,omitempty"`
-	To               *string `protobuf:"bytes,3,req" json:"To,omitempty"`
-	Expiration       *string `protobuf:"bytes,4,opt" json:"Expiration,omitempty"`
-	Body             *string `protobuf:"bytes,5,opt" json:"Body,omitempty"`
-	Subject          *string `protobuf:"bytes,6,opt" json:"Subject,omitempty"`
+	Format           *uint64 `protobuf:"varint,1,req" json:"Format,omitempty"`
+	Body             *string `protobuf:"bytes,2,opt" json:"Body,omitempty"`
+	Subject          *string `protobuf:"bytes,3,opt" json:"Subject,omitempty"`
 	XXX_unrecognized []byte  `json:"-"`
 }
 
@@ -93,32 +140,11 @@ func (m *Encoding) Reset()         { *m = Encoding{} }
 func (m *Encoding) String() string { return proto.CompactTextString(m) }
 func (*Encoding) ProtoMessage()    {}
 
-func (m *Encoding) GetEncoding() uint64 {
-	if m != nil && m.Encoding != nil {
-		return *m.Encoding
+func (m *Encoding) GetFormat() uint64 {
+	if m != nil && m.Format != nil {
+		return *m.Format
 	}
 	return 0
-}
-
-func (m *Encoding) GetFrom() string {
-	if m != nil && m.From != nil {
-		return *m.From
-	}
-	return ""
-}
-
-func (m *Encoding) GetTo() string {
-	if m != nil && m.To != nil {
-		return *m.To
-	}
-	return ""
-}
-
-func (m *Encoding) GetExpiration() string {
-	if m != nil && m.Expiration != nil {
-		return *m.Expiration
-	}
-	return ""
 }
 
 func (m *Encoding) GetBody() string {

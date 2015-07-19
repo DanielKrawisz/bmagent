@@ -314,6 +314,20 @@ func (mbox *Mailbox) Delete() error {
 	})
 }
 
+// GetNextID returns the next index value that will be assigned in the mailbox..
+func (mbox *Mailbox) GetNextID() (uint64, error) {
+	var id uint64
+
+	err := mbox.store.db.View(func(tx *bolt.Tx) error {
+		id = binary.BigEndian.Uint64(tx.Bucket(miscBucket).Get(mailboxLatestIDKey)) + 1
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
 // GetLastID returns the highest index value in the mailbox.
 func (mbox *Mailbox) GetLastID() (uint64, error) {
 	var id uint64

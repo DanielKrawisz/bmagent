@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/jordwest/imap-server"
-	"github.com/monetas/bmclient/message"
-	"github.com/monetas/bmclient/message/email"
+	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/rpc"
+	"github.com/monetas/bmclient/user"
 )
 
 var (
@@ -63,7 +63,7 @@ func bmclientMain() error {
 	}
 
 	// Start the smtp and imap servers.
-	mailstore := message.NewBitmessageStore()
+	mailstore := user.NewBitmessageStore()
 	account, _ := mailstore.AddAccount("daniel", "54321")
 	//mailstore.AddUser("ishbir", "54321")
 	smtpServ := email.NewSMTPServer(5, account)
