@@ -6,6 +6,7 @@ package message
 
 import (
 	"errors"
+	"fmt"
 )
 
 // membox is a Mailbox that is stored in memory, mainly for testing purposes.
@@ -39,6 +40,10 @@ func (box *membox) GetMessage(id uint64) (uint64, []byte, error) {
 }
 
 func (box *membox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error) {
+	if msg == nil {
+		panic("why are we inserting a nil message?")
+		return 0, errors.New("Nil msg")
+	}
 	if id != 0 {
 		if _, ok := box.bm[id]; ok {
 			return id, errors.New("Id already taken")
@@ -106,8 +111,10 @@ func (box *membox) GetLastIDBySuffix(suffix uint64) (uint64, error) {
 
 func (box *membox) ForEachMessage(lowID, highID, suffix uint64,
 	f func(id, suffix uint64, msg []byte) error) error {
+	fmt.Println("for each message:", lowID, highID, suffix)
 	var err error
 	for id, entry := range box.bm {
+		fmt.Println("for each msg loop: ", id, ", ", entry.suffix)
 		if id >= lowID && (id <= highID || highID == 0) && (suffix == 0 || suffix == entry.suffix) {
 			err = f(id, entry.suffix, entry.message)
 			if err != nil {

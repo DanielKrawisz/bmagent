@@ -33,8 +33,26 @@ const (
 
 var (
 	bmAddrRegex = regexp.MustCompile(fmt.Sprintf("$%s^", bmAddrPattern))
-	emailRegex  = regexp.MustCompile(fmt.Sprintf("$%s@bm\\.addr^", bmAddrPattern))
+	emailRegex  = regexp.MustCompile(fmt.Sprintf("$(%s)@bm\\.addr^", bmAddrPattern))
+
+	ErrInvalidBitmessageAddress = errors.New("Invalid bitmessage address")
 )
+
+func BMToEmail(bmAddr string) string {
+	return fmt.Sprintf("%s@bm.addr", bmAddr)
+}
+
+func EmailToBM(emailAddr string) (string, error) {
+	matches := emailRegex.FindStringSubmatch(emailAddr)
+	if len(matches) < 2 {
+		return "", ErrInvalidBitmessageAddress
+	}
+
+	if _, err := bmutil.DecodeAddress(matches[1]); err != nil {
+		return "", ErrInvalidBitmessageAddress
+	}
+	return matches[1], nil
+}
 
 // ImapData provides a Bitmessage with extra information to make it
 // compatible with imap.
@@ -113,12 +131,12 @@ func (be *Bitmessage) ToEmail() (*email.ImapEmail, error) {
 
 	headers["Subject"] = []string{payload.Subject}
 
-	headers["From"] = []string{fmt.Sprintf("%s@bm.addr", &be.From)}
+	headers["From"] = []string{BMToEmail(*be.From)}
 
 	if be.To == nil {
 		headers["To"] = []string{"broadcast@bm.addr"}
 	} else {
-		headers["To"] = []string{fmt.Sprintf("%s@bm.addr", &be.To)}
+		headers["To"] = []string{BMToEmail(*be.To)}
 	}
 
 	if be.Expiration != nil {
@@ -287,8 +305,8 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 
 	var toPtr *string
 	if emailRegex.MatchString(to) {
-		to = bmAddrRegex.FindString(to)
-		if _, err := bmutil.DecodeAddress(to); err != nil {
+		to, err := EmailToBM(to)
+		if err != nil {
 			return nil, errors.New("Invalid bitmessage to address.")
 		}
 		toPtr = &to

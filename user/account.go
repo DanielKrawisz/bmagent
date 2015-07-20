@@ -87,8 +87,8 @@ func (store *BitmessageStore) AddAccount(username, password string) (*ClientAcco
 		return nil, err
 	}
 
-	from := "BM-bmdteam@address.here"
-	to := "BM-bmdteam@address.here"
+	from := "BM-NBddNS6ZagzjNbMMkVBpecuSAPU1EgyQ@bm.addr"
+	to := "BM-NBPVwY5A26MtyfbHyh4UfA4Hn76DamAP@bm.addr"
 
 	_, err = inbox.AddNew(&message.Bitmessage{
 		From: &from,
