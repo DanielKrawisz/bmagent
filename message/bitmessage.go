@@ -193,14 +193,59 @@ func ToMessage(msg *Bitmessage, book keymgr.AddressBook) (wire.Message, error) {
 	return generateMsgMsg(msgContent, from, to)
 }
 
-// TODO decrypt if necessary.
-func MsgRead(msg *wire.MsgMsg) *Bitmessage {
-	return nil
+// TODO This function assumes the message has already been decrypted.
+// find out if that is automatic.
+func MsgRead(msg *wire.MsgMsg, toAddress string) (*Bitmessage, error) {
+	payload, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
+	if err != nil {
+		return nil, err
+	}
+
+	from := bmutil.Address{
+		Version: msg.FromAddressVersion,
+		Stream:  msg.FromStreamNumber,
+		Ripe:    *msg.Destination,
+	}
+	fromAddress, err := from.Encode()
+	if err != nil {
+		return nil, err
+	}
+
+	ack := string(msg.Ack)
+
+	return &Bitmessage{
+		From:       &fromAddress,
+		To:         &toAddress,
+		Expiration: &msg.ExpiresTime,
+		Ack:        &ack,
+		Payload:    payload,
+	}, nil
 }
 
-// TODO decrypt if necessary.
-func BroadcastRead(msg *wire.MsgBroadcast) *Bitmessage {
-	return nil
+// TODO This function assumes the message has already been decrypted.
+// find out if that is automatic.
+func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
+	payload, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO how do we give the from address on a brodcast?
+	/*from := bmutil.Address{
+		Version: msg.FromAddressVersion,
+		Stream:  msg.FromStreamNumber,
+		Ripe:    *msg.Destination,
+	}
+	fromAddress, err := from.Encode()
+	if err != nil {
+		return nil, err
+	}*/
+
+	return &Bitmessage{
+		//From:       &fromAddress,
+		Expiration: &msg.ExpiresTime,
+		Payload:    payload,
+	}, nil
 }
 
 // DecodeBitmessage takes the protobuf encoding of a bitmessage

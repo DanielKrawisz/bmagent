@@ -90,3 +90,19 @@ func (l *Encoding2) ToProtobuf() *serialize.Encoding {
 		Body:    &l.Body,
 	}
 }
+
+// DecodeObjectPayload takes an encoding format code and an object payload and
+// returns it as an Encoding object.
+func DecodeObjectPayload(encoding uint64, msg []byte) (Encoding, error) {
+	var q Encoding
+	switch encoding {
+	case 1:
+		q = &Encoding1{}
+	case 2:
+		q = &Encoding2{}
+	default:
+		return nil, errors.New("Unsupported encoding")
+	}
+	q.ReadMessage(msg)
+	return q, nil
+}
