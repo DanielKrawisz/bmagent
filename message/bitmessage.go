@@ -57,7 +57,7 @@ func EmailToBM(emailAddr string) (string, error) {
 // ImapData provides a Bitmessage with extra information to make it
 // compatible with imap.
 type ImapData struct {
-	UID            uint32
+	UID            uint64
 	SequenceNumber uint32
 	Flags          types.Flags
 	DateReceived   time.Time
@@ -67,42 +67,52 @@ type ImapData struct {
 // Bitmessage represents a message compatible with a bitmessage format
 // (msg or broadcast). If To is nil, then it is a broadcast.
 type Bitmessage struct {
-	From        *string
-	To          *string
-	Expiration  *time.Time
-	Ack         *string
+	From        string
+	To          string
+	Expiration  time.Time
+	Ack         []byte
 	Sent        bool
 	AckExpected bool
 	AckReceived bool
 	Payload     format.Encoding
 	ImapData    *ImapData
+	// The encoded form of the message as a bitmessage object. Required
+	// for messages that are waiting to be sent or have pow done on them.
+	object *wire.MsgObject
 }
 
 // Serialize encodes the message in a protobuf format.
 func (m *Bitmessage) Serialize() ([]byte, error) {
-	var expr string
-	if m.Expiration != nil {
-		expr = (*m.Expiration).Format(DateFormat)
-	}
+	expr := m.Expiration.Format(DateFormat)
+
 	var imapData *serialize.ImapData
 	if m.ImapData != nil {
 		date := m.ImapData.DateReceived.Format(DateFormat)
 
 		imapData = &serialize.ImapData{
-			DateReceived: &date,
-			Flags:        (*int32)(&m.ImapData.Flags),
+			TimeReceived: date,
+			Flags:        int32(m.ImapData.Flags),
 		}
 	}
+
+	var object []byte
+	if m.object == nil {
+		object = nil
+	} else {
+		object = wire.EncodeMessage(m.object)
+	}
+
 	encode := &serialize.Message{
 		From:        m.From,
 		To:          m.To,
-		Expiration:  &expr,
+		Expiration:  expr,
 		Ack:         m.Ack,
-		Sent:        &m.Sent,
-		AckExpected: &m.AckExpected,
-		AckReceived: &m.AckReceived,
+		Sent:        m.Sent,
+		AckExpected: m.AckExpected,
+		AckReceived: m.AckReceived,
 		ImapData:    imapData,
 		Payload:     m.Payload.ToProtobuf(),
+		Object:      object,
 	}
 
 	data, err := proto.Marshal(encode)
@@ -131,17 +141,15 @@ func (be *Bitmessage) ToEmail() (*email.ImapEmail, error) {
 
 	headers["Subject"] = []string{payload.Subject}
 
-	headers["From"] = []string{BMToEmail(*be.From)}
+	headers["From"] = []string{BMToEmail(be.From)}
 
-	if be.To == nil {
+	if be.To == "" {
 		headers["To"] = []string{"broadcast@bm.addr"}
 	} else {
-		headers["To"] = []string{BMToEmail(*be.To)}
+		headers["To"] = []string{BMToEmail(be.To)}
 	}
 
-	if be.Expiration != nil {
-		headers["Expires"] = []string{be.Expiration.Format(DateFormat)}
-	}
+	headers["Expires"] = []string{be.Expiration.Format(DateFormat)}
 
 	content := &data.Content{
 		Headers: headers,
@@ -152,8 +160,8 @@ func (be *Bitmessage) ToEmail() (*email.ImapEmail, error) {
 		ImapSequenceNumber: be.ImapData.SequenceNumber,
 		ImapUID:            be.ImapData.UID,
 		ImapFlags:          be.ImapData.Flags,
-		ImapDate:           be.ImapData.DateReceived,
-		ImapFolder:         be.ImapData.Folder,
+		Date:               be.ImapData.DateReceived,
+		Folder:             be.ImapData.Folder,
 		Content:            content,
 	}
 
@@ -163,34 +171,39 @@ func (be *Bitmessage) ToEmail() (*email.ImapEmail, error) {
 	return email, nil
 }
 
-// TODO: Must generate the correct tag and send to pow queue.
-func generateMsgBroadcast(content []byte, from *identity.Private) (wire.Message, error) {
+// TODO: If this is a broadcast, must generate the correct tag.
+func generateMsgBroadcast(content []byte, from *identity.Private) (*wire.MsgObject, error) {
 	return nil, nil
 }
 
 // TODO: must generate an ack if none exists and send to pow queue.
-func generateMsgMsg(content []byte, from *identity.Private, to *identity.Public) (wire.Message, error) {
+func generateMsgMsg(content []byte, from *identity.Private, to *identity.Public) (*wire.MsgObject, error) {
 	return nil, nil
 }
 
-// ToMessage converts the message to wire format.
-func ToMessage(msg *Bitmessage, book keymgr.AddressBook) (wire.Message, error) {
+// GenerateObject generates the wire.MsgObject form of the message.
+func (be *Bitmessage) GenerateObject(msg *Bitmessage, book keymgr.AddressBook) (object *wire.MsgObject, genErr error) {
 	msgContent := msg.Payload.Message()
 	from, err := book.LookupPrivateIdentity(msg.From)
 	if err != nil {
 		return nil, err
 	}
 
-	if msg.To == nil {
-		return generateMsgBroadcast(msgContent, from)
+	if msg.To == "" {
+		object, genErr = generateMsgBroadcast(msgContent, from)
+	} else {
+		to, err := book.LookupPublicIdentity(msg.To)
+		if err != nil {
+			return nil, err
+		}
+		object, genErr = generateMsgMsg(msgContent, from, to)
 	}
 
-	to, err := book.LookupPublicIdentity(msg.To)
-	if err != nil {
+	if genErr != nil {
 		return nil, err
 	}
-
-	return generateMsgMsg(msgContent, from, to)
+	be.object = object
+	return object, nil
 }
 
 // TODO This function assumes the message has already been decrypted.
@@ -211,13 +224,11 @@ func MsgRead(msg *wire.MsgMsg, toAddress string) (*Bitmessage, error) {
 		return nil, err
 	}
 
-	ack := string(msg.Ack)
-
 	return &Bitmessage{
-		From:       &fromAddress,
-		To:         &toAddress,
-		Expiration: &msg.ExpiresTime,
-		Ack:        &ack,
+		From:       fromAddress,
+		To:         toAddress,
+		Expiration: msg.ExpiresTime,
+		Ack:        msg.Ack,
 		Payload:    payload,
 	}, nil
 }
@@ -230,20 +241,18 @@ func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
 		return nil, err
 	}
 
-	// TODO how do we give the from address on a brodcast?
-	/*from := bmutil.Address{
-		Version: msg.FromAddressVersion,
-		Stream:  msg.FromStreamNumber,
-		Ripe:    *msg.Destination,
-	}
-	fromAddress, err := from.Encode()
+	sign, _ := msg.SigningKey.ToBtcec()
+	encr, _ := msg.EncryptionKey.ToBtcec()
+	from := identity.NewPublic(sign, encr, msg.NonceTrials,
+		msg.ExtraBytes, msg.FromAddressVersion, msg.FromStreamNumber)
+	fromAddress, err := from.Address.Encode()
 	if err != nil {
 		return nil, err
-	}*/
+	}
 
 	return &Bitmessage{
-		//From:       &fromAddress,
-		Expiration: &msg.ExpiresTime,
+		From:       fromAddress,
+		Expiration: msg.ExpiresTime,
 		Payload:    payload,
 	}, nil
 }
@@ -258,14 +267,14 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 	}
 
 	var q format.Encoding
-	switch *msg.Payload.Format {
+	switch msg.Payload.Format {
 	case 1:
 		r := &format.Encoding1{}
 
 		if msg.Payload.Body == nil {
 			return nil, errors.New("Body required in encoding format 2")
 		}
-		r.Body = *msg.Payload.Body
+		r.Body = string(msg.Payload.Body)
 
 		q = r
 	case 2:
@@ -274,12 +283,12 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 		if msg.Payload.Subject == nil {
 			return nil, errors.New("Subject required in encoding format 2")
 		}
-		r.Subject = *msg.Payload.Subject
+		r.Subject = string(msg.Payload.Subject)
 
 		if msg.Payload.Body == nil {
 			return nil, errors.New("Body required in encoding format 2")
 		}
-		r.Body = *msg.Payload.Body
+		r.Body = string(msg.Payload.Body)
 
 		q = r
 	default:
@@ -288,24 +297,30 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 
 	l := &Bitmessage{}
 
-	if msg.Expiration != nil {
-		expr, _ := time.Parse(DateFormat, *msg.Expiration)
-		l.Expiration = &expr
+	if msg.Expiration != "" {
+		expr, _ := time.Parse(DateFormat, msg.Expiration)
+		l.Expiration = expr
 	}
 
 	l.From = msg.From
 	l.To = msg.To
 	l.Ack = msg.Ack
 	l.Payload = q
+	if msg.Object != nil {
+		l.object, err = wire.DecodeMsgObject(msg.Object)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if msg.ImapData != nil {
-		dateReceived, err := time.Parse(DateFormat, *msg.ImapData.DateReceived)
+		dateReceived, err := time.Parse(DateFormat, msg.ImapData.TimeReceived)
 		if err != nil {
 			return nil, err
 		}
 
 		l.ImapData = &ImapData{
-			Flags:        types.Flags(*msg.ImapData.Flags),
+			Flags:        types.Flags(msg.ImapData.Flags),
 			DateReceived: dateReceived,
 		}
 	}
@@ -348,15 +363,14 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		return nil, errors.New("Invalid bitmessage from address.")
 	}
 
-	var toPtr *string
+	var err error
 	if emailRegex.MatchString(to) {
-		to, err := EmailToBM(to)
+		to, err = EmailToBM(to)
 		if err != nil {
 			return nil, errors.New("Invalid bitmessage to address.")
 		}
-		toPtr = &to
 	} else if to == broadcastAddress {
-		toPtr = nil
+		to = ""
 	} else {
 		return nil, errors.New("To address must be of the form <bm-address>@bm.addr or broadcast@bm.addr")
 	}
@@ -382,15 +396,13 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	// Expires is a rarely-used header that is relevant to Bitmessage.
 	// If it is set, use it to generate the expire time of the message.
 	// Otherwise, use the default.
-	var expiration *time.Time
-	if expireStr, ok := header["Expires"]; !ok {
-		expiration = nil
-	} else {
+	var expiration time.Time
+	if expireStr, ok := header["Expires"]; ok {
 		exp, err := time.Parse(DateFormat, expireStr[0])
 		if err != nil {
 			return nil, err
 		}
-		expiration = &exp
+		expiration = exp
 	}
 
 	var subject string
@@ -406,8 +418,8 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	}
 
 	return &Bitmessage{
-		From:        &from,
-		To:          toPtr,
+		From:        from,
+		To:          to,
 		Expiration:  expiration,
 		Ack:         nil,
 		AckExpected: true,

@@ -11,13 +11,17 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/jordwest/imap-server"
+	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/keymgr"
 	"github.com/monetas/bmclient/rpc"
 	"github.com/monetas/bmclient/store"
+	"github.com/monetas/bmclient/user"
 	"github.com/monetas/bmutil"
 	"github.com/monetas/bmutil/cipher"
 	"github.com/monetas/bmutil/identity"
@@ -61,6 +65,10 @@ type server struct {
 	msgCounter       uint64
 	broadcastCounter uint64
 	getpubkeyCounter uint64
+	smtp             *email.SMTPServer
+	smtpListeners    []net.Listener
+	imap             *imap.Server
+	imapListeners    []net.Listener
 	quit             chan struct{}
 	wg               sync.WaitGroup
 }
@@ -68,13 +76,42 @@ type server struct {
 // newServer initializes a new instance of server.
 func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 	s *store.Store) (*server, error) {
+
 	srvr := &server{
 		bmd:    bmd,
 		keymgr: kmgr,
 		store:  s,
-		quit:   make(chan struct{}),
+		smtp: email.NewSMTPServer(&email.SMTPConfig{
+			RequireTLS: !cfg.DisableServerTLS,
+			Username:   cfg.Username,
+			Password:   cfg.Password,
+		}),
+		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
+		imap:          imap.NewServer(user.NewBitmessageStore("")),
+		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
+		quit:          make(chan struct{}),
 	}
+
+	// Set RPC client handlers.
 	bmd.SetHandlers(srvr.newMessage, srvr.newBroadcast, srvr.newGetpubkey)
+
+	// Setup IMAP listeners.
+	for _, laddr := range cfg.IMAPListeners {
+		l, err := net.Listen("tcp", laddr)
+		if err != nil {
+			return nil, imapLog.Criticalf("Failed to listen on %s: %v", l, err)
+		}
+		srvr.imapListeners = append(srvr.imapListeners, l)
+	}
+
+	// Setup SMTP listeners.
+	for _, laddr := range cfg.SMTPListeners {
+		l, err := net.Listen("tcp", laddr)
+		if err != nil {
+			return nil, smtpLog.Criticalf("Failed to listen on %s: %v", l, err)
+		}
+		srvr.smtpListeners = append(srvr.smtpListeners, l)
+	}
 
 	// Load counter values from store.
 	var err error
@@ -109,10 +146,16 @@ func (s *server) Start() {
 	s.bmd.Start(s.msgCounter, s.broadcastCounter, s.getpubkeyCounter)
 
 	// Start IMAP server.
+	for _, l := range s.imapListeners {
+		go s.imap.Serve(l)
+	}
 
 	// Start SMTP server.
+	for _, l := range s.smtpListeners {
+		go s.smtp.Serve(l)
+	}
 
-	// Start RPC server.
+	// TODO Start RPC server.
 
 	// Start public key request handler.
 	serverLog.Info("Starting public key request handler.")
@@ -486,7 +529,18 @@ func (s *server) Stop() {
 		return
 	}
 
+	// Save any data in memory.
 	s.saveData()
+
+	// Close all SMTP listeners.
+	for _, l := range s.smtpListeners {
+		l.Close()
+	}
+
+	// Close all IMAP listeners.
+	for _, l := range s.imapListeners {
+		l.Close()
+	}
 
 	s.bmd.Stop()
 	close(s.quit)

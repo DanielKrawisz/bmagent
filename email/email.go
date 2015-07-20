@@ -6,7 +6,7 @@ package email
 
 import (
 	"errors"
-	"strings"
+	"net/textproto"
 	"time"
 
 	"github.com/jordwest/imap-server/mailstore"
@@ -40,39 +40,33 @@ func GetBody(email *data.Content) (string, error) {
 // like a uid and sequence number.
 type ImapEmail struct {
 	ImapSequenceNumber uint32
-	ImapUID            uint32
+	ImapUID            uint64
 	ImapFlags          types.Flags
-	ImapDate           time.Time
-	ImapFolder         ImapFolder
+	Date               time.Time
+	Folder             ImapFolder
 	Content            *data.Content
 }
 
 // Header returns the message's MIME headers as a map in a format compatible
 // with imap-server.
-func (e *ImapEmail) Header() types.MIMEHeader {
-	header := types.MIMEHeader(make(map[string]string))
-
-	for key, vals := range e.Content.Headers {
-		header[key] = strings.Join(vals, ",")
-	}
-
-	return header
+func (e *ImapEmail) Header() textproto.MIMEHeader {
+	return textproto.MIMEHeader(e.Content.Headers)
 }
 
-// UID return the unique id of the email
-func (e *ImapEmail) UID() uint32 { return e.ImapUID }
+// UID return the unique id of the email.
+func (e *ImapEmail) UID() uint32 { return uint32(e.ImapUID) }
 
-// SequenceNumber returns the sequence number of the email
+// SequenceNumber returns the sequence number of the email.
 func (e *ImapEmail) SequenceNumber() uint32 { return e.ImapSequenceNumber }
 
-// Size returns the RFC822 size of the message
+// Size returns the RFC822 size of the message.
 func (e *ImapEmail) Size() uint32 {
 	return uint32(e.Content.Size)
 }
 
 // InternalDate return the date the email was received by the server
-// (This is not the date on the envelope of the email)
-func (e *ImapEmail) InternalDate() time.Time { return e.ImapDate }
+// (This is not the date on the envelope of the email).
+func (e *ImapEmail) InternalDate() time.Time { return e.Date }
 
 // Body returns the body of the email.
 func (e *ImapEmail) Body() string {
@@ -80,35 +74,48 @@ func (e *ImapEmail) Body() string {
 	return body
 }
 
-// Keywords returns the list of custom keywords/flags for this message
+// Keywords returns the list of custom keywords/flags for this message.
 func (e *ImapEmail) Keywords() []string {
 	return make([]string, 0)
 }
 
-// Flags returns the flags for this message
+// Flags returns the flags for this message.
 func (e *ImapEmail) Flags() types.Flags {
 	return e.ImapFlags
 }
 
-// OverwriteFlags overwrites the flags for this message and return the updated message
+// OverwriteFlags overwrites the flags for this message and return the updated
+// message.
 func (e *ImapEmail) OverwriteFlags(newFlags types.Flags) mailstore.Message {
 	e.ImapFlags = newFlags
 	return e
 }
 
-// AddFlags writes the flags for this message and return the updated message
+// AddFlags writes the flags for this message and return the updated message.
 func (e *ImapEmail) AddFlags(newFlags types.Flags) mailstore.Message {
 	e.ImapFlags = e.ImapFlags.SetFlags(newFlags)
 	return e
 }
 
-// RemoveFlags writes the flags for this message and return the updated message
+// RemoveFlags writes the flags for this message and return the updated message.
 func (e *ImapEmail) RemoveFlags(newFlags types.Flags) mailstore.Message {
 	e.ImapFlags = e.ImapFlags.ResetFlags(newFlags)
 	return e
 }
 
-// Save saves any changes to the message
-func (e *ImapEmail) Save() error {
-	return e.ImapFolder.Save(e)
+// SetBody sets the body of the message.
+func (e *ImapEmail) SetBody(body string) mailstore.Message {
+	e.Content.Body = body
+	return e
+}
+
+// SetHeaders sets the headers of a message.
+func (e *ImapEmail) SetHeaders(headers textproto.MIMEHeader) mailstore.Message {
+	e.Content.Headers = headers
+	return e
+}
+
+// Save saves any changes to the message.
+func (e *ImapEmail) Save() (mailstore.Message, error) {
+	return e, e.Folder.Save(e)
 }

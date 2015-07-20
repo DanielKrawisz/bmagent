@@ -224,7 +224,7 @@ func Open(file string, pass []byte) (*Store, error) {
 	// Load existing mailboxes.
 	err = db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
-			store.mailboxes[string(name)], _ = newMailbox(store, string(name), false)
+			store.mailboxes[string(name)], _ = NewMailbox(store, string(name), false)
 			return nil
 		})
 	})
@@ -251,8 +251,7 @@ func (s *Store) checkAndUpgrade(tx *bolt.Tx) error {
 	return nil
 }
 
-// NewMailbox creates a new mailbox for an address. It takes the address,
-// MailboxType and a name for the mailbox. Address must be unique. Name must
+// NewMailbox creates a new mailbox. Name must
 // be unique for a MailboxType.
 func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 
@@ -263,7 +262,7 @@ func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 	}
 
 	// We're good, so create the mailbox.
-	mbox, err := newMailbox(s, name, true)
+	mbox, err := NewMailbox(s, name, true)
 	if err != nil {
 		return nil, err
 	}

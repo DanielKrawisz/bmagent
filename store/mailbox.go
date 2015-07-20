@@ -32,8 +32,8 @@ type Mailbox struct {
 	name  string
 }
 
-// newMailbox creates a new Mailbox, initializing the database if specified.
-func newMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error) {
+// NewMailbox creates a new Mailbox, initializing the database if specified.
+func NewMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error) {
 	mbox := &Mailbox{
 		store: store,
 		name:  name,
@@ -179,7 +179,7 @@ func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 // execute any other database operations in it.
 func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 	f func(id, suffix uint64, msg []byte) error) error {
-	if lowID > highID {
+	if highID != 0 && lowID > highID {
 		return errors.New("Nice try, son. But lowID cannot be greater than highID.")
 	}
 
@@ -211,6 +211,7 @@ func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 
 			msg, success := mbox.store.decrypt(v)
 			if !success {
+				fmt.Println("About to return a decryption failed error.")
 				return ErrDecryptionFailed
 			}
 
