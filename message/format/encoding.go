@@ -48,8 +48,8 @@ func (l *Encoding1) ReadMessage(msg []byte) error {
 func (l *Encoding1) ToProtobuf() *serialize.Encoding {
 	format := uint64(1)
 	return &serialize.Encoding{
-		Format: &format,
-		Body:   &l.Body,
+		Format: format,
+		Body:   []byte(l.Body),
 	}
 }
 
@@ -85,8 +85,8 @@ func (l *Encoding2) ReadMessage(msg []byte) error {
 func (l *Encoding2) ToProtobuf() *serialize.Encoding {
 	format := uint64(2)
 	return &serialize.Encoding{
-		Format:  &format,
-		Subject: &l.Subject,
-		Body:    &l.Body,
+		Format:  format,
+		Subject: []byte(l.Subject),
+		Body:    []byte(l.Body),
 	}
 }

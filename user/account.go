@@ -22,8 +22,8 @@ Welcome to bmd and to the anonymous, encrypted world of Bitmessage! You are usin
 If you wish to send a bitmessage, just write an email with an address of the form
 <bitmessage address>@bm.addr
 
-have a bug to report? Care to help out? Please see our github repo:
-https://github.com/monetas/bmd/`
+Have a bug to report? Care to help out? Please see our github repo:
+https://github.com/monetas/bmclient/`
 
 var (
 	// defaultInboxFolderName is the default name for the inbox folder.
@@ -32,12 +32,12 @@ var (
 	defaultInboxFolderName = "INBOX"
 
 	// defaultOutFolderName is the default name for the out folder.
-	// Messages in the out folder are waiting for pow to be completed or waiting
-	// for a connection to bmd so that they can be sent.
-	defaultOutFolderName = "Out"
+	// Messages in the out folder are waiting for pow to be completed or public
+	// key of the recipient so that they can be sent.
+	defaultOutFolderName = "Outbox"
 
-	// defaultLimboFolderName is the default name for folders that are out in
-	// the network, but have not been received yet.
+	// defaultLimboFolderName is the default name for folder containing messages
+	// that are out in the network, but have not been received yet (no ack).
 	defaultLimboFolderName = "Limbo"
 
 	// defaultTrashFolderName is the default name for the trash folder.
@@ -91,8 +91,8 @@ func (store *BitmessageStore) AddAccount(username, password string) (*ClientAcco
 	to := "BM-NBPVwY5A26MtyfbHyh4UfA4Hn76DamAP@bm.addr"
 
 	_, err = inbox.AddNew(&message.Bitmessage{
-		From: &from,
-		To:   &to,
+		From: from,
+		To:   to,
 		Payload: &format.Encoding2{
 			Subject: "Welcome to bmd!",
 			Body:    welcomeMsg,

@@ -9,9 +9,9 @@ import (
 )
 
 type AddressBook interface {
-	LookupPublicIdentity(*string) (*identity.Public, error)
-	//AddPublicIdentity(*string, *identity.Public)
-	LookupPrivateIdentity(*string) (*identity.Private, error)
+	LookupPublicIdentity(string) (*identity.Public, error)
+	//AddPublicIdentity(string, *identity.Public)
+	LookupPrivateIdentity(string) (*identity.Private, error)
 }
 
 /*type addressBook struct {

@@ -13,7 +13,6 @@ import (
 
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
-	"github.com/mailhog/data"
 	"github.com/monetas/bmclient/email"
 )
 
@@ -497,34 +496,19 @@ func (box *Folder) Save(email *email.ImapEmail) error {
 		UID:            email.ImapUID,
 		SequenceNumber: email.ImapSequenceNumber,
 		Flags:          email.ImapFlags,
-		DateReceived:   email.ImapDate,
+		DateReceived:   email.Date,
 		Folder:         box,
 	}
 
 	return box.SaveBitmessage(bm)
 }
 
-// NewMessage inserts a new message into the folder.
+// NewMessage creates a new, empty message in the specified folder.
 // It is a part of the mail.SMTPFolder interface.
-func (box *Folder) NewMessage(smtp *data.Message, flags types.Flags) (*email.ImapEmail, error) {
-	bmsg, err := NewBitmessageFromSMTP(smtp.Content)
-	if err != nil {
-		return nil, err
-	}
-
-	entry, err := box.AddNew(bmsg, flags)
-	if err != nil {
-		return nil, err
-	}
-
+func (box *Folder) NewMessage() mailstore.Message {
 	return &email.ImapEmail{
-		ImapSequenceNumber: entry.ImapData.SequenceNumber,
-		ImapUID:            entry.ImapData.UID,
-		ImapFlags:          flags,
-		ImapDate:           smtp.Created,
-		ImapFolder:         box,
-		Content:            smtp.Content,
-	}, nil
+		Folder: box,
+	}
 }
 
 // Send sends the bitmessage with the given uid into the bitmessage network.
