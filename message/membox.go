@@ -40,10 +40,6 @@ func (box *membox) GetMessage(id uint64) (uint64, []byte, error) {
 }
 
 func (box *membox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error) {
-	if msg == nil {
-		panic("why are we inserting a nil message?")
-		return 0, errors.New("Nil msg")
-	}
 	if id != 0 {
 		if _, ok := box.bm[id]; ok {
 			return id, errors.New("Id already taken")

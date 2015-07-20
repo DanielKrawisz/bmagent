@@ -2,31 +2,32 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-syntax="proto2";
+syntax="proto3";
 option go_package="serialize";
 
 // Message is a bitmessage. 
 message Message {
-	required Encoding  Payload     = 1;
-	required bool      Sent        = 2;
-	required bool      AckReceived = 3;
-	required bool      AckExpected = 4;
-	required string    From        = 5;
-	optional string    To          = 6;
-	optional string    Expiration  = 7;
-	optional string    Ack         = 8;
-	optional ImapData ImapData    = 9;
+	Encoding payload      = 1;
+	bool     sent         = 2;
+	bool     ack_received = 3;
+	bool     ack_expected = 4;
+	string   from         = 5;
+	string   to           = 6;
+	string   expiration   = 7;
+	bytes    ack          = 8;
+	ImapData imap_data    = 9;
 }
 
-// ImapData is an entry in the database that contains a message and some related metadata.
+// ImapData is an entry in the database that contains a message and some related
+// metadata.
 message ImapData {
-	required string DateReceived = 1;
-	required int32  Flags        = 2;
+	string time_received = 1;
+	int32  flags         = 2;
 }
 
 // Encoding a bitmessage object payload. 
 message Encoding {
-	required uint64 Format   = 1;
-	optional string Body     = 2;
-	optional string Subject  = 3;
+	uint64 format   = 1;
+	bytes body      = 2;
+	bytes subject   = 3;
 }

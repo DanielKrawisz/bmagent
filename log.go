@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
+	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/rpc"
 )
 
@@ -26,6 +27,8 @@ var (
 	serverLog  = btclog.Disabled
 	rpccLog    = btclog.Disabled
 	rpcsLog    = btclog.Disabled
+	imapLog    = btclog.Disabled
+	smtpLog    = btclog.Disabled
 )
 
 // subsystemLoggers maps each subsystem identifier to its associated logger.
@@ -34,6 +37,8 @@ var subsystemLoggers = map[string]btclog.Logger{
 	"SRVR": serverLog,
 	"RPCC": rpccLog, // RPC client log
 	"RPCS": rpcsLog, // RPC server log
+	"IMAP": imapLog,
+	"SMTP": smtpLog,
 }
 
 // logClosure is used to provide a closure over expensive logging operations
@@ -75,6 +80,14 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 	case "RPCS":
 		rpcsLog = logger
 		rpc.UseServerLogger(logger)
+
+	case "IMAP":
+		imapLog = logger
+		email.UseIMAPLogger(logger)
+
+	case "SMTP":
+		smtpLog = logger
+		email.UseSMTPLogger(logger)
 	}
 }
 
