@@ -66,8 +66,8 @@ func (*ImapData) ProtoMessage()    {}
 // Encoding a bitmessage object payload.
 type Encoding struct {
 	Format  uint64 `protobuf:"varint,1,opt,name=format" json:"format,omitempty"`
-	Body    []byte `protobuf:"bytes,2,opt,name=body,proto3" json:"body,omitempty"`
-	Subject []byte `protobuf:"bytes,3,opt,name=subject,proto3" json:"subject,omitempty"`
+	Subject []byte `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"`
+	Body    []byte `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
 }
 
 func (m *Encoding) Reset()         { *m = Encoding{} }

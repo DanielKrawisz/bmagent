@@ -17,11 +17,11 @@ import (
 	"time"
 
 	"github.com/jordwest/imap-server"
+	"github.com/jordwest/imap-server/types"
 	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/keymgr"
 	"github.com/monetas/bmclient/rpc"
 	"github.com/monetas/bmclient/store"
-	"github.com/monetas/bmclient/user"
 	"github.com/monetas/bmutil"
 	"github.com/monetas/bmutil/cipher"
 	"github.com/monetas/bmutil/identity"
@@ -49,9 +49,6 @@ const (
 	// getpubkeyExpiry is the time after which a getpubkey request sent out to
 	// the network expires.
 	getpubkeyExpiry = time.Hour * 24 * 14
-
-	// inboxName is the name of the inbox, as stored in the store.
-	inboxName = "Inbox"
 )
 
 // server struct manages everything that a running instance of bmclient
@@ -68,6 +65,7 @@ type server struct {
 	smtp             *email.SMTPServer
 	smtpListeners    []net.Listener
 	imap             *imap.Server
+	imapUser         *email.User
 	imapListeners    []net.Listener
 	quit             chan struct{}
 	wg               sync.WaitGroup
@@ -76,6 +74,12 @@ type server struct {
 // newServer initializes a new instance of server.
 func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 	s *store.Store) (*server, error) {
+
+	// Create an email.User from the store.
+	user, err := email.UserFromStore(s)
+	if err != nil {
+		return nil, err
+	}
 
 	srvr := &server{
 		bmd:    bmd,
@@ -87,9 +91,16 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 			Password:   cfg.Password,
 		}),
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
-		imap:          imap.NewServer(user.NewBitmessageStore("")),
+
+		imap: imap.NewServer(email.NewBitmessageStore(user, &email.IMAPConfig{
+			RequireTLS: !cfg.DisableServerTLS,
+			Username:   cfg.Username,
+			Password:   cfg.Password,
+		})),
+		imapUser:      user,
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
-		quit:          make(chan struct{}),
+
+		quit: make(chan struct{}),
 	}
 
 	// Set RPC client handlers.
@@ -114,8 +125,6 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 	}
 
 	// Load counter values from store.
-	var err error
-
 	srvr.msgCounter, err = s.GetCounter(wire.ObjectTypeMsg)
 	if err != nil {
 		serverLog.Critical("Failed to get message counter:", err)
@@ -147,11 +156,13 @@ func (s *server) Start() {
 
 	// Start IMAP server.
 	for _, l := range s.imapListeners {
+		imapLog.Infof("Listening on %s", l.Addr())
 		go s.imap.Serve(l)
 	}
 
 	// Start SMTP server.
 	for _, l := range s.smtpListeners {
+		smtpLog.Infof("Listening on %s", l.Addr())
 		go s.smtp.Serve(l)
 	}
 
@@ -209,26 +220,26 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	}
 
 	// Decryption was successful. Add message to store.
-	_, err = s.store.MailboxByName(inboxName)
+	mbox, err := s.imapUser.MailboxByName(email.InboxFolderName)
 	if err != nil {
-		serverLog.Errorf("Failed to get mailbox for %v", address)
+		log.Critical("MailboxByName (%s) failed: %v", email.InboxFolderName, err)
 		return
 	}
 
-	from := bmutil.Address{
-		Version: msg.FromAddressVersion,
-		Stream:  msg.FromStreamNumber,
-		Ripe:    *msg.Destination,
-	}
-	fromAddress, err := from.Encode()
-	if err != nil {
-		fromAddress = "INVALID"
-		log.Errorf("Invalid sender of message #%d (address encode failure): %v",
-			counter, err)
-	}
+	// TODO Store public key of the sender in bmd
 
-	//mbox.InsertMessage(msg.Message, msg.Encoding)
-	log.Infof("Got new message from %s:\n%s", fromAddress, string(msg.Message))
+	// Read message.
+	bmsg, err := email.MsgRead(msg, address)
+	if err != nil {
+		log.Error("Failed to decode message: ", err)
+		return
+	}
+	err = mbox.(*email.Mailbox).AddNew(bmsg, types.FlagRecent)
+	if err != nil {
+		log.Error("Failed to save message: ", err)
+		return
+	}
+	//log.Infof("Got new message from %s:\n%s", bmsg.From, string(msg.Message))
 
 	// Send out ack if necessary.
 	ack := &wire.MsgObject{}

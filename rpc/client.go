@@ -163,7 +163,7 @@ func (c *Client) Start(msgCounter, broadcastCounter, getpubkeyCounter uint64) {
 
 	// Start getpubkey processor.
 	c.wg.Add(1)
-	go c.processObjects(pb.ObjectType_GETPUBKEY, broadcastCounter, c.getpubkeyFunc)
+	go c.processObjects(pb.ObjectType_GETPUBKEY, getpubkeyCounter, c.getpubkeyFunc)
 }
 
 // processObjects receives objects from bmd and runs the specified function for
