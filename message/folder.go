@@ -22,20 +22,23 @@ const (
 	encoding2 = 2
 )
 
-// GetSequenceNumber gets a sequence number of a message by its uid.
-// If there is no message with the right uid, then it returns 0.
-func GetSequenceNumber(uids []uint64, uid uint64) uint32 {
+// GetSequenceNumber gets the highest sequence number lower than or equal to
+// the given uid.
+func GetSequenceNumber(uids []uint64, uid uint64) (uint32, uint64) {
 	// If the slice is empty.
 	if len(uids) == 0 {
-		return 0
+		return 0, 0
 	}
 
 	// If there is only one message in the box.
 	if len(uids) == 1 {
 		if uids[0] == uid {
-			return 1
+			return 1, uids[0]
 		}
-		return 0
+		if uids[0] < uid {
+			return 1, uids[0]
+		}
+		return 0, 0
 	}
 
 	var minIndex uint32
@@ -51,7 +54,7 @@ func GetSequenceNumber(uids []uint64, uid uint64) uint32 {
 		newUID := uids[checkIndex]
 
 		if newUID == uid {
-			return checkIndex + 1
+			return checkIndex + 1, uid
 		}
 
 		if newUID > uid {
@@ -62,7 +65,10 @@ func GetSequenceNumber(uids []uint64, uid uint64) uint32 {
 		}
 
 		if minIndex == maxIndex {
-			return 0
+			if newUID < uid {
+				return checkIndex, newUID
+			}
+			return checkIndex - 1, newUID
 		}
 	}
 }
@@ -174,7 +180,7 @@ func (box *Folder) BitmessageByUID(uidno uint64) *Bitmessage {
 	if err != nil || suffix != 2 {
 		return nil
 	}
-	seqno := GetSequenceNumber(box.uids, uint64(uidno))
+	seqno, _ := GetSequenceNumber(box.uids, uint64(uidno))
 	fmt.Println("bitmessage by uid:", seqno)
 
 	return box.decodeBitmessageForImap(uidno, seqno, msg)
@@ -205,21 +211,20 @@ func (box *Folder) LastBitmessage() *Bitmessage {
 // getRange returns a sequence of bitmessages from the mailbox in a range from
 // startUID to endUID. It does not check whether the given sequence numbers make sense.
 func (box *Folder) getRange(startUID, endUID uint64, startSequence, endSequence uint32) []*Bitmessage {
-	fmt.Println("bitmessage set by uid:", startSequence)
+	fmt.Println("bitmessage get range:", startUID, endUID, startSequence, endSequence)
+	fmt.Println("total number of messages in box:", box.Messages())
 	bitmessages := make([]*Bitmessage, endSequence-startSequence+1)
 
 	var i uint32
 
 	gen := func(id, suffix uint64, msg []byte) error {
+		fmt.Println("    for all func called.")
 		if suffix != 2 {
 			return nil
 		}
-		if msg == nil {
-			panic("gen... Should not be nil!!!!")
-		}
 		bm := box.decodeBitmessageForImap(id, startSequence+i, msg)
 		if bm == nil {
-			fmt.Println("Message is totally nil!!!")
+			fmt.Println("Nil msg 1")
 			return errors.New("Message should not be nil")
 		}
 		bitmessages[i] = bm
@@ -227,7 +232,9 @@ func (box *Folder) getRange(startUID, endUID uint64, startSequence, endSequence 
 		return nil
 	}
 
-	if box.mailbox.ForEachMessage(uint64(startUID), uint64(endUID), 2, gen) != nil {
+	err := box.mailbox.ForEachMessage(startUID, endUID, 2, gen)
+	if err != nil {
+		fmt.Println("Nil msg 2: ", err)
 		return nil
 	}
 	return bitmessages[:i]
@@ -242,25 +249,26 @@ func (box *Folder) getSince(startUID uint64, startSequence uint32) []*Bitmessage
 
 // BitmessagesByUIDRange returns the last Bitmessage in the mailbox.
 func (box *Folder) BitmessagesByUIDRange(start, end uint64) []*Bitmessage {
-	startSequence := GetSequenceNumber(box.uids, start)
-	if startSequence == 0 {
-		return nil
+	startSequence, startUID := GetSequenceNumber(box.uids, start)
+	if startUID != start {
+		startSequence++
 	}
-	endSequence := GetSequenceNumber(box.uids, end)
-	if endSequence == 0 || endSequence < startSequence {
-		return nil
+	endSequence, _ := GetSequenceNumber(box.uids, end)
+
+	if startSequence > endSequence {
+		return []*Bitmessage{}
 	}
 	return box.getRange(start, end, startSequence, endSequence)
 }
 
 // BitmessagesSinceUID returns the last Bitmessage in the mailbox.
 func (box *Folder) BitmessagesSinceUID(start uint64) []*Bitmessage {
-	fmt.Println("bitmessage set by uid:", start)
-	startSequence := GetSequenceNumber(box.uids, start)
-	fmt.Println("bitmessage set by uid:", startSequence)
-	if startSequence == 0 {
-		return []*Bitmessage{}
+	startSequence, startUID := GetSequenceNumber(box.uids, start)
+	if startUID != start {
+		startSequence++
 	}
+	fmt.Println("bitmessage since uid. start: ", start, ", start sequence: ", startSequence)
+	fmt.Println("total number of messages in box:", box.Messages())
 	return box.getSince(start, startSequence)
 }
 
@@ -424,6 +432,8 @@ func (box *Folder) AddNew(bmsg *Bitmessage, flags types.Flags) (*Bitmessage, err
 
 	imapData.UID = uid
 	box.updateUIDs(uid)
+	fmt.Println("Add new; updated uids:", box.uids)
+	fmt.Println("Add new; new uid:", bmsg.ImapData.UID)
 
 	return bmsg, nil
 }
