@@ -13,10 +13,11 @@ message Message {
 	bool     ack_expected = 4;
 	string   from         = 5;
 	string   to           = 6;
-	string   expiration   = 7;
-	bytes    ack          = 8;
-	ImapData imap_data    = 9;
-	bytes    object       = 10;
+	bool     of_channel   = 7;
+	string   expiration   = 8;
+	bytes    ack          = 9;
+	ImapData imap_data    = 10;
+	bytes    object       = 11;
 }
 
 // ImapData is an entry in the database that contains a message and some related
@@ -29,6 +30,6 @@ message ImapData {
 // Encoding a bitmessage object payload. 
 message Encoding {
 	uint64 format   = 1;
-	bytes body      = 2;
-	bytes subject   = 3;
+	bytes subject   = 2;
+	bytes body      = 3;
 }

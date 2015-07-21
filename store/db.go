@@ -90,7 +90,7 @@ type Store struct {
 	PowQueue           *PowQueue
 	BroadcastAddresses *BroadcastAddresses
 	mutex              sync.RWMutex        // For protecting the map.
-	mailboxes          map[string]*Mailbox // Map addresses to all mailboxes.
+	mailboxes          map[string]*Mailbox // Map names to all mailboxes.
 }
 
 // deriveKey is used to derive a 32 byte key for encryption/decryption
@@ -286,6 +286,15 @@ func (s *Store) MailboxByName(name string) (*Mailbox, error) {
 		return nil, ErrNotFound
 	}
 	return mbox, nil
+}
+
+// Mailboxes returns a slice containing pointers to all mailboxes in the store.
+func (s *Store) Mailboxes() []*Mailbox {
+	mboxes := make([]*Mailbox, 0, len(s.mailboxes))
+	for _, mbox := range s.mailboxes {
+		mboxes = append(mboxes, mbox)
+	}
+	return mboxes
 }
 
 // ChangePassphrase changes the passphrase of the data store. It does not

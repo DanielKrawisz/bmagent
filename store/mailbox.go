@@ -243,8 +243,8 @@ func (mbox *Mailbox) DeleteMessage(id uint64) error {
 	})
 }
 
-// GetName returns the user-friendly name of the mailbox.
-func (mbox *Mailbox) GetName() string {
+// Name returns the user-friendly name of the mailbox.
+func (mbox *Mailbox) Name() string {
 	return mbox.name
 }
 
@@ -315,8 +315,8 @@ func (mbox *Mailbox) Delete() error {
 	})
 }
 
-// GetNextID returns the next index value that will be assigned in the mailbox..
-func (mbox *Mailbox) GetNextID() (uint64, error) {
+// NextID returns the next index value that will be assigned in the mailbox..
+func (mbox *Mailbox) NextID() (uint64, error) {
 	var id uint64
 
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
@@ -329,8 +329,8 @@ func (mbox *Mailbox) GetNextID() (uint64, error) {
 	return id, nil
 }
 
-// GetLastID returns the highest index value in the mailbox.
-func (mbox *Mailbox) GetLastID() (uint64, error) {
+// LastID returns the highest index value in the mailbox.
+func (mbox *Mailbox) LastID() (uint64, error) {
 	var id uint64
 
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
@@ -354,9 +354,9 @@ func (mbox *Mailbox) GetLastID() (uint64, error) {
 	return id, nil
 }
 
-// GetLastIDBySuffix returns the highest index value from messages with the
+// LastIDBySuffix returns the highest index value from messages with the
 // specified suffix in the mailbox.
-func (mbox *Mailbox) GetLastIDBySuffix(suffix uint64) (uint64, error) {
+func (mbox *Mailbox) LastIDBySuffix(suffix uint64) (uint64, error) {
 	var id uint64
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
 		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
