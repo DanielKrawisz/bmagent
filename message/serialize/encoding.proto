@@ -16,6 +16,7 @@ message Message {
 	string   expiration   = 7;
 	bytes    ack          = 8;
 	ImapData imap_data    = 9;
+	bytes    object       = 10;
 }
 
 // ImapData is an entry in the database that contains a message and some related

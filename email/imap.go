@@ -15,6 +15,7 @@ import (
 // functions can be defined here if necessary.
 type ImapFolder interface {
 	mailstore.Mailbox
+	Receive(smtp *data.Message, flags types.Flags) (*ImapEmail, error)
 	Save(*ImapEmail) error
 }
 

@@ -87,7 +87,7 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 			Password:   cfg.Password,
 		}),
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
-		imap:          imap.NewServer(user.NewBitmessageStore()),
+		imap:          imap.NewServer(user.NewBitmessageStore("")),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
 	}

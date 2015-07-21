@@ -32,8 +32,8 @@ type Mailbox struct {
 	name  string
 }
 
-// newMailbox creates a new Mailbox, initializing the database if specified.
-func newMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error) {
+// NewMailbox creates a new Mailbox, initializing the database if specified.
+func NewMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error) {
 	mbox := &Mailbox{
 		store: store,
 		name:  name,

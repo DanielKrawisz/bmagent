@@ -31,6 +31,7 @@ type Message struct {
 	Expiration  string    `protobuf:"bytes,7,opt,name=expiration" json:"expiration,omitempty"`
 	Ack         []byte    `protobuf:"bytes,8,opt,name=ack,proto3" json:"ack,omitempty"`
 	ImapData    *ImapData `protobuf:"bytes,9,opt,name=imap_data" json:"imap_data,omitempty"`
+	Object      []byte    `protobuf:"bytes,10,opt,name=object,proto3" json:"object,omitempty"`
 }
 
 func (m *Message) Reset()         { *m = Message{} }

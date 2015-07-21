@@ -40,7 +40,7 @@ func GetBody(email *data.Content) (string, error) {
 // like a uid and sequence number.
 type ImapEmail struct {
 	ImapSequenceNumber uint32
-	ImapUID            uint32
+	ImapUID            uint64
 	ImapFlags          types.Flags
 	Date               time.Time
 	Folder             ImapFolder
@@ -54,7 +54,7 @@ func (e *ImapEmail) Header() textproto.MIMEHeader {
 }
 
 // UID return the unique id of the email.
-func (e *ImapEmail) UID() uint32 { return e.ImapUID }
+func (e *ImapEmail) UID() uint32 { return uint32(e.ImapUID) }
 
 // SequenceNumber returns the sequence number of the email.
 func (e *ImapEmail) SequenceNumber() uint32 { return e.ImapSequenceNumber }

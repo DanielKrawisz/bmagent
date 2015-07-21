@@ -14,6 +14,7 @@ import (
 	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/message"
 	"github.com/monetas/bmclient/message/format"
+	"github.com/monetas/bmclient/store"
 )
 
 const welcomeMsg = `
@@ -45,25 +46,29 @@ var (
 
 	// defaultTrashFolderName is the default name for the trash folder.
 	defaultTrashFolderName = "Trash"
+
+	// defaultDraftsFolderName is the default name for the drafts folder.
+	defaultDraftsFolderName = "Drafts"
 )
 
 // BitmessageStore implements mailstore.Authenticate.
 type BitmessageStore struct {
 	users    map[string]string
 	accounts map[string]*ClientAccount
+	dbpath   string
 }
 
 // Authenticate is part of the mailstore.Authenticate interface. It takes
 // a username and password and returns a mailstore.User if the credentials
 // are valid.
-func (store *BitmessageStore) Authenticate(username string, password string) (mailstore.User, error) {
-	if pw, ok := store.users[username]; !ok {
+func (bmstore *BitmessageStore) Authenticate(username string, password string) (mailstore.User, error) {
+	if pw, ok := bmstore.users[username]; !ok {
 		return nil, errors.New("Invalid username")
 	} else if pw != password {
 		return nil, errors.New("Invalid password")
 	}
 
-	account, ok := store.accounts[username]
+	account, ok := bmstore.accounts[username]
 	if !ok {
 		return nil, errors.New("User account not yet set up")
 	}
@@ -72,21 +77,36 @@ func (store *BitmessageStore) Authenticate(username string, password string) (ma
 
 // AddAccount adds an account to the bitmessage store.
 // TODO check if the password is good enough.
-func (store *BitmessageStore) AddAccount(username, password string) (*ClientAccount, error) {
-	_, ok := store.users[username]
+func (bmstore *BitmessageStore) AddAccount(username, password string) (*ClientAccount, error) {
+	_, ok := bmstore.users[username]
 	if ok {
 		return nil, errors.New("A user already exists by that name")
 	}
-	store.users[username] = password
-	// TODO use a real mailbox instead.
-	folder := NewClientAccount(nil, message.NewMembox)
-	store.accounts[username] = folder
+	bmstore.users[username] = password
 
-	inbox, err := store.NewFolder(username, "INBOX")
+	// TODO use a real mailbox instead.
+	var account *ClientAccount
+	if bmstore.dbpath == "" {
+		account = NewClientAccount(nil, nil)
+	} else {
+		dataStore, err := store.Open(bmstore.dbpath+"/.db/"+username+".bolt", []byte(password))
+		if err != nil {
+			return nil, err
+		}
+		account = NewClientAccount(nil,
+			func(folder string) (message.Mailbox, error) {
+				return store.NewMailbox(dataStore, folder, true)
+			})
+	}
+
+	bmstore.accounts[username] = account
+
+	inbox, err := bmstore.NewFolder(username, "INBOX")
 	if err != nil {
 		return nil, err
 	}
 
+	// TODO these are just addresses Daniel made for his own use.
 	from := "BM-NBddNS6ZagzjNbMMkVBpecuSAPU1EgyQ@bm.addr"
 	to := "BM-NBPVwY5A26MtyfbHyh4UfA4Hn76DamAP@bm.addr"
 
@@ -102,28 +122,31 @@ func (store *BitmessageStore) AddAccount(username, password string) (*ClientAcco
 		fmt.Println("Err making msg:", err)
 	}
 
-	store.NewFolder(username, defaultOutFolderName)
-	store.NewFolder(username, defaultSentFolderName)
-	store.NewFolder(username, defaultLimboFolderName)
-	store.NewFolder(username, defaultTrashFolderName)
-	return folder, nil
+	account.AddBitmessageFolder(defaultOutFolderName)
+	account.AddBitmessageFolder(defaultSentFolderName)
+	account.AddBitmessageFolder(defaultLimboFolderName)
+	account.AddBitmessageFolder(defaultTrashFolderName)
+	account.AddBitmessageFolder(defaultDraftsFolderName)
+	return account, nil
 }
 
 // NewFolder adds a bitmessage folder to a user's account.
-func (store *BitmessageStore) NewFolder(username, boxname string) (*message.Folder, error) {
-	_, ok := store.users[username]
+func (bmstore *BitmessageStore) NewFolder(username, boxname string) (*message.Folder, error) {
+	_, ok := bmstore.users[username]
 	if !ok {
 		return nil, errors.New("No user exists by that name.")
 	}
-	folder := store.accounts[username]
-	return folder.AddBitmessageFolder(boxname)
+	account := bmstore.accounts[username]
+	return account.AddBitmessageFolder(boxname)
 }
 
 // NewBitmessageStore creates a new bitmessage store.
-func NewBitmessageStore() *BitmessageStore {
+// dbpath can be set to "" to use memory-only.
+func NewBitmessageStore(dbpath string) *BitmessageStore {
 	return &BitmessageStore{
 		users:    make(map[string]string),
 		accounts: make(map[string]*ClientAccount),
+		dbpath:   dbpath,
 	}
 }
 
@@ -139,7 +162,7 @@ type SendPolicy func(msg *message.Bitmessage) *string
 
 // createFolder is a function that tells a bitmessage account how to create
 // a new folder.
-type createMailbox func(name string) message.Mailbox
+type createMailbox func(name string) (message.Mailbox, error)
 
 // ClientAccount implements the email.ImapAccount interface and represents
 // a collection of imap folders belonging to a single user.
@@ -150,6 +173,9 @@ type ClientAccount struct {
 	policy SendPolicy
 	// A function that tells the account how to create a new folder.
 	create createMailbox
+
+	//A queue of items to have pow done on them.
+	powQueue store.PowQueue
 }
 
 // AddBitmessageFolder adds a new folder to the client account.
@@ -159,9 +185,13 @@ func (bf *ClientAccount) AddBitmessageFolder(name string) (*message.Folder, erro
 		return nil, fmt.Errorf("There is already a folder %s", name)
 	}
 	if bf.create == nil {
-		errors.New("Cannot create new folder")
+		return nil, errors.New("Cannot create new folder")
 	}
-	bmb := message.NewFolder(bf.create(name))
+	box, err := bf.create(name)
+	if err != nil {
+		return nil, err
+	}
+	bmb := message.NewFolder(box)
 	if bmb == nil {
 		return nil, fmt.Errorf("Failed to create folder %s", name)
 	}
@@ -198,12 +228,12 @@ func (bf *ClientAccount) MailboxByName(name string) (mailstore.Mailbox, error) {
 	return bf.BitmessageFolderByName(name)
 }
 
-// Deliver takes an smtp message and detects whether it is valid for a given
+// SendMail takes an smtp message and detects whether it is valid for a given
 // user and choose which folder to put it in.
 // It is part of the *message.Folder interface.
 // TODO verify that the format of the email is ok for this user. Does the
 // user control the from: address, for example?
-func (bf *ClientAccount) Deliver(smtp *data.Message, flags types.Flags) (*email.ImapEmail, error) {
+func (bf *ClientAccount) SendMail(smtp *data.Message, flags types.Flags) (*email.ImapEmail, error) {
 	bitmessage, err := message.NewBitmessageFromSMTP(smtp.Content)
 	if err != nil {
 		return nil, err
@@ -224,7 +254,10 @@ func (bf *ClientAccount) Deliver(smtp *data.Message, flags types.Flags) (*email.
 		return nil, err
 	}
 
-	box.Send(entry.ImapData.UID)
+	err = box.Send(entry.ImapData.UID)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("Failed to send message: %s", err))
+	}
 
 	email, err := entry.ToEmail()
 	if err != nil {
@@ -245,7 +278,9 @@ func NewClientAccount(sendPolicy SendPolicy, create createMailbox) *ClientAccoun
 	}
 
 	if create == nil {
-		account.create = message.NewMembox
+		account.create = func(folder string) (message.Mailbox, error) {
+			return message.NewMembox(folder), nil
+		}
 	} else {
 		account.create = create
 	}

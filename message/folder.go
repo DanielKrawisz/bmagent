@@ -5,6 +5,7 @@
 package message
 
 import (
+	"bytes"
 	"container/list"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
+	"github.com/mailhog/data"
 	"github.com/monetas/bmclient/email"
 )
 
@@ -86,7 +88,7 @@ type Folder struct {
 	numUnseen uint32
 }
 
-func (box *Folder) decodeBitmessageForImap(uid, seqno uint32, msg []byte) *Bitmessage {
+func (box *Folder) decodeBitmessageForImap(uid uint64, seqno uint32, msg []byte) *Bitmessage {
 	b, _ := DecodeBitmessage(msg)
 	if b == nil {
 		return nil
@@ -151,7 +153,7 @@ func (box *Folder) BitmessageBySequenceNumber(seqno uint32) *Bitmessage {
 		return nil
 	}
 
-	return box.decodeBitmessageForImap(uint32(uid), seqno, msg)
+	return box.decodeBitmessageForImap(uid, seqno, msg)
 }
 
 // MessageBySequenceNumber gets a message by its sequence number
@@ -166,7 +168,7 @@ func (box *Folder) MessageBySequenceNumber(seqno uint32) mailstore.Message {
 }
 
 // BitmessageByUID returns a message by its uid.
-func (box *Folder) BitmessageByUID(uidno uint32) *Bitmessage {
+func (box *Folder) BitmessageByUID(uidno uint64) *Bitmessage {
 	fmt.Println("bitmessage by uid:", uidno)
 	suffix, msg, err := box.mailbox.GetMessage(uint64(uidno))
 	if err != nil || suffix != 2 {
@@ -181,7 +183,7 @@ func (box *Folder) BitmessageByUID(uidno uint32) *Bitmessage {
 // MessageByUID gets a message by its uid number
 // It is a part of the mail.SMTPFolder interface.
 func (box *Folder) MessageByUID(uidno uint32) mailstore.Message {
-	letter := box.BitmessageByUID(uidno)
+	letter := box.BitmessageByUID(uint64(uidno))
 	if letter == nil {
 		return nil
 	}
@@ -197,12 +199,12 @@ func (box *Folder) LastBitmessage() *Bitmessage {
 
 	uid := box.uids[len(box.uids)-1]
 	_, msg, _ := box.mailbox.GetMessage(uid)
-	return box.decodeBitmessageForImap(uint32(uid), uint32(len(box.uids)), msg)
+	return box.decodeBitmessageForImap(uid, uint32(len(box.uids)), msg)
 }
 
 // getRange returns a sequence of bitmessages from the mailbox in a range from
 // startUID to endUID. It does not check whether the given sequence numbers make sense.
-func (box *Folder) getRange(startUID, startSequence, endUID, endSequence uint32) []*Bitmessage {
+func (box *Folder) getRange(startUID, endUID uint64, startSequence, endSequence uint32) []*Bitmessage {
 	fmt.Println("bitmessage set by uid:", startSequence)
 	bitmessages := make([]*Bitmessage, endSequence-startSequence+1)
 
@@ -215,7 +217,7 @@ func (box *Folder) getRange(startUID, startSequence, endUID, endSequence uint32)
 		if msg == nil {
 			panic("gen... Should not be nil!!!!")
 		}
-		bm := box.decodeBitmessageForImap(uint32(id), startSequence+i, msg)
+		bm := box.decodeBitmessageForImap(id, startSequence+i, msg)
 		if bm == nil {
 			fmt.Println("Message is totally nil!!!")
 			return errors.New("Message should not be nil")
@@ -234,27 +236,27 @@ func (box *Folder) getRange(startUID, startSequence, endUID, endSequence uint32)
 // getSince returns a sequence of bitmessages from the mailbox which includes
 // all greater than or equal to a given uid number. It does not check whether
 // the given sequence number makes sense.
-func (box *Folder) getSince(startUID, startSequence uint32) []*Bitmessage {
-	return box.getRange(startUID, startSequence, 0, box.Messages())
+func (box *Folder) getSince(startUID uint64, startSequence uint32) []*Bitmessage {
+	return box.getRange(startUID, 0, startSequence, box.Messages())
 }
 
 // BitmessagesByUIDRange returns the last Bitmessage in the mailbox.
-func (box *Folder) BitmessagesByUIDRange(start uint32, end uint32) []*Bitmessage {
-	startSequence := GetSequenceNumber(box.uids, uint64(start))
+func (box *Folder) BitmessagesByUIDRange(start, end uint64) []*Bitmessage {
+	startSequence := GetSequenceNumber(box.uids, start)
 	if startSequence == 0 {
 		return nil
 	}
-	endSequence := GetSequenceNumber(box.uids, uint64(end))
+	endSequence := GetSequenceNumber(box.uids, end)
 	if endSequence == 0 || endSequence < startSequence {
 		return nil
 	}
-	return box.getRange(start, startSequence, end, endSequence)
+	return box.getRange(start, end, startSequence, endSequence)
 }
 
 // BitmessagesSinceUID returns the last Bitmessage in the mailbox.
-func (box *Folder) BitmessagesSinceUID(start uint32) []*Bitmessage {
+func (box *Folder) BitmessagesSinceUID(start uint64) []*Bitmessage {
 	fmt.Println("bitmessage set by uid:", start)
-	startSequence := GetSequenceNumber(box.uids, uint64(start))
+	startSequence := GetSequenceNumber(box.uids, start)
 	fmt.Println("bitmessage set by uid:", startSequence)
 	if startSequence == 0 {
 		return []*Bitmessage{}
@@ -263,13 +265,13 @@ func (box *Folder) BitmessagesSinceUID(start uint32) []*Bitmessage {
 }
 
 // BitmessagesBySequenceRange returns a set of Bitmessages in a range between two sequence numbers inclusive.
-func (box *Folder) BitmessagesBySequenceRange(start uint32, end uint32) []*Bitmessage {
+func (box *Folder) BitmessagesBySequenceRange(start, end uint32) []*Bitmessage {
 	if start < 1 || start > box.Messages() || end < 1 || end > box.Messages() || end < start {
 		return nil
 	}
-	startUID := uint32(box.uids[start])
-	endUID := uint32(box.uids[end])
-	return box.getRange(startUID, start, endUID, end)
+	startUID := box.uids[start]
+	endUID := box.uids[end]
+	return box.getRange(startUID, endUID, start, end)
 }
 
 // BitmessagesSinceSequenceNumber returns the set of Bitmessages since and including a given uid value.
@@ -277,7 +279,7 @@ func (box *Folder) BitmessagesSinceSequenceNumber(start uint32) []*Bitmessage {
 	if start < 1 || start > box.Messages() {
 		return nil
 	}
-	startUID := uint32(box.uids[start])
+	startUID := box.uids[start]
 	return box.getSince(startUID, start)
 }
 
@@ -308,7 +310,7 @@ func (box *Folder) BitmessageSetByUID(set types.SequenceSet) []*Bitmessage {
 		// If no Max is specified, then return only the min value.
 		if msgRange.Max.Nil() {
 			// Fetch specific message by sequence number
-			msgs = append(msgs, box.BitmessageByUID(start))
+			msgs = append(msgs, box.BitmessageByUID(uint64(start)))
 			if err != nil {
 				return msgs
 			}
@@ -317,7 +319,7 @@ func (box *Folder) BitmessageSetByUID(set types.SequenceSet) []*Bitmessage {
 
 		var end uint32
 		if msgRange.Max.Last() {
-			since := box.BitmessagesSinceUID(start)
+			since := box.BitmessagesSinceUID(uint64(start))
 			if since == nil {
 				panic("since should not be nil!")
 			}
@@ -327,7 +329,7 @@ func (box *Folder) BitmessageSetByUID(set types.SequenceSet) []*Bitmessage {
 			if err != nil {
 				return msgs
 			}
-			msgs = append(msgs, box.BitmessagesByUIDRange(start, end)...)
+			msgs = append(msgs, box.BitmessagesByUIDRange(uint64(start), uint64(end))...)
 		}
 	}
 
@@ -387,6 +389,13 @@ func (box *Folder) BitmessageSetBySequenceNumber(set types.SequenceSet) []*Bitme
 	return msgs
 }
 
+func (box *Folder) updateUIDs(uid uint64) {
+	box.uids = append(box.uids, uid)
+
+	box.numRecent++
+	box.numUnseen++
+}
+
 // AddNew adds a new bitmessage to the storebox.
 func (box *Folder) AddNew(bmsg *Bitmessage, flags types.Flags) (*Bitmessage, error) {
 	encoding := bmsg.Payload.Encoding()
@@ -413,12 +422,8 @@ func (box *Folder) AddNew(bmsg *Bitmessage, flags types.Flags) (*Bitmessage, err
 		return nil, err
 	}
 
-	imapData.UID = uint32(uid)
-	box.uids = append(box.uids, uid)
-	fmt.Println("!!!!!!! The list of uids for the mailbox:", box.uids)
-
-	box.numRecent++
-	box.numUnseen++
+	imapData.UID = uid
+	box.updateUIDs(uid)
 
 	return bmsg, nil
 }
@@ -451,23 +456,25 @@ func (box *Folder) MessageSetBySequenceNumber(set types.SequenceSet) []mailstore
 
 // Save saves the given bitmessage entry in the folder.
 func (box *Folder) SaveBitmessage(msg *Bitmessage) error {
-	// Check that the uid, date, and sequence number are consistent with one another.
-	previous := box.BitmessageBySequenceNumber(msg.ImapData.SequenceNumber)
-	if previous == nil {
-		return errors.New("Invalid sequence number")
-	}
-	if previous.ImapData.UID != msg.ImapData.UID {
-		return errors.New("Invalid uid")
-	}
-	if previous.ImapData.DateReceived != msg.ImapData.DateReceived {
-		// TODO check if this is true.
-		return errors.New("Cannot change date")
-	}
+	if msg.ImapData.UID != 0 { // The message already exists and needs to be replaced.
+		// Check that the uid, date, and sequence number are consistent with one another.
+		previous := box.BitmessageByUID(msg.ImapData.UID)
+		if previous == nil {
+			return errors.New("Invalid sequence number")
+		}
+		if previous.ImapData.UID != msg.ImapData.UID {
+			return errors.New("Invalid uid")
+		}
+		if previous.ImapData.DateReceived != msg.ImapData.DateReceived {
+			// TODO check if this is true.
+			return errors.New("Cannot change date")
+		}
 
-	// Delete the old message from the database.
-	err := box.mailbox.DeleteMessage(uint64(msg.ImapData.UID))
-	if err != nil {
-		return err
+		// Delete the old message from the database.
+		err := box.mailbox.DeleteMessage(uint64(msg.ImapData.UID))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Generate the new version of the message.
@@ -477,9 +484,14 @@ func (box *Folder) SaveBitmessage(msg *Bitmessage) error {
 	}
 
 	// insert the new version of the message.
-	_, err = box.mailbox.InsertMessage(encode, uint64(msg.ImapData.UID), encoding2)
+	newUID, err := box.mailbox.InsertMessage(encode, msg.ImapData.UID, encoding2)
 	if err != nil {
 		return err
+	}
+
+	if msg.ImapData.UID == 0 {
+		msg.ImapData.UID = newUID
+		box.updateUIDs(newUID)
 	}
 	return nil
 }
@@ -503,17 +515,80 @@ func (box *Folder) Save(email *email.ImapEmail) error {
 	return box.SaveBitmessage(bm)
 }
 
-// NewMessage creates a new, empty message in the specified folder.
-// It is a part of the mail.SMTPFolder interface.
+// This error is used to cause mailbox.ForEachMessage to stop looping through
+// every message once an ack is found, but is not a real error.
+var errAckFound = errors.New("Ack Found")
+
+// ReceiveAck takes an object payload and tests it against messages in the
+// folder to see if it matches the ack of any sent message in the folder.
+// The first such message found is returned.
+func (box *Folder) ReceiveAck(ack []byte) *Bitmessage {
+	var ackMatch *Bitmessage
+
+	box.mailbox.ForEachMessage(0, 0, 2, func(id, suffix uint64, msg []byte) error {
+		entry, err := DecodeBitmessage(msg)
+		if err != nil {
+			return err
+		}
+
+		if bytes.Equal(entry.Ack, ack) {
+			ackMatch = entry
+
+			// Stop ForEachMessage from searching the rest of the messages.
+			return errors.New("Ack found")
+		}
+		return nil
+	})
+
+	if ackMatch == nil {
+		return nil
+	}
+
+	ackMatch.AckReceived = true
+	box.SaveBitmessage(ackMatch)
+
+	return ackMatch
+}
+
+// NewMessage creates a new empty message associated with this folder.
+// It is part of the email.ImapFolder interface.
 func (box *Folder) NewMessage() mailstore.Message {
 	return &email.ImapEmail{
-		Folder: box,
+		ImapFlags: types.FlagRecent,
+		Folder:    box,
+		Content:   &data.Content{},
 	}
+}
+
+// Receive inserts a new message into the folder delivered by SMTP.
+// It is a part of the mail.ImapFolder interface.
+func (box *Folder) Receive(smtp *data.Message, flags types.Flags) (*email.ImapEmail, error) {
+	bmsg, err := NewBitmessageFromSMTP(smtp.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	entry, err := box.AddNew(bmsg, flags)
+	if err != nil {
+		return nil, err
+	}
+
+	return &email.ImapEmail{
+		ImapSequenceNumber: entry.ImapData.SequenceNumber,
+		ImapUID:            entry.ImapData.UID,
+		ImapFlags:          flags,
+		Date:               smtp.Created,
+		Folder:             box,
+		Content:            smtp.Content,
+	}, nil
 }
 
 // Send sends the bitmessage with the given uid into the bitmessage network.
 // TODO
-func (box *Folder) Send(uid uint32) error {
+func (box *Folder) Send(uid uint64) error {
+	// Check whether the message has been sent.
+	// Check whether the message has already had pow done.
+
 	return nil
 }
 
