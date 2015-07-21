@@ -87,13 +87,13 @@ func (bmstore *BitmessageStore) AddAccount(username, password string) (*ClientAc
 	// TODO use a real mailbox instead.
 	var account *ClientAccount
 	if bmstore.dbpath == "" {
-		account = NewClientAccount(nil, nil)
+		account = NewClientAccount(nil, nil, nil)
 	} else {
 		dataStore, err := store.Open(bmstore.dbpath+"/.db/"+username+".bolt", []byte(password))
 		if err != nil {
 			return nil, err
 		}
-		account = NewClientAccount(nil,
+		account = NewClientAccount(nil, nil,
 			func(folder string) (message.Mailbox, error) {
 				return store.NewMailbox(dataStore, folder, true)
 			})
@@ -150,15 +150,21 @@ func NewBitmessageStore(dbpath string) *BitmessageStore {
 	}
 }
 
-// defaultPolicy defines default policy for messages received by SMTP to be
+// defaultSendPolicy defines default policy for messages received by SMTP to be
 // that all are placed in the default inbox.
-func defaultPolicy(msg *message.Bitmessage) *string {
+func defaultSendPolicy(msg *message.Bitmessage) *string {
 	return &defaultOutFolderName
 }
 
-// SendPolicy is a function used to choose into which folder a given bitmessage
-// will be inserted when delivered to an account.
-type SendPolicy func(msg *message.Bitmessage) *string
+// defaultReceivePolicy defines default policy for messages received by SMTP to be
+// that all are placed in the default inbox.
+func defaultReceivePolicy(msg *message.Bitmessage) *string {
+	return &defaultInboxFolderName
+}
+
+// Policy is a function used to choose into which folder a given bitmessage
+// will be inserted when sent or received.
+type Policy func(msg *message.Bitmessage) *string
 
 // createFolder is a function that tells a bitmessage account how to create
 // a new folder.
@@ -168,13 +174,16 @@ type createMailbox func(name string) (message.Mailbox, error)
 // a collection of imap folders belonging to a single user.
 type ClientAccount struct {
 	boxes map[string]*message.Folder
-	// policy is a function that gives the name of the folder in which
-	// an email should be delivered.
-	policy SendPolicy
+	// sendPolicy is a function that gives the name of the folder in which
+	// an email received by SMTP should be inserted.
+	sendPolicy Policy
+	// receivePolicy is a function that gives the name of the folder in which
+	// an email received over the bitmessage network should be
+	receivePolicy Policy
 	// A function that tells the account how to create a new folder.
 	create createMailbox
 
-	//A queue of items to have pow done on them.
+	// A queue of items to have pow done on them.
 	powQueue store.PowQueue
 }
 
@@ -239,7 +248,7 @@ func (bf *ClientAccount) SendMail(smtp *data.Message, flags types.Flags) (*email
 		return nil, err
 	}
 
-	name := bf.policy(bitmessage)
+	name := bf.sendPolicy(bitmessage)
 
 	box, ok := bf.boxes[*name]
 	if !ok {
@@ -267,14 +276,44 @@ func (bf *ClientAccount) SendMail(smtp *data.Message, flags types.Flags) (*email
 	return email, nil
 }
 
+// ReceiveMail takes a Bitmessage received over the bitmessage network
+func (bf *ClientAccount) ReceiveMail(bm *message.Bitmessage) error {
+
+	// TODO check whether this looks like an ack of a previously sent message.
+
+	name := bf.receivePolicy(bm)
+
+	box, ok := bf.boxes[*name]
+	if !ok {
+		var err error
+		box, err = bf.AddBitmessageFolder(*name)
+		if err != nil {
+			return fmt.Errorf("Could not create new folder: %s", err)
+		}
+	}
+
+	_, err := box.AddNew(bm, types.FlagRecent)
+	if err != nil {
+		return err
+	}
+
+	// TODO check whether it has an ack that needs to be sent.
+
+	return nil
+}
+
 // NewClientAccount returns a new client account.
-func NewClientAccount(sendPolicy SendPolicy, create createMailbox) *ClientAccount {
+func NewClientAccount(sendPolicy, receivePolicy Policy, create createMailbox) *ClientAccount {
 	account := &ClientAccount{
 		boxes: make(map[string]*message.Folder),
 	}
 
 	if sendPolicy == nil {
-		account.policy = defaultPolicy
+		account.sendPolicy = defaultSendPolicy
+	}
+
+	if receivePolicy == nil {
+		account.receivePolicy = defaultReceivePolicy
 	}
 
 	if create == nil {

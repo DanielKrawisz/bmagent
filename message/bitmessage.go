@@ -241,19 +241,17 @@ func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
 		return nil, err
 	}
 
-	// TODO how do we give the from address on a brodcast?
-	/*from := bmutil.Address{
-		Version: msg.FromAddressVersion,
-		Stream:  msg.FromStreamNumber,
-		Ripe:    *msg.Destination,
-	}
-	fromAddress, err := from.Encode()
+	sign, _ := msg.SigningKey.ToBtcec()
+	encr, _ := msg.EncryptionKey.ToBtcec()
+	from := identity.NewPublic(sign, encr, msg.NonceTrials,
+		msg.ExtraBytes, msg.FromAddressVersion, msg.FromStreamNumber)
+	fromAddress, err := from.Address.Encode()
 	if err != nil {
 		return nil, err
-	}*/
+	}
 
 	return &Bitmessage{
-		//From:       &fromAddress,
+		From:       fromAddress,
 		Expiration: msg.ExpiresTime,
 		Payload:    payload,
 	}, nil
