@@ -47,6 +47,16 @@ func bmclientMain() error {
 	cfg = tcfg
 	defer backendLog.Flush()
 
+	// Load the identities and message databases. The identities database must
+	// have been created with the --create option already or this will return an
+	// appropriate error.
+	keymgr, store, err := openDatabases(cfg)
+	if err != nil {
+		log.Errorf("%v", err)
+		return err
+	}
+	defer store.Close()
+
 	if cfg.Profile != "" {
 		go func() {
 			listenAddr := net.JoinHostPort("", cfg.Profile)
@@ -57,16 +67,6 @@ func bmclientMain() error {
 			log.Errorf("%v", http.ListenAndServe(listenAddr, nil))
 		}()
 	}
-
-	// Load the identities and message databases. The identities database must
-	// have been created with the --create option already or this will return an
-	// appropriate error.
-	keymgr, store, err := openDatabases(cfg)
-	if err != nil {
-		log.Errorf("%v", err)
-		return err
-	}
-	defer store.Close()
 
 	// Connect to bmd.
 	rpcc, err := rpc.NewClient(&rpc.ClientConfig{
