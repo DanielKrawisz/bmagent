@@ -19,8 +19,14 @@ import (
 // functions can be defined here if necessary.
 type IMAPMailbox interface {
 	mailstore.Mailbox
-	//Receive(smtp *data.Message, flags types.Flags) (*ImapEmail, error)
+
 	Save(*IMAPEmail) error
+
+	// Refresh updates cached statistics like number of messages in inbox,
+	// next UID, last UID, number of recent/unread messages etc. It is meant to
+	// be called after the mailbox has been modified by an agent other than the
+	// IMAP server. This could be the SMTP server, or new message from bmd.
+	Refresh() error
 }
 
 // IMAPUser represents an imap e-mail user account, which contains multiple
@@ -69,8 +75,8 @@ func InitializeStore(s *store.Store) error {
 	}
 
 	// Add the introductory message.
-	from := "bmclient-team"
-	to := "you"
+	from := strings.Split(BmclientAddress, "@")[0]
+	to := from
 	subject := "Welcome to bmclient!"
 
 	err = inbox.AddNew(&Bitmessage{

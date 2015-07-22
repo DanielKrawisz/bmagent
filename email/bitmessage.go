@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/mail"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -27,14 +28,6 @@ const (
 	dateFormat = "Mon Jan 2 15:04:05 -0700 MST 2006"
 
 	bmAddrPattern = "BM-[123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ]+"
-
-	// BroadcastAddress is the address where all broadcasts must be sent.
-	BroadcastAddress = "broadcast@bm.addr"
-
-	// BmclientAddress is the address for controlling bmclient. This could
-	// include creating a new identity, importing a pre-existing identity,
-	// subscribing to a broadcast address etc.
-	BmclientAddress = "bmclient@bm.addr"
 )
 
 var (
@@ -161,6 +154,7 @@ func (be *Bitmessage) ToEmail() (*IMAPEmail, error) {
 		headers["To"] = []string{BMToEmail(be.To)}
 	}
 
+	headers["Date"] = []string{be.ImapData.DateReceived.Format(dateFormat)}
 	headers["Expires"] = []string{be.Expiration.Format(dateFormat)}
 
 	content := &data.Content{
@@ -365,18 +359,34 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	from = fromList[0]
 
 	// Check that the from and to addresses are formatted correctly.
-	from, err := EmailToBM(from)
+	addr, err := mail.ParseAddress(from)
 	if err != nil {
-		return nil, errors.New("From address must be of the form <bm-address>@bm.addr")
+		return nil, fmt.Errorf("Invalid From address %v.", from)
+	}
+	switch addr.Address {
+	case BmclientAddress:
+		from = strings.Split(addr.Address, "@")[0]
+	default:
+		from, err = EmailToBM(addr.Address)
+		if err != nil {
+			return nil, errors.New("From address must be of the form <bm-address>@bm.addr")
+		}
 	}
 
-	if to != BroadcastAddress {
+	addr, err = mail.ParseAddress(to)
+	if err != nil {
+		return nil, fmt.Errorf("Invalid To address %v.", to)
+	}
+	switch addr.Address {
+	case BroadcastAddress:
+		fallthrough
+	case BmclientAddress:
+		to = strings.Split(addr.Address, "@")[0]
+	default:
 		to, err = EmailToBM(to)
 		if err != nil {
 			return nil, errors.New("To address must be of the form <bm-address>@bm.addr or broadcast@bm.addr")
 		}
-	} else {
-		to = ""
 	}
 
 	// Check Reply-To, and if it is set it must be the same as From.

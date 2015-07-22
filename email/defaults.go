@@ -39,4 +39,12 @@ const (
 
 	// DraftsFolderName is the default name for the drafts folder.
 	DraftsFolderName = "Drafts"
+
+	// BroadcastAddress is the address where all broadcasts must be sent.
+	BroadcastAddress = "broadcast@bm.addr"
+
+	// BmclientAddress is the address for controlling bmclient. This could
+	// include creating a new identity, importing a pre-existing identity,
+	// subscribing to a broadcast address etc.
+	BmclientAddress = "bmclient@bm.addr"
 )

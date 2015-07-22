@@ -103,6 +103,9 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 		quit: make(chan struct{}),
 	}
 
+	// Setup logger for IMAP.
+	// srvr.imap.Transcript = os.Stderr
+
 	// Set RPC client handlers.
 	bmd.SetHandlers(srvr.newMessage, srvr.newBroadcast, srvr.newGetpubkey)
 
@@ -242,15 +245,17 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	//log.Infof("Got new message from %s:\n%s", bmsg.From, string(msg.Message))
 
 	// Send out ack if necessary.
-	ack := &wire.MsgObject{}
-	err = ack.Decode(bytes.NewReader(msg.Ack))
-	if err != nil { // Can't send invalid Ack.
-		return
-	}
-	_, err = s.bmd.SendObject(msg.Ack)
-	if err != nil {
-		log.Infof("Failed to send ack for message #%d: %v", counter, err)
-		return
+	if len(msg.Ack) > wire.MessageHeaderSize {
+		ack := &wire.MsgObject{}
+		err = ack.Decode(bytes.NewReader(msg.Ack[wire.MessageHeaderSize:]))
+		if err != nil { // Can't send invalid Ack.
+			return
+		}
+		_, err = s.bmd.SendObject(msg.Ack[wire.MessageHeaderSize:])
+		if err != nil {
+			log.Infof("Failed to send ack for message #%d: %v", counter, err)
+			return
+		}
 	}
 }
 
