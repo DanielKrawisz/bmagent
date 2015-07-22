@@ -36,8 +36,8 @@ const (
 
 	defaultBmdPort  = 8442
 	defaultRPCPort  = 8446
-	defaultIMAPPort = 143
-	defaultSMTPPort = 587
+	defaultIMAPPort = 1143
+	defaultSMTPPort = 1587
 
 	keyfileName = "keys.dat"
 	storeDbName = "store.db"

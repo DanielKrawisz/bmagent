@@ -29,6 +29,6 @@ message ImapData {
 // Encoding a bitmessage object payload. 
 message Encoding {
 	uint64 format   = 1;
-	bytes body      = 2;
-	bytes subject   = 3;
+	bytes subject   = 2;
+	bytes body      = 3;
 }

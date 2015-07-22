@@ -6,6 +6,7 @@ package email
 
 import (
 	"bufio"
+	"errors"
 	"net"
 
 	"github.com/mailhog/data"
@@ -90,6 +91,7 @@ func (serv *SMTPServer) Serve(l net.Listener) error {
 func (serv *SMTPServer) validateAuth(mechanism string, args ...string) (*smtp.Reply, bool) {
 	user := args[0]
 	pass := args[1]
+	// TODO Use time constant comparisons.
 	if user != serv.cfg.Username || pass != serv.cfg.Password {
 		return smtp.ReplyInvalidAuth(), false
 	}
@@ -129,4 +131,24 @@ func NewSMTPServer(cfg *SMTPConfig) *SMTPServer {
 	return &SMTPServer{
 		cfg: cfg,
 	}
+}
+
+// getSMTPBody return the body of an e-mail to be delivered through SMTP.
+func getSMTPBody(email *data.Content) (string, error) {
+	if version, ok := email.Headers["MIME-Version"]; ok {
+		if version[0] != "1.0" {
+			return "", errors.New("Unrecognized MIME version")
+		}
+
+		if contentType, ok := email.Headers["Content-Type"]; !ok {
+			return "", errors.New("Unrecognized MIME version")
+		} else if contentType[0] != "text/plain" {
+			// TODO we should be able to support html bodies.
+			return "", errors.New("Unsupported Content-Type; use text/plain")
+		} else {
+			return email.MIME.Parts[0].Body, nil
+		}
+	}
+
+	return email.Body, nil
 }

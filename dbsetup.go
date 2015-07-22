@@ -18,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcutil/hdkeychain"
+	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/keymgr"
 	"github.com/monetas/bmclient/store"
 	"github.com/monetas/bmutil/identity"
@@ -242,12 +243,20 @@ func createDatabases(cfg *config) error {
 	if err != nil {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
+	fmt.Println("The key file and data store have successfully been created.")
+
+	// Create default mailboxes and associated data.
+	err = email.InitializeStore(s)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Successfully created default mailboxes.")
+
 	err = s.Close()
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("The key file and data store have successfully been created.")
 	return nil
 }
 

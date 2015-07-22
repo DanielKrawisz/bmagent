@@ -12,7 +12,7 @@ import (
 	"github.com/monetas/bmclient/message/serialize"
 )
 
-var encoding2Regex = regexp.MustCompile("$Subject:([.\\n\\r]+)\nBody:([.\\n\\r]+)^")
+var encoding2Regex = regexp.MustCompile(`^Subject:(.*)\nBody:((?s).*)`)
 
 // Encoding represents a msg or broadcast object payload.
 type Encoding interface {
@@ -46,9 +46,8 @@ func (l *Encoding1) ReadMessage(msg []byte) error {
 
 // ToProtobuf encodes the message in a protobuf format.
 func (l *Encoding1) ToProtobuf() *serialize.Encoding {
-	format := uint64(1)
 	return &serialize.Encoding{
-		Format: format,
+		Format: l.Encoding(),
 		Body:   []byte(l.Body),
 	}
 }
@@ -83,9 +82,8 @@ func (l *Encoding2) ReadMessage(msg []byte) error {
 
 // ToProtobuf encodes the message in a protobuf format.
 func (l *Encoding2) ToProtobuf() *serialize.Encoding {
-	format := uint64(2)
 	return &serialize.Encoding{
-		Format:  format,
+		Format:  l.Encoding(),
 		Subject: []byte(l.Subject),
 		Body:    []byte(l.Body),
 	}
@@ -103,6 +101,9 @@ func DecodeObjectPayload(encoding uint64, msg []byte) (Encoding, error) {
 	default:
 		return nil, errors.New("Unsupported encoding")
 	}
-	q.ReadMessage(msg)
+	err := q.ReadMessage(msg)
+	if err != nil {
+		return nil, err
+	}
 	return q, nil
 }
