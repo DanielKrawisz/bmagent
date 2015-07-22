@@ -103,7 +103,7 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 		quit: make(chan struct{}),
 	}
 
-	// Setup logger for IMAP.
+	// Setup tracer for IMAP.
 	// srvr.imap.Transcript = os.Stderr
 
 	// Set RPC client handlers.
@@ -208,11 +208,14 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 
 	// Contains the address of the identity used to decrypt the message.
 	var address string
+	// Whether the message was received from a channel.
+	var ofChan bool
 
 	// Try decrypting with all available identities.
 	err = s.keymgr.ForEach(func(id *keymgr.PrivateID) error {
 		if cipher.TryDecryptAndVerifyMsg(msg, &id.Private) == nil {
 			address, _ = id.Address.Encode()
+			ofChan = id.IsChan
 			return errors.New("decryption successful")
 		}
 		return nil
@@ -232,11 +235,12 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	// TODO Store public key of the sender in bmd
 
 	// Read message.
-	bmsg, err := email.MsgRead(msg, address)
+	bmsg, err := email.MsgRead(msg, address, ofChan)
 	if err != nil {
 		log.Error("Failed to decode message: ", err)
 		return
 	}
+
 	err = mbox.(*email.Mailbox).AddNew(bmsg, types.FlagRecent)
 	if err != nil {
 		log.Error("Failed to save message: ", err)
@@ -244,19 +248,23 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	}
 	//log.Infof("Got new message from %s:\n%s", bmsg.From, string(msg.Message))
 
-	// Send out ack if necessary.
-	if len(msg.Ack) > wire.MessageHeaderSize {
-		ack := &wire.MsgObject{}
-		err = ack.Decode(bytes.NewReader(msg.Ack[wire.MessageHeaderSize:]))
-		if err != nil { // Can't send invalid Ack.
-			return
-		}
-		_, err = s.bmd.SendObject(msg.Ack[wire.MessageHeaderSize:])
-		if err != nil {
-			log.Infof("Failed to send ack for message #%d: %v", counter, err)
-			return
-		}
+	// Check if length of Ack is correct and message isn't from a channel.
+	if len(msg.Ack) < wire.MessageHeaderSize || ofChan {
+		return
 	}
+
+	// Send out ack if necessary.
+	ack := &wire.MsgObject{}
+	err = ack.Decode(bytes.NewReader(msg.Ack[wire.MessageHeaderSize:]))
+	if err != nil { // Can't send invalid Ack.
+		return
+	}
+	_, err = s.bmd.SendObject(msg.Ack[wire.MessageHeaderSize:])
+	if err != nil {
+		log.Infof("Failed to send ack for message #%d: %v", counter, err)
+		return
+	}
+
 }
 
 // newBroadcast is called when a new broadcast is received by the RPC client.

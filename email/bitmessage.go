@@ -74,6 +74,7 @@ type IMAPData struct {
 type Bitmessage struct {
 	From        string
 	To          string
+	OfChannel   bool // Whether the message was sent to/received from a channel.
 	Expiration  time.Time
 	Ack         []byte
 	Sent        bool
@@ -110,6 +111,7 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 	encode := &serialize.Message{
 		From:        m.From,
 		To:          m.To,
+		OfChannel:   m.OfChannel,
 		Expiration:  expr,
 		Ack:         m.Ack,
 		Sent:        m.Sent,
@@ -156,6 +158,11 @@ func (be *Bitmessage) ToEmail() (*IMAPEmail, error) {
 
 	headers["Date"] = []string{be.ImapData.DateReceived.Format(dateFormat)}
 	headers["Expires"] = []string{be.Expiration.Format(dateFormat)}
+	if be.OfChannel {
+		headers["Reply-To"] = []string{BMToEmail(be.To)}
+	}
+	headers["Content-Type"] = []string{`text/plain; charset="UTF-8"`}
+	headers["Content-Transfer-Encoding"] = []string{"8bit"}
 
 	content := &data.Content{
 		Headers: headers,
@@ -213,7 +220,7 @@ func (be *Bitmessage) GenerateObject(msg *Bitmessage, book keymgr.AddressBook) (
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
-func MsgRead(msg *wire.MsgMsg, toAddress string) (*Bitmessage, error) {
+func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, error) {
 	payload, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
 	if err != nil {
 		return nil, err
@@ -234,6 +241,7 @@ func MsgRead(msg *wire.MsgMsg, toAddress string) (*Bitmessage, error) {
 		Expiration: msg.ExpiresTime,
 		Ack:        msg.Ack,
 		Payload:    payload,
+		OfChannel:  ofChan,
 	}, nil
 }
 
@@ -308,6 +316,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 
 	l.From = msg.From
 	l.To = msg.To
+	l.OfChannel = msg.OfChannel
 	l.Ack = msg.Ack
 	l.Payload = q
 	if msg.Object != nil {
@@ -389,14 +398,15 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		}
 	}
 
+	// TODO FIXME cannot be same for channels
 	// Check Reply-To, and if it is set it must be the same as From.
-	if replyTo, ok := header["Reply-To"]; ok && len(replyTo) > 0 {
+	/*if replyTo, ok := header["Reply-To"]; ok && len(replyTo) > 0 {
 		if len(replyTo) > 1 {
 			return nil, errors.New("Invalid headers: Reply-To may have no more than one value.")
 		} else if replyTo[0] != from {
 			return nil, errors.New("Invalid headers: Reply-To must match From or be unset.")
 		}
-	}
+	}*/
 
 	// If cc or bcc are set, give an error because these headers cannot
 	// be made to work as the user would expect with the Bitmessage protocol

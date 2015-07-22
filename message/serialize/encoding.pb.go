@@ -28,10 +28,11 @@ type Message struct {
 	AckExpected bool      `protobuf:"varint,4,opt,name=ack_expected" json:"ack_expected,omitempty"`
 	From        string    `protobuf:"bytes,5,opt,name=from" json:"from,omitempty"`
 	To          string    `protobuf:"bytes,6,opt,name=to" json:"to,omitempty"`
-	Expiration  string    `protobuf:"bytes,7,opt,name=expiration" json:"expiration,omitempty"`
-	Ack         []byte    `protobuf:"bytes,8,opt,name=ack,proto3" json:"ack,omitempty"`
-	ImapData    *ImapData `protobuf:"bytes,9,opt,name=imap_data" json:"imap_data,omitempty"`
-	Object      []byte    `protobuf:"bytes,10,opt,name=object,proto3" json:"object,omitempty"`
+	OfChannel   bool      `protobuf:"varint,7,opt,name=of_channel" json:"of_channel,omitempty"`
+	Expiration  string    `protobuf:"bytes,8,opt,name=expiration" json:"expiration,omitempty"`
+	Ack         []byte    `protobuf:"bytes,9,opt,name=ack,proto3" json:"ack,omitempty"`
+	ImapData    *ImapData `protobuf:"bytes,10,opt,name=imap_data" json:"imap_data,omitempty"`
+	Object      []byte    `protobuf:"bytes,11,opt,name=object,proto3" json:"object,omitempty"`
 }
 
 func (m *Message) Reset()         { *m = Message{} }

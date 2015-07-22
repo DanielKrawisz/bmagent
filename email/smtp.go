@@ -114,7 +114,7 @@ func (serv *SMTPServer) validateSender(from string) bool {
 
 // logHandler handles logging for the SMTP protocol.
 func (serv *SMTPServer) logHandler(message string, args ...interface{}) {
-	smtpLog.Infof(message, args...)
+	smtpLog.Debugf(message, args...)
 }
 
 // messageReceived is called for each message recieved by the SMTP server.

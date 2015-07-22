@@ -366,6 +366,8 @@ func readIniBool(m map[string]string, key string, defaultValue bool) bool {
 	if ok {
 		if strings.ToLower(str) == "false" {
 			ret = false
+		} else if strings.ToLower(str) == "true" {
+			ret = true
 		}
 	}
 	return ret
