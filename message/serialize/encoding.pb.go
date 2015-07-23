@@ -10,6 +10,7 @@ It is generated from these files:
 
 It has these top-level messages:
 	Message
+	MessageState
 	ImapData
 	Encoding
 */
@@ -22,26 +23,24 @@ var _ = proto.Marshal
 
 // Message is a bitmessage.
 type Message struct {
-	Payload     *Encoding `protobuf:"bytes,1,opt,name=payload" json:"payload,omitempty"`
-	Sent        bool      `protobuf:"varint,2,opt,name=sent" json:"sent,omitempty"`
-	AckReceived bool      `protobuf:"varint,3,opt,name=ack_received" json:"ack_received,omitempty"`
-	AckExpected bool      `protobuf:"varint,4,opt,name=ack_expected" json:"ack_expected,omitempty"`
-	From        string    `protobuf:"bytes,5,opt,name=from" json:"from,omitempty"`
-	To          string    `protobuf:"bytes,6,opt,name=to" json:"to,omitempty"`
-	OfChannel   bool      `protobuf:"varint,7,opt,name=of_channel" json:"of_channel,omitempty"`
-	Expiration  string    `protobuf:"bytes,8,opt,name=expiration" json:"expiration,omitempty"`
-	Ack         []byte    `protobuf:"bytes,9,opt,name=ack,proto3" json:"ack,omitempty"`
-	ImapData    *ImapData `protobuf:"bytes,10,opt,name=imap_data" json:"imap_data,omitempty"`
-	Object      []byte    `protobuf:"bytes,11,opt,name=object,proto3" json:"object,omitempty"`
+	Encoding   *Encoding     `protobuf:"bytes,1,opt,name=encoding" json:"encoding,omitempty"`
+	From       string        `protobuf:"bytes,2,opt,name=from" json:"from,omitempty"`
+	To         string        `protobuf:"bytes,3,opt,name=to" json:"to,omitempty"`
+	OfChannel  bool          `protobuf:"varint,4,opt,name=of_channel" json:"of_channel,omitempty"`
+	Expiration string        `protobuf:"bytes,5,opt,name=expiration" json:"expiration,omitempty"`
+	Ack        []byte        `protobuf:"bytes,6,opt,name=ack,proto3" json:"ack,omitempty"`
+	ImapData   *ImapData     `protobuf:"bytes,7,opt,name=imap_data" json:"imap_data,omitempty"`
+	Object     []byte        `protobuf:"bytes,8,opt,name=object,proto3" json:"object,omitempty"`
+	State      *MessageState `protobuf:"bytes,9,opt,name=state" json:"state,omitempty"`
 }
 
 func (m *Message) Reset()         { *m = Message{} }
 func (m *Message) String() string { return proto.CompactTextString(m) }
 func (*Message) ProtoMessage()    {}
 
-func (m *Message) GetPayload() *Encoding {
+func (m *Message) GetEncoding() *Encoding {
 	if m != nil {
-		return m.Payload
+		return m.Encoding
 	}
 	return nil
 }
@@ -53,8 +52,31 @@ func (m *Message) GetImapData() *ImapData {
 	return nil
 }
 
-// ImapData is an entry in the database that contains a message and some related
-// metadata.
+func (m *Message) GetState() *MessageState {
+	if m != nil {
+		return m.State
+	}
+	return nil
+}
+
+// MessageState is the state of the message.
+type MessageState struct {
+	PubkeyRequested bool   `protobuf:"varint,1,opt,name=pubkey_requested" json:"pubkey_requested,omitempty"`
+	PowIndex        uint64 `protobuf:"varint,2,opt,name=pow_index" json:"pow_index,omitempty"`
+	AckPowIndex     uint64 `protobuf:"varint,3,opt,name=ack_pow_index" json:"ack_pow_index,omitempty"`
+	SendTries       uint32 `protobuf:"varint,4,opt,name=send_tries" json:"send_tries,omitempty"`
+	LastSend        string `protobuf:"bytes,5,opt,name=last_send" json:"last_send,omitempty"`
+	AckReceived     bool   `protobuf:"varint,6,opt,name=ack_received" json:"ack_received,omitempty"`
+	AckExpected     bool   `protobuf:"varint,7,opt,name=ack_expected" json:"ack_expected,omitempty"`
+	Received        bool   `protobuf:"varint,8,opt,name=received" json:"received,omitempty"`
+}
+
+func (m *MessageState) Reset()         { *m = MessageState{} }
+func (m *MessageState) String() string { return proto.CompactTextString(m) }
+func (*MessageState) ProtoMessage()    {}
+
+// ImapData is an entry in the database that contains a message and
+// some related metadata.
 type ImapData struct {
 	TimeReceived string `protobuf:"bytes,1,opt,name=time_received" json:"time_received,omitempty"`
 	Flags        int32  `protobuf:"varint,2,opt,name=flags" json:"flags,omitempty"`

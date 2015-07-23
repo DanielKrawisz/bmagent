@@ -9,41 +9,13 @@ import (
 )
 
 type AddressBook interface {
+	// LookupPublicIdentity attempts to retreive a public identity
+	// given an address.
+	// If the function returns nil with no error, that means
+	// that a pubkey request was sent.
 	LookupPublicIdentity(string) (*identity.Public, error)
-	//AddPublicIdentity(string, *identity.Public)
-	LookupPrivateIdentity(string) (*identity.Private, error)
+	// AddPublicIdentity adds a public identity to the cache.
+	AddPublicIdentity(string, *identity.Public)
+	// LookupPrivateIdentity checks the key manager for the right private key.
+	LookupPrivateIdentity(string) (*PrivateID, error)
 }
-
-/*type addressBook struct {
-	managers []*Manager
-	addrs    map[string]*identity.Public
-}
-
-func (book *addressBook) LookupPublicIdentity(str *string) *identity.Public {
-	identity, ok := book.addrs[*str]
-	if ok {
-		reutrn identity, nil
-	}
-
-	private, err := book.LookupPrivateIdentity(str)
-	if err != nil {
-		return nil, err
-	}
-
-	return private.ToPublic(), nil
-}
-
-func (book *addressBook) AddPublicIdentity(str *string, public *identity.Public) {
-	book.addrs[*str] = public
-}
-
-func (book *addressBook) LookupPrivateIdentity(str *string) *identity.Private {
-	for _, manager := range book.managers {
-		identity, _ := manager.LookupByAddress(*str)
-		if identity != nil {
-			return identity.ToPublic(), nil
-		}
-	}
-
-	return ErrNonexistentIdentity
-}*/

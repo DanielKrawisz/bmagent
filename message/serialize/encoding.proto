@@ -7,21 +7,31 @@ option go_package="serialize";
 
 // Message is a bitmessage. 
 message Message {
-	Encoding payload      = 1;
-	bool     sent         = 2;
-	bool     ack_received = 3;
-	bool     ack_expected = 4;
-	string   from         = 5;
-	string   to           = 6;
-	bool     of_channel   = 7;
-	string   expiration   = 8;
-	bytes    ack          = 9;
-	ImapData imap_data    = 10;
-	bytes    object       = 11;
+	Encoding     encoding     = 1;
+	string       from         = 2;
+	string       to           = 3;
+	bool         of_channel   = 4;
+	string       expiration   = 5;
+	bytes        ack          = 6;
+	ImapData     imap_data    = 7;
+	bytes        object       = 8;
+	MessageState state        = 9;
 }
 
-// ImapData is an entry in the database that contains a message and some related
-// metadata.
+// MessageState is the state of the message. 
+message MessageState {
+	bool   pubkey_requested = 1;
+	uint64 pow_index         = 2;
+	uint64 ack_pow_index     = 3;
+	uint32 send_tries        = 4;
+	string last_send         = 5;
+	bool   ack_received      = 6;
+	bool   ack_expected      = 7;
+	bool   received          = 8;
+}
+
+// ImapData is an entry in the database that contains a message and
+// some related metadata.
 message ImapData {
 	string time_received = 1;
 	int32  flags         = 2;
