@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"container/list"
 	"errors"
+	"math"
 	"sync"
 	"time"
 
@@ -17,26 +18,58 @@ import (
 	"github.com/monetas/bmclient/store"
 )
 
-// GetSequenceNumber gets the sequence number higher than or equal to the given
-// uid.
+// GetSequenceNumber gets the lowest sequence number higher than or equal to
+// the given uid.
 func GetSequenceNumber(uids []uint64, uid uint64) uint32 {
-	// TODO make the use of this redundant so that complexity goes down from
-	// O(n^2) while fetching messages.
-
 	// If the slice is empty.
 	if len(uids) == 0 {
-		return 0
+		return 1 //, 0
 	}
 
-	for i, u := range uids {
-		if u > uid { // We already exceeded so return the next element.
-			return uint32(i + 1)
+	// If the given uid is outside the range of uids in the slice.
+	if uid < uids[0] {
+		return 1
+	}
+	if uid > uids[len(uids)-1] {
+		return uint32(len(uids) + 1)
+	}
+
+	// If there is only one message in the box.
+	if len(uids) == 1 {
+		// uid must be equal to the one message in the list because
+		// it's not higher or lower than it.
+		return 1
+	}
+
+	var minIndex uint32
+	maxIndex := uint32(len(uids) - 1)
+
+	minUID := uids[minIndex]
+	maxUID := uids[maxIndex]
+
+	for {
+		ratio := (float64(uid - minUID)) / (float64(maxUID - minUID))
+		// Ratio should be between zero and one inclusive.
+		checkIndex := uint32(math.Floor(float64(minIndex) + ratio*float64(maxIndex-minIndex)))
+
+		newUID := uids[checkIndex]
+
+		if newUID == uid {
+			return checkIndex + 1
 		}
-		if uid == u {
-			return uint32(i + 1)
+
+		if newUID > uid {
+			maxUID = newUID
+			maxIndex = checkIndex
+		} else {
+			// Add 1 because we use Floor function earlier.
+			minIndex = checkIndex + 1
+			minUID = uids[minIndex]
+			if minUID > uid {
+				return minIndex + 1
+			}
 		}
 	}
-	return 0
 }
 
 // Mailbox implements a mailbox that is compatible with IMAP. It implements the
@@ -295,9 +328,6 @@ func (box *Mailbox) getSince(startUID uint64, startSequence uint32) []*Bitmessag
 func (box *Mailbox) BitmessagesByUIDRange(start, end uint64) []*Bitmessage {
 	startSequence := GetSequenceNumber(box.uids, start)
 	endSequence := GetSequenceNumber(box.uids, end)
-	if endSequence == 0 { // We exceeded the range
-		endSequence = box.messages()
-	}
 
 	if startSequence > endSequence {
 		return []*Bitmessage{}

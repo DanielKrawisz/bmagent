@@ -10,7 +10,6 @@ import (
 
 type AddressBook interface {
 	LookupPublicIdentity(string) (*identity.Public, error)
-	//AddPublicIdentity(string, *identity.Public)
 	LookupPrivateIdentity(string) (*identity.Private, error)
 }
 
@@ -31,10 +30,6 @@ func (book *addressBook) LookupPublicIdentity(str *string) *identity.Public {
 	}
 
 	return private.ToPublic(), nil
-}
-
-func (book *addressBook) AddPublicIdentity(str *string, public *identity.Public) {
-	book.addrs[*str] = public
 }
 
 func (book *addressBook) LookupPrivateIdentity(str *string) *identity.Private {

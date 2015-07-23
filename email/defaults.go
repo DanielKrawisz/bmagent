@@ -11,10 +11,14 @@ using version 0.1 alpha.
 If you wish to send a bitmessage, just write an email with an address of the
 form <destination bitmessage address>@bm.addr. For sending out a broadcast,
 shoot an e-mail to broadcast@bm.addr. Don't forget to add the From addresses
-in your e-mail client.
+in your e-mail client! You can also send commands to bmclient via the address
+command@bm.client
 
 Have a bug to report? Care to help out? Please see our github repo:
 https://github.com/monetas/bmclient/`
+
+const commandWelcomeMsg = `
+(put a list of commands here.)`
 
 const (
 	// InboxFolderName is the default name for the inbox folder.
@@ -40,11 +44,14 @@ const (
 	// DraftsFolderName is the default name for the drafts folder.
 	DraftsFolderName = "Drafts"
 
+	// DraftsFolderName is the default name for the drafts folder.
+	CommandFolderName = "Command"
+
 	// BroadcastAddress is the address where all broadcasts must be sent.
 	BroadcastAddress = "broadcast@bm.addr"
 
 	// BmclientAddress is the address for controlling bmclient. This could
 	// include creating a new identity, importing a pre-existing identity,
 	// subscribing to a broadcast address etc.
-	BmclientAddress = "bmclient@bm.addr"
+	BmclientAddress = "command@bm.client"
 )

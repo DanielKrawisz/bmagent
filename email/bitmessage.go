@@ -19,6 +19,7 @@ import (
 	"github.com/monetas/bmclient/message/format"
 	"github.com/monetas/bmclient/message/serialize"
 	"github.com/monetas/bmutil"
+	"github.com/monetas/bmutil/cipher"
 	"github.com/monetas/bmutil/identity"
 	"github.com/monetas/bmutil/wire"
 )
@@ -34,6 +35,10 @@ var (
 	emailRegex = regexp.MustCompile(fmt.Sprintf("(%s)@bm\\.addr", bmAddrPattern))
 
 	ErrInvalidEmail = errors.New("Invalid Bitmessage address")
+
+	defaultMsgExpiration = time.Hour * 60
+
+	defaultBroadcastExpiration = time.Hour * 48
 )
 
 // BMToEmail converts a Bitmessage address to an e-mail address.
@@ -184,39 +189,118 @@ func (be *Bitmessage) ToEmail() (*IMAPEmail, error) {
 	return email, nil
 }
 
-// TODO: If this is a broadcast, must generate the correct tag.
-func generateMsgBroadcast(content []byte, from *identity.Private) (*wire.MsgObject, error) {
-	return nil, nil
+func getExpireTime(expiration *time.Time, defaultExpiration time.Duration) time.Time {
+	if expiration == nil {
+		return time.Now().Add(defaultExpiration)
+	}
+	return *expiration
 }
 
-// TODO: must generate an ack if none exists and send to pow queue.
-func generateMsgMsg(content []byte, from *identity.Private, to *identity.Public) (*wire.MsgObject, error) {
-	return nil, nil
+func generateMsgBroadcast(be *Bitmessage, from *identity.Private) (*wire.MsgObject, uint64, uint64, error) {
+	// TODO make a separate function in bmutil that does this.
+	var signingKey, encKey wire.PubKey
+	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
+	ek := from.EncryptionKey.PubKey().SerializeUncompressed()[1:]
+	copy(signingKey[:], sk)
+	copy(encKey[:], ek)
+
+	broadcast := &wire.MsgBroadcast{
+		ObjectType:  wire.ObjectTypeBroadcast,
+		Version:     5, // TODO should we give users the option of making version 4 broadcasts?
+		ExpiresTime: getExpireTime(&be.Expiration, defaultBroadcastExpiration),
+
+		StreamNumber:       from.Address.Stream, // TODO What is this field? It's not listed in the wiki!
+		FromStreamNumber:   from.Address.Stream,
+		FromAddressVersion: from.Address.Version,
+		NonceTrials:        from.NonceTrialsPerByte,
+		ExtraBytes:         from.ExtraBytes,
+		SigningKey:         &signingKey,
+		EncryptionKey:      &encKey,
+
+		Encoding: be.Payload.Encoding(),
+		Message:  be.Payload.Message(),
+	}
+
+	err := cipher.SignAndEncryptBroadcast(broadcast, from)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	obj, err := wire.ToMsgObject(broadcast)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return obj, 0, 0, nil
+}
+
+func generateMsgMsg(be *Bitmessage, from *identity.Private, to *identity.Public) (*wire.MsgObject, uint64, uint64, error) {
+	// TODO make a separate function in bmutil that does this.
+	var signingKey, encKey wire.PubKey
+	var destination wire.RipeHash //[RipeHashSize]byte
+	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
+	ek := to.EncryptionKey.SerializeUncompressed()[1:]
+	copy(signingKey[:], sk)
+	copy(encKey[:], ek)
+	copy(destination[:], to.Address.Ripe[:])
+
+	message := &wire.MsgMsg{
+		ObjectType:  wire.ObjectTypeMsg,
+		ExpiresTime: getExpireTime(&be.Expiration, defaultMsgExpiration),
+
+		StreamNumber:       from.Address.Stream, // TODO What is this field? It's not listed in the wiki!
+		FromStreamNumber:   from.Address.Stream,
+		FromAddressVersion: from.Address.Version,
+		NonceTrials:        from.NonceTrialsPerByte,
+		ExtraBytes:         from.ExtraBytes,
+		SigningKey:         &signingKey,
+		EncryptionKey:      &encKey,
+		Destination:        &destination,
+
+		Encoding: be.Payload.Encoding(),
+		Message:  be.Payload.Message(),
+	}
+
+	// TODO generate ack
+
+	err := cipher.SignAndEncryptMsg(message, from, to)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	obj, err := wire.ToMsgObject(message)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	return obj, 0, 0, nil
 }
 
 // GenerateObject generates the wire.MsgObject form of the message.
-func (be *Bitmessage) GenerateObject(msg *Bitmessage, book keymgr.AddressBook) (object *wire.MsgObject, genErr error) {
-	msgContent := msg.Payload.Message()
-	from, err := book.LookupPrivateIdentity(msg.From)
+func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgObject,
+	nonceTrials, extraBytes uint64, genErr error) {
+	from, err := book.LookupPrivateIdentity(be.From)
 	if err != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 
-	if msg.To == "" {
-		object, genErr = generateMsgBroadcast(msgContent, from)
+	if be.To == "" {
+		object, nonceTrials, extraBytes, genErr = generateMsgBroadcast(be, from)
 	} else {
-		to, err := book.LookupPublicIdentity(msg.To)
+		to, err := book.LookupPublicIdentity(be.To)
 		if err != nil {
-			return nil, err
+			return nil, 0, 0, err
 		}
-		object, genErr = generateMsgMsg(msgContent, from, to)
+		// Indicates that a pubkey request was sent.
+		if to == nil {
+			return nil, 0, 0, nil
+		}
+		object, nonceTrials, extraBytes, genErr = generateMsgMsg(be, from, to)
 	}
 
 	if genErr != nil {
-		return nil, err
+		return nil, 0, 0, err
 	}
 	be.object = object
-	return object, nil
+	return object, nonceTrials, extraBytes, nil
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.

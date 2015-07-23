@@ -8,9 +8,16 @@ import (
 	"bufio"
 	"errors"
 	"net"
+	"net/mail"
+	"time"
 
+	"github.com/jordwest/imap-server/types"
 	"github.com/mailhog/data"
 	"github.com/mailhog/smtp"
+	"github.com/monetas/bmclient/keymgr"
+	"github.com/monetas/bmclient/store"
+	"github.com/monetas/bmutil/pow"
+	"github.com/monetas/bmutil/wire"
 )
 
 // SMTPConfig contains configuration options for the SMTP server.
@@ -59,6 +66,16 @@ func smtpRun(smtp *smtp.Protocol, conn net.Conn) {
 // clients.
 type SMTPServer struct {
 	cfg *SMTPConfig
+	//keys keymgr.Manager
+
+	// The mailbox in which new messages are to be inserted.
+	// TODO come up with a more flexible policy as to where the message
+	// can go eventually.
+	outbox *Mailbox
+
+	addressBook keymgr.AddressBook
+
+	powQueue *store.PowQueue
 }
 
 // Serve serves SMTP requests on the given listener.
@@ -100,15 +117,48 @@ func (serv *SMTPServer) validateAuth(mechanism string, args ...string) (*smtp.Re
 
 // validateRecipient validates whether the recipient is a valid recipient.
 func (serv *SMTPServer) validateRecipient(to string) bool {
-	// TODO
-	return true
+	addr, err := mail.ParseAddress(to)
+	if err != nil {
+		return false
+	}
+	switch addr.Address {
+	case BroadcastAddress:
+		return true
+	case BmclientAddress:
+		return true
+	default:
+		to, err = EmailToBM(to)
+		if err != nil {
+			return false
+		}
+		return true
+	}
 }
 
 // validateSender validates whether the recipient is a valid sender. For a
 // sender to be valid, we must hold the private keys of the sender's Bitmessage
 // address.
 func (serv *SMTPServer) validateSender(from string) bool {
-	// TODO
+	addr, err := mail.ParseAddress(from)
+	if err != nil {
+		return false
+	}
+
+	var bmAddr string
+	switch addr.Address {
+	case BmclientAddress:
+		return true
+	default:
+		bmAddr, err = EmailToBM(addr.Address)
+		if err != nil {
+			return false
+		}
+	}
+
+	_, err = serv.addressBook.LookupPrivateIdentity(bmAddr)
+	if err != nil {
+		return false
+	}
 	return true
 }
 
@@ -121,7 +171,31 @@ func (serv *SMTPServer) logHandler(message string, args ...interface{}) {
 func (serv *SMTPServer) messageReceived(message *data.Message) (string, error) {
 	smtpLog.Info("Message received:", message.Content.Body)
 
-	//serv.account.Deliver(message, types.FlagSeen&types.FlagRecent)
+	// Convert to bitmessage.
+	bm, err := NewBitmessageFromSMTP(message.Content)
+	if err != nil {
+		return "", err
+	}
+
+	// Attempt to generate the wire.Object form of the message.
+	obj, nonceTrials, extraBytes, err := bm.GenerateObject(serv.addressBook)
+	if err != nil {
+		return "", err
+	}
+
+	// If we were able to generate the object, put it in the pow queue.
+	if obj != nil {
+		encoded := wire.EncodeMessage(obj)
+		target := pow.CalculateTarget(uint64(len(encoded)),
+			uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
+		_ /*index*/, err := serv.powQueue.Enqueue(target, encoded[8:])
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Put the message in outbox.
+	serv.outbox.AddNew(bm, types.FlagRecent&types.FlagSeen)
 
 	return string(message.ID), nil
 }
