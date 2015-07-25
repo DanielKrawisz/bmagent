@@ -69,7 +69,7 @@ func InitializeStore(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	inbox, err := NewMailbox(mbox)
+	inbox, err := NewMailbox(mbox, false)
 	if err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func InitializeStore(s *store.Store) error {
 	err = inbox.AddNew(&Bitmessage{
 		From: from,
 		To:   to,
-		Payload: &format.Encoding2{
+		Message: &format.Encoding2{
 			Subject: subject,
 			Body:    welcomeMsg,
 		},
@@ -111,6 +111,10 @@ func InitializeStore(s *store.Store) error {
 	if err != nil {
 		return err
 	}
+	_, err = s.NewMailbox(DraftsFolderName)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
@@ -121,57 +125,4 @@ func NewBitmessageStore(user *User, cfg *IMAPConfig) *BitmessageStore {
 		user: user,
 		cfg:  cfg,
 	}
-}
-
-// User implements the email.IMAPAccount interface and represents
-// a collection of imap folders belonging to a single user.
-type User struct {
-	boxes map[string]*Mailbox
-}
-
-// UserFromStore creates a User object from the store.
-func UserFromStore(s *store.Store) (*User, error) {
-	u := &User{
-		boxes: make(map[string]*Mailbox),
-	}
-
-	mboxes := s.Mailboxes()
-	for _, mbox := range mboxes {
-		mb, err := NewMailbox(mbox)
-		if err != nil {
-			return nil, err
-		}
-		u.boxes[mb.Name()] = mb
-	}
-
-	return u, nil
-}
-
-// NewMailbox adds a new mailbox.
-func (u *User) NewMailbox(name string) (*Mailbox, error) {
-	return nil, errors.New("Not yet implemented.")
-}
-
-// Mailboxes returns all the mailboxes. It is part of the IMAPMailbox interface.
-func (u *User) Mailboxes() []mailstore.Mailbox {
-	mboxes := make([]mailstore.Mailbox, 0, len(u.boxes))
-	for _, mbox := range u.boxes {
-		mboxes = append(mboxes, mbox)
-	}
-	return mboxes
-}
-
-// MailboxByName returns a mailbox by its name. It is part of the IMAPMailbox
-// interface.
-func (u *User) MailboxByName(name string) (mailstore.Mailbox, error) {
-	// Enforce the case insensitivity of Inbox.
-	if strings.ToLower(name) == strings.ToLower(InboxFolderName) {
-		return u.boxes[InboxFolderName], nil
-	}
-
-	mbox, ok := u.boxes[name]
-	if !ok {
-		return nil, errors.New("Not found")
-	}
-	return mbox, nil
 }

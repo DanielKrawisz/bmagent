@@ -53,5 +53,5 @@ const (
 	// BmclientAddress is the address for controlling bmclient. This could
 	// include creating a new identity, importing a pre-existing identity,
 	// subscribing to a broadcast address etc.
-	BmclientAddress = "command@bm.client"
+	BmclientAddress = "bmclient@bm.addr"
 )

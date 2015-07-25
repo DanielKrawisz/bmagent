@@ -9,15 +9,9 @@ import (
 	"errors"
 	"net"
 	"net/mail"
-	"time"
 
-	"github.com/jordwest/imap-server/types"
 	"github.com/mailhog/data"
 	"github.com/mailhog/smtp"
-	"github.com/monetas/bmclient/keymgr"
-	"github.com/monetas/bmclient/store"
-	"github.com/monetas/bmutil/pow"
-	"github.com/monetas/bmutil/wire"
 )
 
 // SMTPConfig contains configuration options for the SMTP server.
@@ -66,16 +60,9 @@ func smtpRun(smtp *smtp.Protocol, conn net.Conn) {
 // clients.
 type SMTPServer struct {
 	cfg *SMTPConfig
-	//keys keymgr.Manager
 
-	// The mailbox in which new messages are to be inserted.
-	// TODO come up with a more flexible policy as to where the message
-	// can go eventually.
-	outbox *Mailbox
-
-	addressBook keymgr.AddressBook
-
-	powQueue *store.PowQueue
+	// The user to which new messages are to be delivered
+	user *User
 }
 
 // Serve serves SMTP requests on the given listener.
@@ -155,7 +142,7 @@ func (serv *SMTPServer) validateSender(from string) bool {
 		}
 	}
 
-	_, err = serv.addressBook.LookupPrivateIdentity(bmAddr)
+	_, err = serv.user.addressBook.LookupPrivateIdentity(bmAddr)
 	if err != nil {
 		return false
 	}
@@ -177,27 +164,7 @@ func (serv *SMTPServer) messageReceived(message *data.Message) (string, error) {
 		return "", err
 	}
 
-	// Attempt to generate the wire.Object form of the message.
-	obj, nonceTrials, extraBytes, err := bm.GenerateObject(serv.addressBook)
-	if err != nil {
-		return "", err
-	}
-
-	// If we were able to generate the object, put it in the pow queue.
-	if obj != nil {
-		encoded := wire.EncodeMessage(obj)
-		target := pow.CalculateTarget(uint64(len(encoded)),
-			uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
-		_ /*index*/, err := serv.powQueue.Enqueue(target, encoded[8:])
-		if err != nil {
-			return "", err
-		}
-	}
-
-	// Put the message in outbox.
-	serv.outbox.AddNew(bm, types.FlagRecent&types.FlagSeen)
-
-	return string(message.ID), nil
+	return string(message.ID), serv.user.DeliverFromSMTP(bm)
 }
 
 // NewSMTPServer returns a new smtp server.

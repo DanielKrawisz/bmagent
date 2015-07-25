@@ -57,6 +57,7 @@ type server struct {
 	bmd              *rpc.Client
 	keymgr           *keymgr.Manager
 	store            *store.Store
+	folders          *email.User
 	started          int32
 	shutdown         int32
 	msgCounter       uint64
@@ -75,8 +76,16 @@ type server struct {
 func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 	s *store.Store) (*server, error) {
 
+	book := &addressBook{
+		managers: []*keymgr.Manager{kmgr},
+		addrs:    make(map[string]*identity.Public),
+		bmd:      bmd,
+		pk:       s.PubkeyRequests,
+		powQueue: s.PowQueue,
+	}
+
 	// Create an email.User from the store.
-	user, err := email.UserFromStore(s)
+	user, err := email.NewUser(s, book)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +390,7 @@ func (s *server) pkRequestHandler() {
 			// Go through our store and check if server has any new public
 			// identity.
 			s.store.PubkeyRequests.ForEach(func(address string, addTime time.Time) {
-				_, err := s.bmd.GetIdentity(address)
+				public, err := s.bmd.GetIdentity(address)
 				if err == rpc.ErrIdentityNotFound {
 					// TODO check whether addTime has exceeded a set constant.
 					// If it has, delete the message from queue and generate a
@@ -403,7 +412,7 @@ func (s *server) pkRequestHandler() {
 
 				// TODO process pending messages with this public identity and
 				// add them to pow queue.
-
+				s.folders.DeliverPublicKey(address, public)
 			})
 		}
 	}
@@ -427,7 +436,7 @@ func (s *server) powHandler() {
 
 				// Since we have the required nonce value and have processed
 				// the pending message, remove it from the queue.
-				_, obj, err := s.store.PowQueue.Dequeue()
+				index, obj, err := s.store.PowQueue.Dequeue()
 				if err != nil {
 					serverLog.Criticalf("Dequeue on PowQueue failed: %v", err)
 					continue
@@ -446,16 +455,15 @@ func (s *server) powHandler() {
 					continue
 				}
 
-				// TODO take appropriate actions for messages in various folders
-				if msg.ObjectType == wire.ObjectTypeMsg ||
-					msg.ObjectType == wire.ObjectTypeBroadcast {
-
-				}
-
 				// Send the object out on the network.
 				_, err = s.bmd.SendObject(obj)
 				if err != nil {
 					serverLog.Errorf("Failed to send object: %v", err)
+				} else {
+					if msg.ObjectType == wire.ObjectTypeMsg ||
+						msg.ObjectType == wire.ObjectTypeBroadcast {
+						s.folders.DeliverPow(index, msg)
+					}
 				}
 
 			} else if err != store.ErrNotFound {

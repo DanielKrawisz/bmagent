@@ -18,9 +18,11 @@ import (
 	"github.com/monetas/bmclient/keymgr"
 	"github.com/monetas/bmclient/message/format"
 	"github.com/monetas/bmclient/message/serialize"
+	"github.com/monetas/bmclient/store"
 	"github.com/monetas/bmutil"
 	"github.com/monetas/bmutil/cipher"
 	"github.com/monetas/bmutil/identity"
+	"github.com/monetas/bmutil/pow"
 	"github.com/monetas/bmutil/wire"
 )
 
@@ -74,22 +76,39 @@ type IMAPData struct {
 	Mailbox        *Mailbox
 }
 
+type MessageState struct {
+	// Whether a pubkey request is pending for this message.
+	PubkeyRequested bool
+	// The index of a pow computation for this message.
+	PowIndex uint64
+	// The index of a pow computation for the message ack.
+	AckPowIndex uint64
+	// The number of times that the message was sent.
+	SendTries uint32
+	// The last send attempt for the message.
+	LastSend time.Time
+	// Whether an ack is expected for this message.
+	AckExpected bool
+	// Whether an ack has been received.
+	AckReceived bool
+	// Whether the message was received over the bitmessage network.
+	Received bool
+}
+
 // Bitmessage represents a message compatible with a bitmessage format
 // (msg or broadcast). If To is empty, then it is a broadcast.
 type Bitmessage struct {
-	From        string
-	To          string
-	OfChannel   bool // Whether the message was sent to/received from a channel.
-	Expiration  time.Time
-	Ack         []byte
-	Sent        bool
-	AckExpected bool
-	AckReceived bool
-	Payload     format.Encoding
-	ImapData    *IMAPData
+	From       string
+	To         string
+	OfChannel  bool // Whether the message was sent to/received from a channel.
+	Expiration time.Time
+	Ack        []byte
+	Message    format.Encoding
+	ImapData   *IMAPData
 	// The encoded form of the message as a bitmessage object. Required
 	// for messages that are waiting to be sent or have pow done on them.
 	object *wire.MsgObject
+	state  *MessageState
 }
 
 // Serialize encodes the message in a protobuf format.
@@ -113,18 +132,31 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 		object = wire.EncodeMessage(m.object)
 	}
 
+	var state *serialize.MessageState
+	if m.state != nil {
+		lastsend := m.state.LastSend.Format(dateFormat)
+		state = &serialize.MessageState{
+			SendTries:       m.state.SendTries,
+			AckExpected:     m.state.AckExpected,
+			AckReceived:     m.state.AckReceived,
+			PubkeyRequested: m.state.PubkeyRequested,
+			PowIndex:        m.state.PowIndex,
+			AckPowIndex:     m.state.AckPowIndex,
+			LastSend:        lastsend,
+			Received:        m.state.Received,
+		}
+	}
+
 	encode := &serialize.Message{
-		From:        m.From,
-		To:          m.To,
-		OfChannel:   m.OfChannel,
-		Expiration:  expr,
-		Ack:         m.Ack,
-		Sent:        m.Sent,
-		AckExpected: m.AckExpected,
-		AckReceived: m.AckReceived,
-		ImapData:    imapData,
-		Payload:     m.Payload.ToProtobuf(),
-		Object:      object,
+		From:       m.From,
+		To:         m.To,
+		OfChannel:  m.OfChannel,
+		Expiration: expr,
+		Ack:        m.Ack,
+		ImapData:   imapData,
+		Encoding:   m.Message.ToProtobuf(),
+		Object:     object,
+		State:      state,
 	}
 
 	data, err := proto.Marshal(encode)
@@ -137,7 +169,7 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 // ToEmail converts a Bitmessage into an IMAPEmail.
 func (be *Bitmessage) ToEmail() (*IMAPEmail, error) {
 	var payload *format.Encoding2
-	switch m := be.Payload.(type) {
+	switch m := be.Message.(type) {
 	// Only encoding 2 is considered to be compatible with email.
 	case *format.Encoding2:
 		payload = m
@@ -199,10 +231,13 @@ func getExpireTime(expiration *time.Time, defaultExpiration time.Duration) time.
 func generateMsgBroadcast(be *Bitmessage, from *identity.Private) (*wire.MsgObject, uint64, uint64, error) {
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
+	var tag *wire.ShaHash
 	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
 	ek := from.EncryptionKey.PubKey().SerializeUncompressed()[1:]
+	t := from.Address.Tag()
 	copy(signingKey[:], sk)
 	copy(encKey[:], ek)
+	copy(tag[:], t)
 
 	broadcast := &wire.MsgBroadcast{
 		ObjectType:  wire.ObjectTypeBroadcast,
@@ -217,8 +252,9 @@ func generateMsgBroadcast(be *Bitmessage, from *identity.Private) (*wire.MsgObje
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
 
-		Encoding: be.Payload.Encoding(),
-		Message:  be.Payload.Message(),
+		Encoding: be.Message.Encoding(),
+		Message:  be.Message.Message(),
+		Tag:      tag,
 	}
 
 	err := cipher.SignAndEncryptBroadcast(broadcast, from)
@@ -256,8 +292,8 @@ func generateMsgMsg(be *Bitmessage, from *identity.Private, to *identity.Public)
 		EncryptionKey:      &encKey,
 		Destination:        &destination,
 
-		Encoding: be.Payload.Encoding(),
-		Message:  be.Payload.Message(),
+		Encoding: be.Message.Encoding(),
+		Message:  be.Message.Message(),
 	}
 
 	// TODO generate ack
@@ -277,13 +313,14 @@ func generateMsgMsg(be *Bitmessage, from *identity.Private, to *identity.Public)
 // GenerateObject generates the wire.MsgObject form of the message.
 func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgObject,
 	nonceTrials, extraBytes uint64, genErr error) {
+	smtpLog.Trace("GenerateObject")
 	from, err := book.LookupPrivateIdentity(be.From)
 	if err != nil {
 		return nil, 0, 0, err
 	}
 
 	if be.To == "" {
-		object, nonceTrials, extraBytes, genErr = generateMsgBroadcast(be, from)
+		object, nonceTrials, extraBytes, genErr = generateMsgBroadcast(be, &(from.Private))
 	} else {
 		to, err := book.LookupPublicIdentity(be.To)
 		if err != nil {
@@ -293,7 +330,7 @@ func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgO
 		if to == nil {
 			return nil, 0, 0, nil
 		}
-		object, nonceTrials, extraBytes, genErr = generateMsgMsg(be, from, to)
+		object, nonceTrials, extraBytes, genErr = generateMsgMsg(be, &(from.Private), to)
 	}
 
 	if genErr != nil {
@@ -303,9 +340,42 @@ func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgO
 	return object, nonceTrials, extraBytes, nil
 }
 
+// SubmitPow attempts to submit a message for pow.
+func (be *Bitmessage) SubmitPow(powQueue *store.PowQueue, addr keymgr.AddressBook) (uint64, error) {
+	smtpLog.Trace("SubmitPow")
+	// Attempt to generate the wire.Object form of the message.
+	obj, nonceTrials, extraBytes, err := be.GenerateObject(addr)
+	if obj == nil {
+		smtpLog.Trace("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
+		return 0, err
+	}
+
+	// If we were able to generate the object, put it in the pow queue.
+	var index uint64
+	if obj != nil {
+		encoded := wire.EncodeMessage(obj)
+		target := pow.CalculateTarget(uint64(len(encoded)),
+			uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
+		index, err = powQueue.Enqueue(target, encoded[8:])
+		if err != nil {
+			return 0, err
+		}
+
+		if be.state == nil {
+			be.state = &MessageState{
+				AckExpected: true,
+			}
+		}
+		be.state.PowIndex = index
+	}
+
+	smtpLog.Trace("SubmitPow: object submitted to pow queue.")
+	return index, nil
+}
+
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
 func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, error) {
-	payload, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
+	message, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
 	if err != nil {
 		return nil, err
 	}
@@ -324,15 +394,15 @@ func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, erro
 		To:         toAddress,
 		Expiration: msg.ExpiresTime,
 		Ack:        msg.Ack,
-		Payload:    payload,
 		OfChannel:  ofChan,
+		Message:    message,
 	}, nil
 }
 
 // BroadcastRead creates a Bitmessage object from an unencrypted
 // wire.MsgBroadcast.
 func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
-	payload, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
+	message, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
 	if err != nil {
 		return nil, err
 	}
@@ -349,7 +419,7 @@ func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
 	return &Bitmessage{
 		From:       fromAddress,
 		Expiration: msg.ExpiresTime,
-		Payload:    payload,
+		Message:    message,
 	}, nil
 }
 
@@ -363,28 +433,28 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 	}
 
 	var q format.Encoding
-	switch msg.Payload.Format {
+	switch msg.Encoding.Format {
 	case 1:
 		r := &format.Encoding1{}
 
-		if msg.Payload.Body == nil {
+		if msg.Encoding.Body == nil {
 			return nil, errors.New("Body required in encoding format 1")
 		}
-		r.Body = string(msg.Payload.Body)
+		r.Body = string(msg.Encoding.Body)
 
 		q = r
 	case 2:
 		r := &format.Encoding2{}
 
-		if msg.Payload.Subject == nil {
+		if msg.Encoding.Subject == nil {
 			return nil, errors.New("Subject required in encoding format 2")
 		}
-		r.Subject = string(msg.Payload.Subject)
+		r.Subject = string(msg.Encoding.Subject)
 
-		if msg.Payload.Body == nil {
+		if msg.Encoding.Body == nil {
 			return nil, errors.New("Body required in encoding format 2")
 		}
-		r.Body = string(msg.Payload.Body)
+		r.Body = string(msg.Encoding.Body)
 
 		q = r
 	default:
@@ -402,7 +472,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 	l.To = msg.To
 	l.OfChannel = msg.OfChannel
 	l.Ack = msg.Ack
-	l.Payload = q
+	l.Message = q
 	if msg.Object != nil {
 		l.object, err = wire.DecodeMsgObject(msg.Object)
 		if err != nil {
@@ -419,6 +489,24 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 		l.ImapData = &IMAPData{
 			Flags:        types.Flags(msg.ImapData.Flags),
 			DateReceived: dateReceived,
+		}
+	}
+
+	if msg.State != nil {
+		lastSend, err := time.Parse(dateFormat, msg.State.LastSend)
+		if err != nil {
+			return nil, err
+		}
+
+		l.state = &MessageState{
+			PubkeyRequested: msg.State.PubkeyRequested,
+			PowIndex:        msg.State.PowIndex,
+			AckPowIndex:     msg.State.AckPowIndex,
+			SendTries:       msg.State.SendTries,
+			LastSend:        lastSend,
+			AckExpected:     msg.State.AckExpected,
+			AckReceived:     msg.State.AckReceived,
+			Received:        msg.State.Received,
 		}
 	}
 
@@ -526,14 +614,16 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	}
 
 	return &Bitmessage{
-		From:        from,
-		To:          to,
-		Expiration:  expiration,
-		Ack:         nil,
-		AckExpected: true,
-		Payload: &format.Encoding2{
+		From:       from,
+		To:         to,
+		Expiration: expiration,
+		Ack:        nil,
+		Message: &format.Encoding2{
 			Subject: subject,
 			Body:    body,
+		},
+		state: &MessageState{
+			AckExpected: true,
 		},
 	}, nil
 }

@@ -77,12 +77,16 @@ func GetSequenceNumber(uids []uint64, uid uint64) uint32 {
 // care of locking/unlocking the embedded RWMutex.
 type Mailbox struct {
 	mbox         *store.Mailbox
+	canOverwrite bool
 	sync.RWMutex // Protect the following fields.
 	uids         []uint64
-	numRecent    uint32
-	numUnseen    uint32
-	nextUID      uint32
-	lastUID      uint32
+	// A map of public key request indices to folder ids.
+	pkrequests map[string]uint64
+	// A map of pow queue entry indices to folder ids.
+	powqueue  map[uint64]uint64
+	numRecent uint32
+	numUnseen uint32
+	nextUID   uint32
 }
 
 func (box *Mailbox) decodeBitmessageForImap(uid uint64, seqno uint32, msg []byte) *Bitmessage {
@@ -120,20 +124,14 @@ func (box *Mailbox) Refresh() error {
 	}
 	box.nextUID = uint32(nextUID)
 
-	// Set LastUID
-	lastUID, err := box.mbox.LastIDBySuffix(2)
-	if err == store.ErrNotFound {
-		lastUID = uint64(box.nextUID)
-	} else if err != nil {
-		return err
-	}
-	box.lastUID = uint32(lastUID)
-
 	var recent, unseen uint32
 	list := list.New()
 
-	// Run through every message to get the uids and count the recent and
-	// unseen messages.
+	pkrequests := make(map[string]uint64)
+	powqueue := make(map[uint64]uint64)
+
+	// Run through every message to get the uids, count the recent and
+	// unseen messages, and to update pkrequests and powqueue.
 	err = box.mbox.ForEachMessage(0, 0, 2, func(id, suffix uint64, msg []byte) error {
 		entry, err := DecodeBitmessage(msg)
 		if err != nil {
@@ -145,6 +143,13 @@ func (box *Mailbox) Refresh() error {
 		}
 		if !entry.ImapData.Flags.HasFlags(types.FlagSeen) {
 			unseen++
+		}
+
+		if entry.state.PubkeyRequested {
+			pkrequests[entry.To] = id
+		}
+		if entry.state.PowIndex != 0 {
+			powqueue[entry.state.PowIndex] = id
 		}
 
 		list.PushBack(id)
@@ -182,7 +187,7 @@ func (box *Mailbox) LastUID() uint32 {
 	box.RLock()
 	defer box.RUnlock()
 
-	return box.lastUID
+	return uint32(box.uids[len(box.uids)-1])
 }
 
 // Recent returns the number of recent messages in the mailbox.
@@ -216,6 +221,28 @@ func (box *Mailbox) Unseen() uint32 {
 	defer box.RUnlock()
 
 	return box.numUnseen
+}
+
+func (box *Mailbox) getPKRequestIndex(address string) uint64 {
+	box.RLock()
+	defer box.RUnlock()
+
+	pkindex, ok := box.pkrequests[address]
+	if !ok {
+		return 0
+	}
+	return pkindex
+}
+
+func (box *Mailbox) getPowQueueIndex(index uint64) uint64 {
+	box.RLock()
+	defer box.RUnlock()
+
+	powindex, ok := box.powqueue[index]
+	if !ok {
+		return 0
+	}
+	return powindex
 }
 
 // BitmessageBySequenceNumber gets a message by its sequence number
@@ -467,7 +494,9 @@ func (box *Mailbox) BitmessageSetBySequenceNumber(set types.SequenceSet) []*Bitm
 
 // AddNew adds a new Bitmessage to the Mailbox.
 func (box *Mailbox) AddNew(bmsg *Bitmessage, flags types.Flags) error {
-	encoding := bmsg.Payload.Encoding()
+	smtpLog.Trace("Bitmessage received in folder ", box.Name())
+
+	encoding := bmsg.Message.Encoding()
 	if encoding != 2 {
 		return errors.New("Unsupported encoding")
 	}
@@ -486,13 +515,21 @@ func (box *Mailbox) AddNew(bmsg *Bitmessage, flags types.Flags) error {
 		return err
 	}
 
-	uid, err := box.mbox.InsertMessage(msg, 0, bmsg.Payload.Encoding())
+	uid, err := box.mbox.InsertMessage(msg, 0, bmsg.Message.Encoding())
 	if err != nil {
 		return err
 	}
 
+	// TODO handle this better instead of going through every message.
+	err = box.Refresh()
+	if err != nil {
+		return err
+	}
+
+	// Set the message with the correct uid and sequence number.
 	imapData.UID = uid
-	return box.Refresh()
+	imapData.SequenceNumber = uint32(len(box.uids))
+	return nil
 }
 
 // MessageSetByUID returns the slice of messages belonging to a set of ranges of
@@ -537,21 +574,58 @@ func (box *Mailbox) MessageSetBySequenceNumber(set types.SequenceSet) []mailstor
 	return email
 }
 
+func (box *Mailbox) DeleteBitmessageByUID(id uint64) error {
+	bmsg := box.BitmessageByUID(id)
+	if bmsg == nil {
+		return nil
+	}
+
+	err := box.mbox.DeleteMessage(id)
+	if err != nil {
+		return err
+	}
+
+	box.RLock()
+	defer box.RUnlock()
+
+	// Update the box's state based on the information in the message deleted.
+	if bmsg.ImapData != nil {
+
+		if bmsg.ImapData.Flags&types.FlagRecent == types.FlagRecent {
+			box.numRecent -= 1
+		}
+
+		if bmsg.ImapData.Flags&types.FlagSeen != types.FlagSeen {
+			box.numUnseen -= 1
+		}
+	}
+
+	if bmsg.state != nil {
+		if bmsg.state.PubkeyRequested {
+			delete(box.pkrequests, bmsg.To)
+		}
+
+		if bmsg.state.PowIndex != 0 {
+			delete(box.powqueue, bmsg.state.PowIndex)
+		}
+
+		if bmsg.state.AckPowIndex != 0 {
+			delete(box.powqueue, bmsg.state.AckPowIndex)
+		}
+	}
+
+	for i, uid := range box.uids {
+		if uid == id {
+			box.uids = append(box.uids[0:i], box.uids[i+1:]...)
+			break
+		}
+	}
+	return nil
+}
+
 // Save saves the given bitmessage entry in the folder.
 func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
 	if msg.ImapData.UID != 0 { // The message already exists and needs to be replaced.
-		// Check that the uid, date, and sequence number are consistent with one another.
-		previous := box.BitmessageByUID(msg.ImapData.UID)
-		if previous == nil {
-			return errors.New("Invalid sequence number")
-		}
-		if previous.ImapData.UID != msg.ImapData.UID {
-			return errors.New("Invalid uid")
-		}
-		if previous.ImapData.DateReceived != msg.ImapData.DateReceived {
-			return errors.New("Cannot change date received")
-		}
-
 		// Delete the old message from the database.
 		err := box.mbox.DeleteMessage(uint64(msg.ImapData.UID))
 		if err != nil {
@@ -568,10 +642,10 @@ func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
 	}
 
 	// Insert the new version of the message.
-	newUID, err := box.mbox.InsertMessage(encode, msg.ImapData.UID, msg.Payload.Encoding())
+	newUID, err := box.mbox.InsertMessage(encode, msg.ImapData.UID, msg.Message.Encoding())
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).InsertMessage(id=%d, suffix=%d) gave error %v",
-			box.Name(), msg.ImapData.UID, msg.Payload.Encoding())
+			box.Name(), msg.ImapData.UID, msg.Message.Encoding())
 		return err
 	}
 
@@ -588,13 +662,16 @@ func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
 // Save saves an IMAP email in the Mailbox. It is part of the IMAPMailbox
 // interface.
 func (box *Mailbox) Save(email *IMAPEmail) error {
-	bm, err := NewBitmessageFromSMTP(email.Content)
+	if !box.canOverwrite {
+		return errors.New("Cannot edit messages in this mailbox.")
+	}
+	msg, err := NewBitmessageFromSMTP(email.Content)
 	if err != nil {
 		imapLog.Errorf("Error saving message #%d: %v", email.ImapUID, err)
 		return err
 	}
 
-	bm.ImapData = &IMAPData{
+	msg.ImapData = &IMAPData{
 		UID:            email.ImapUID,
 		SequenceNumber: email.ImapSequenceNumber,
 		Flags:          email.ImapFlags,
@@ -602,11 +679,27 @@ func (box *Mailbox) Save(email *IMAPEmail) error {
 		Mailbox:        box,
 	}
 
-	return box.SaveBitmessage(bm)
+	if msg.ImapData.UID != 0 { // The message already exists and needs to be replaced.
+		// Check that the uid, date, and sequence number are consistent with one another.
+		previous := box.BitmessageByUID(msg.ImapData.UID)
+		if previous == nil {
+			return errors.New("Invalid sequence number")
+		}
+		if previous.ImapData.UID != msg.ImapData.UID {
+			return errors.New("Invalid uid")
+		}
+		if previous.ImapData.DateReceived != msg.ImapData.DateReceived {
+			return errors.New("Cannot change date received")
+		}
+
+		msg.state = previous.state
+	}
+
+	return box.SaveBitmessage(msg)
 }
 
 // This error is used to cause mailbox.ForEachMessage to stop looping through
-// every message once an ack is found, but is not a real error.
+// every message once an ack is found, but is not really an error.
 var errAckFound = errors.New("Ack Found")
 
 // ReceiveAck takes an object payload and tests it against messages in the
@@ -633,7 +726,7 @@ func (box *Mailbox) ReceiveAck(ack []byte) *Bitmessage {
 		return nil
 	}
 
-	ackMatch.AckReceived = true
+	ackMatch.state.AckReceived = true
 	box.SaveBitmessage(ackMatch)
 
 	return ackMatch
@@ -650,9 +743,10 @@ func (box *Mailbox) NewMessage() mailstore.Message {
 }
 
 // NewMailbox returns a new mailbox.
-func NewMailbox(mbox *store.Mailbox) (*Mailbox, error) {
+func NewMailbox(mbox *store.Mailbox, canOverwrite bool) (*Mailbox, error) {
 	m := &Mailbox{
-		mbox: mbox,
+		mbox:         mbox,
+		canOverwrite: canOverwrite,
 	}
 
 	// Populate various data fields.
