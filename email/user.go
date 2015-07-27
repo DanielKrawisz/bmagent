@@ -26,17 +26,35 @@ type User struct {
 // NewUser creates a User object from the store.
 func NewUser(s *store.Store, book keymgr.AddressBook) (*User, error) {
 	u := &User{
-		boxes: make(map[string]*Mailbox),
+		boxes:       make(map[string]*Mailbox),
+		addressBook: book,
+		powQueue:    s.PowQueue,
 	}
 
 	mboxes := s.Mailboxes()
+	// The user is allowed to save in some mailboxes but not others.
 	for _, mbox := range mboxes {
-		isDraft := mbox.Name() == DraftsFolderName
-		mb, err := NewMailbox(mbox, isDraft)
+		mb, err := NewMailbox(mbox)
 		if err != nil {
 			return nil, err
 		}
 		u.boxes[mb.Name()] = mb
+	}
+
+	// Add any mailboxes that are missing.
+	for _, boxName := range []string{InboxFolderName, SentFolderName, OutboxFolderName,
+		DraftsFolderName, TrashFolderName, LimboFolderName, CommandFolderName} {
+		if _, ok := u.boxes[boxName]; !ok {
+			newbox, err := s.NewMailbox(boxName)
+			if err != nil {
+				return nil, err
+			}
+			mb, err := NewMailbox(newbox)
+			if err != nil {
+				return nil, err
+			}
+			u.boxes[boxName] = mb
+		}
 	}
 
 	u.powQueue = s.PowQueue

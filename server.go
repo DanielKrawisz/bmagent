@@ -79,7 +79,6 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 	book := &addressBook{
 		managers: []*keymgr.Manager{kmgr},
 		addrs:    make(map[string]*identity.Public),
-		bmd:      bmd,
 		pk:       s.PubkeyRequests,
 		powQueue: s.PowQueue,
 	}
@@ -98,7 +97,7 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 			RequireTLS: !cfg.DisableServerTLS,
 			Username:   cfg.Username,
 			Password:   cfg.Password,
-		}),
+		}, user),
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 
 		imap: imap.NewServer(email.NewBitmessageStore(user, &email.IMAPConfig{
@@ -111,6 +110,8 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 
 		quit: make(chan struct{}),
 	}
+
+	book.server = srvr
 
 	// Setup tracer for IMAP.
 	// srvr.imap.Transcript = os.Stderr
@@ -432,7 +433,9 @@ func (s *server) powHandler() {
 		case <-t.C:
 			target, hash, err := s.store.PowQueue.PeekForPow()
 			if err == nil { // We have something to process
+				serverLog.Trace("powHandler: about to process pow for an object.")
 				nonce := cfg.powHandler(target, hash)
+				serverLog.Trace("powHandler: proof of work calculated.")
 
 				// Since we have the required nonce value and have processed
 				// the pending message, remove it from the queue.
@@ -465,6 +468,7 @@ func (s *server) powHandler() {
 						s.folders.DeliverPow(index, msg)
 					}
 				}
+				serverLog.Trace("powHandler: object sent into network..")
 
 			} else if err != store.ErrNotFound {
 				serverLog.Criticalf("Peek on PowQueue failed: %v", err)
@@ -521,6 +525,7 @@ func (s *server) saveData() {
 // or sends a getpubkey request if it doesn't exist in its store. If both return
 // types are nil, it means a getpubkey request has been queued.
 func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, error) {
+	serverLog.Trace("getOrRequestPublicIdentity called on ", address)
 	id, err := s.bmd.GetIdentity(address)
 	if err == nil {
 		return id, nil
@@ -533,6 +538,7 @@ func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, e
 		return nil, fmt.Errorf("Failed to decode address: %v", err)
 	}
 
+	serverLog.Trace("getOrRequestPublicIdentity: address not found, so sent to pow queue.")
 	// We don't have the identity so craft a getpubkey request.
 	var tag wire.ShaHash
 	copy(tag[:], addr.Tag())
@@ -573,6 +579,7 @@ func (s *server) Stop() {
 	for _, l := range s.imapListeners {
 		l.Close()
 	}
+	s.imapUser = nil // Prevent pointer cycle.
 
 	s.bmd.Stop()
 	close(s.quit)

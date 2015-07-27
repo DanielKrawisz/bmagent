@@ -69,7 +69,7 @@ func InitializeStore(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	inbox, err := NewMailbox(mbox, false)
+	inbox, err := NewMailbox(mbox)
 	if err != nil {
 		return err
 	}

@@ -231,7 +231,7 @@ func getExpireTime(expiration *time.Time, defaultExpiration time.Duration) time.
 func generateMsgBroadcast(be *Bitmessage, from *identity.Private) (*wire.MsgObject, uint64, uint64, error) {
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
-	var tag *wire.ShaHash
+	var tag wire.ShaHash
 	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
 	ek := from.EncryptionKey.PubKey().SerializeUncompressed()[1:]
 	t := from.Address.Tag()
@@ -254,7 +254,7 @@ func generateMsgBroadcast(be *Bitmessage, from *identity.Private) (*wire.MsgObje
 
 		Encoding: be.Message.Encoding(),
 		Message:  be.Message.Message(),
-		Tag:      tag,
+		Tag:      &tag,
 	}
 
 	err := cipher.SignAndEncryptBroadcast(broadcast, from)
