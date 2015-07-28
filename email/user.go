@@ -1,14 +1,17 @@
+// Copyright (c) 2015 Monetas.
+// Use of this source code is governed by an ISC
+// license that can be found in the LICENSE file.
+
 package email
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
-	"github.com/monetas/bmclient/keymgr"
-	"github.com/monetas/bmclient/store"
 	"github.com/monetas/bmutil/identity"
 	"github.com/monetas/bmutil/wire"
 )
@@ -16,22 +19,18 @@ import (
 // User implements the email.IMAPAccount interface and represents
 // a collection of imap folders belonging to a single user.
 type User struct {
-	boxes map[string]*Mailbox
-
-	addressBook keymgr.AddressBook
-
-	powQueue *store.PowQueue
+	boxes  map[string]*Mailbox
+	server ServerOps
 }
 
 // NewUser creates a User object from the store.
-func NewUser(s *store.Store, book keymgr.AddressBook) (*User, error) {
+func NewUser(server ServerOps) (*User, error) {
 	u := &User{
-		boxes:       make(map[string]*Mailbox),
-		addressBook: book,
-		powQueue:    s.PowQueue,
+		boxes:  make(map[string]*Mailbox),
+		server: server,
 	}
 
-	mboxes := s.Mailboxes()
+	mboxes := server.Store().Mailboxes()
 	// The user is allowed to save in some mailboxes but not others.
 	for _, mbox := range mboxes {
 		mb, err := NewMailbox(mbox)
@@ -40,24 +39,6 @@ func NewUser(s *store.Store, book keymgr.AddressBook) (*User, error) {
 		}
 		u.boxes[mb.Name()] = mb
 	}
-
-	// Add any mailboxes that are missing.
-	for _, boxName := range []string{InboxFolderName, SentFolderName, OutboxFolderName,
-		DraftsFolderName, TrashFolderName, LimboFolderName, CommandFolderName} {
-		if _, ok := u.boxes[boxName]; !ok {
-			newbox, err := s.NewMailbox(boxName)
-			if err != nil {
-				return nil, err
-			}
-			mb, err := NewMailbox(newbox)
-			if err != nil {
-				return nil, err
-			}
-			u.boxes[boxName] = mb
-		}
-	}
-
-	u.powQueue = s.PowQueue
 
 	return u, nil
 }
@@ -91,17 +72,15 @@ func (u *User) MailboxByName(name string) (mailstore.Mailbox, error) {
 	return mbox, nil
 }
 
-// DeliverFromBMNet
+// DeliverFromBMNet adds a message received from bmd into the appropriate
+// folder.
 func (u *User) DeliverFromBMNet(bm *Bitmessage) error {
 	// Put message in the right folder.
-	box, ok := u.boxes[InboxFolderName]
-	if !ok {
-		return errors.New("Cannot find inbox.")
-	}
-	return box.AddNew(bm, types.FlagRecent)
+	return u.boxes[InboxFolderName].AddNew(bm, types.FlagRecent)
 }
 
-// DeliverFromSMTP
+// DeliverFromSMTP adds a message received via SMTP to the POW queue, if needed,
+// and the outbox.
 func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
 	smtpLog.Trace("Bitmessage received from SMTP")
 
@@ -109,88 +88,92 @@ func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
 	// This will only happen if the pubkey can be found. An error is only
 	// returned if the message could not be generated and the pubkey request
 	// could not be sent.
-	_, err := bm.SubmitPow(u.powQueue, u.addressBook)
+	_, err := bm.SubmitPow(u.server.PowQueue(), u.server)
 	if err != nil {
-		smtpLog.Error("Unable to submit proof-of-work.")
+		smtpLog.Error("Unable to submit for proof-of-work: ", err)
 		return err
 	}
 
 	// Put message in the right folder.
-	box, ok := u.boxes[OutboxFolderName]
-	if !ok {
-		return errors.New("Cannot find outbox.")
-	}
-	return box.AddNew(bm, types.FlagRecent&types.FlagSeen)
+	return u.boxes[OutboxFolderName].AddNew(bm, types.FlagSeen)
 }
 
 // DeliverPublicKey takes a public key and attempts to match it with a message.
 // If a matching message is found, the message is encoded to the wire format
 // and sent to the pow queue.
 func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
-	// Add the address to the address book.
-	addr, err := public.Address.Encode()
+	outbox := u.boxes[OutboxFolderName]
+	var ids []uint64
+
+	// Go through all messages in the Outbox and get IDs of all the matches.
+	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
+		bmsg, err := DecodeBitmessage(msg)
+		if err != nil { // (Almost) impossible error.
+			return err
+		}
+		// We have a match!
+		if bmsg.state.PubkeyRequested == true && bmsg.To == address {
+			ids = append(ids, id)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	u.addressBook.AddPublicIdentity(addr, public)
 
-	outbox, ok := u.boxes[OutboxFolderName]
-	if !ok {
-		return errors.New("Outbox not found")
+	for _, id := range ids {
+		bmsg := outbox.BitmessageByUID(id)
+		bmsg.state.PubkeyRequested = false
+		err = outbox.SaveBitmessage(bmsg)
+		if err != nil {
+			return err
+		}
+
+		if bmsg.state.AckExpected {
+			// TODO generate the ack and send it to the pow queue.
+		}
+
+		// Add the message to the pow queue.
+		_, err := bmsg.SubmitPow(u.server.PowQueue(), u.server)
+		if err != nil {
+			return errors.New("Unable to add message to pow queue.")
+		}
+
+		// Save Bitmessage with pow index.
+		err = u.boxes[OutboxFolderName].SaveBitmessage(bmsg)
+		if err != nil {
+			return err
+		}
 	}
 
-	msgIndex := outbox.getPKRequestIndex(address)
-	if msgIndex == 0 {
-		return errors.New("Message not found")
-	}
-
-	bmsg := outbox.BitmessageByUID(msgIndex)
-	if bmsg == nil {
-		return errors.New("Message not found")
-	}
-
-	bmsg.state.PubkeyRequested = false
-	if bmsg.state.SendTries > 0 {
-		return errors.New("Message already sent")
-	}
-
-	if bmsg.state.AckExpected {
-		// TODO generate the ack and send it to the pow queue.
-	}
-
-	// Add the message to the pow queue.
-	_, err = bmsg.SubmitPow(u.powQueue, u.addressBook)
-	if err != nil {
-		smtpLog.Error("Unable to send message to pow queue.")
-	}
-
-	smtpLog.Trace("DeliverPublicKey: message submitted to pow queue.")
-
-	return outbox.SaveBitmessage(bmsg)
+	return nil
 }
 
 // DeliverPow delivers an object that has had pow done on it.
 func (u *User) DeliverPow(index uint64, obj *wire.MsgObject) error {
-	var fromOutbox, toSent bool
-	var oldbox *Mailbox
-	oldbox, fromOutbox = u.boxes[OutboxFolderName]
-	if !fromOutbox {
-		var ok bool
-		oldbox, ok = u.boxes[LimboFolderName]
-		if !ok {
-			return errors.New("Outbox not found.")
+	outbox := u.boxes[OutboxFolderName]
+
+	var idMsg uint64
+
+	// Go through all messages in the Outbox and get IDs of all the matches.
+	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
+		bmsg, err := DecodeBitmessage(msg)
+		if err != nil { // (Almost) impossible error.
+			return err
 		}
+		// We have a match!
+		if bmsg.state.PowIndex == index {
+			idMsg = id
+			return errors.New("Message found.")
+		}
+		return nil
+	})
+	if err == nil {
+		return fmt.Errorf("Unable to find message in outbox with POW index %d",
+			index)
 	}
 
-	msgIndex := oldbox.getPowQueueIndex(index)
-	if msgIndex == 0 {
-		return errors.New("Message not found")
-	}
-
-	bmsg := oldbox.BitmessageByUID(msgIndex)
-	if bmsg == nil {
-		return errors.New("Message not found")
-	}
+	bmsg := outbox.BitmessageByUID(idMsg)
 
 	// Select new box for the message.
 	var newBoxName string
@@ -198,26 +181,21 @@ func (u *User) DeliverPow(index uint64, obj *wire.MsgObject) error {
 		newBoxName = LimboFolderName
 	} else {
 		newBoxName = SentFolderName
-		toSent = true
 	}
-	newBox, ok := u.boxes[newBoxName]
-	if !ok {
-		return errors.New("Folder not found")
-	}
+	newBox := u.boxes[newBoxName]
 
 	bmsg.state.PowIndex = 0
 	bmsg.state.SendTries++
 	bmsg.state.LastSend = time.Now()
 
-	smtpLog.Trace("Message updated.")
-
-	if fromOutbox || toSent {
-		oldbox.DeleteBitmessageByUID(msgIndex)
-		bmsg.ImapData = nil
-		return newBox.AddNew(bmsg, types.FlagRecent)
+	// Move message from Outbox to the new mailbox.
+	err = outbox.DeleteBitmessageByUID(idMsg)
+	if err != nil {
+		return err
 	}
 
-	return oldbox.SaveBitmessage(bmsg)
+	bmsg.ImapData = nil
+	return newBox.AddNew(bmsg, types.FlagSeen)
 }
 
 // DeliverPowAck delivers an ack message that was generated by the pow queue.
@@ -225,8 +203,8 @@ func (u *User) DeliverPowAck() {
 
 }
 
-// DeliverAck takes a message ack and marks a message as having been received
-// by the recipient.
+// DeliverAckReply takes a message ack and marks a message as having been
+// received by the recipient.
 func (u *User) DeliverAckReply() {
 
 }

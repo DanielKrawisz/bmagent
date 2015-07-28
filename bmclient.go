@@ -13,6 +13,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"runtime"
+	"time"
 
 	"github.com/monetas/bmclient/rpc"
 )
@@ -75,6 +76,7 @@ func bmclientMain() error {
 		ConnectTo:  cfg.RPCConnect,
 		Username:   cfg.BmdUsername,
 		Password:   cfg.BmdPassword,
+		Timeout:    time.Millisecond * 500, // TODO move to config
 	})
 	if err != nil {
 		log.Errorf("Cannot create bmd server RPC client: %v", err)

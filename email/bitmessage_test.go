@@ -1,9 +1,11 @@
-package email_test
+// Copyright (c) 2015 Monetas.
+// Use of this source code is governed by an ISC
+// license that can be found in the LICENSE file.
+
+package email
 
 import (
 	"testing"
-
-	"github.com/monetas/bmclient/email"
 )
 
 func TestEmailAddressConversion(t *testing.T) {
@@ -40,7 +42,7 @@ func TestEmailAddressConversion(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		bm, err := email.EmailToBM(test.email)
+		bm, err := emailToBM(test.email)
 		if !test.valid {
 			if err == nil {
 				t.Error("Test ", i, " failed; email should not have been accepted:", test.email)
@@ -51,7 +53,7 @@ func TestEmailAddressConversion(t *testing.T) {
 			t.Error("Test ", i, " failed; email should have been accepted:", test.email)
 			continue
 		}
-		address := email.BMToEmail(bm)
+		address := bmToEmail(bm)
 		if test.email != address {
 			t.Error("Test ", i, " failed reconversion; have ", address, "; want ", test.email)
 		}

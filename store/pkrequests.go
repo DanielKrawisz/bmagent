@@ -5,6 +5,7 @@
 package store
 
 import (
+	"encoding/binary"
 	"time"
 
 	"github.com/boltdb/bolt"
@@ -40,22 +41,44 @@ func newPKRequestStore(store *Store) (*PKRequests, error) {
 	return r, nil
 }
 
-// New adds a new address to the watchlist along with the current timestamp.
-func (r *PKRequests) New(addr string) error {
+// New adds a new address to the watchlist along with the current timestamp. If
+// the address already exists, it increments the counter value specifying the
+// number of times a getpubkey request was sent for the given address and
+// returns it.
+func (r *PKRequests) New(addr string) (uint32, error) {
 	k := []byte(addr)
-	v, err := time.Now().MarshalBinary()
-	if err != nil {
-		return err
-	}
+	var count uint32
 
-	return r.store.db.Update(func(tx *bolt.Tx) error {
+	err := r.store.db.Update(func(tx *bolt.Tx) error {
+		t := tx.Bucket(pkRequestsBucket).Get(k)
+		if t == nil { // Entry doesn't exist, so create it and set counter to 1.
+			count = 1
+		} else {
+			count = binary.BigEndian.Uint32(t[:4]) + 1 // increment
+		}
+
+		v := make([]byte, 4)
+		binary.BigEndian.PutUint32(v, count)
+
+		t, err := time.Now().MarshalBinary()
+		if err != nil {
+			return err
+		}
+		v = append(v, t...)
+
 		return tx.Bucket(pkRequestsBucket).Put(k, v)
 	})
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
 }
 
-// GetTime returns the time that an address was added to the watchlist. If the
-// address doesn't exist, an ErrNotFound is returned.
-func (r *PKRequests) GetTime(addr string) (time.Time, error) {
+// LastRequestTime returns the time that the last getpubkey request for the
+// given address was sent out to the network. If the address doesn't exist, an
+// ErrNotFound is returned.
+func (r *PKRequests) LastRequestTime(addr string) (time.Time, error) {
 	k := []byte(addr)
 	var v time.Time
 
@@ -64,7 +87,7 @@ func (r *PKRequests) GetTime(addr string) (time.Time, error) {
 		if t == nil { // Entry doesn't exist.
 			return ErrNotFound
 		}
-		return v.UnmarshalBinary(t)
+		return v.UnmarshalBinary(t[4:])
 	})
 	if err != nil {
 		return time.Time{}, err
@@ -83,20 +106,23 @@ func (r *PKRequests) Remove(addr string) error {
 }
 
 // ForEach runs the specified function for each item in the public key requests
-// store in a separate goroutine.
-func (r *PKRequests) ForEach(f func(address string, addTime time.Time)) error {
+// store, breaking early if an error occurs.
+func (r *PKRequests) ForEach(f func(address string, reqCount uint32,
+	lastReqTime time.Time) error) error {
+
 	return r.store.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(pkRequestsBucket)
 		return bucket.ForEach(func(k []byte, v []byte) error {
 			address := string(k)
-			var addTime time.Time
-			err := addTime.UnmarshalBinary(v)
+			reqCount := binary.BigEndian.Uint32(v[:4])
+
+			var lastReqTime time.Time
+			err := lastReqTime.UnmarshalBinary(v[4:])
 			if err != nil {
 				return err
 			}
 
-			go f(address, addTime)
-			return nil
+			return f(address, reqCount, lastReqTime)
 		})
 	})
 }

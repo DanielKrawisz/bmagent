@@ -107,7 +107,7 @@ func InitializeStore(s *store.Store) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.NewMailbox(CommandFolderName)
+	_, err = s.NewMailbox(CommandsFolderName)
 	if err != nil {
 		return err
 	}

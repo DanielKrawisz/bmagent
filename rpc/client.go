@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec"
 	pb "github.com/monetas/bmd/rpcproto"
@@ -42,6 +43,9 @@ type ClientConfig struct {
 
 	// Password is the password to use for authentication with bmd.
 	Password string
+
+	// The timeout duration.
+	Timeout time.Duration
 }
 
 // Client encapsulates a connection to bmd and provides helper methods for
@@ -61,8 +65,10 @@ type Client struct {
 
 // NewClient creates a new RPC connection to bmd.
 func NewClient(cfg *ClientConfig) (*Client, error) {
-	opts := []grpc.DialOption{grpc.WithPerRPCCredentials(
-		pb.NewBasicAuthCredentials(cfg.Username, cfg.Password))}
+	opts := []grpc.DialOption{
+		grpc.WithPerRPCCredentials(
+			pb.NewBasicAuthCredentials(cfg.Username, cfg.Password)),
+		grpc.WithTimeout(cfg.Timeout)}
 
 	if !cfg.DisableTLS {
 		creds, err := credentials.NewClientTLSFromFile(cfg.CAFile, "")
