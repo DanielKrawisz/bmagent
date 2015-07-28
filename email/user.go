@@ -127,7 +127,6 @@ func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
 // If a matching message is found, the message is encoded to the wire format
 // and sent to the pow queue.
 func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
-	smtpLog.Trace("DeliverPublicKey")
 	// Add the address to the address book.
 	addr, err := public.Address.Encode()
 	if err != nil {
@@ -172,7 +171,6 @@ func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
 
 // DeliverPow delivers an object that has had pow done on it.
 func (u *User) DeliverPow(index uint64, obj *wire.MsgObject) error {
-	smtpLog.Trace("DeliverPow called")
 	var fromOutbox, toSent bool
 	var oldbox *Mailbox
 	oldbox, fromOutbox = u.boxes[OutboxFolderName]

@@ -222,7 +222,7 @@ func (be *Bitmessage) ToEmail() (*IMAPEmail, error) {
 }
 
 func getExpireTime(expiration *time.Time, defaultExpiration time.Duration) time.Time {
-	if expiration == nil {
+	if expiration.IsZero() {
 		return time.Now().Add(defaultExpiration)
 	}
 	return *expiration
@@ -266,13 +266,13 @@ func generateMsgBroadcast(be *Bitmessage, from *identity.Private) (*wire.MsgObje
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	return obj, 0, 0, nil
+	return obj, from.NonceTrialsPerByte, from.ExtraBytes, nil
 }
 
 func generateMsgMsg(be *Bitmessage, from *identity.Private, to *identity.Public) (*wire.MsgObject, uint64, uint64, error) {
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
-	var destination wire.RipeHash //[RipeHashSize]byte
+	var destination wire.RipeHash
 	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
 	ek := to.EncryptionKey.SerializeUncompressed()[1:]
 	copy(signingKey[:], sk)
@@ -282,6 +282,7 @@ func generateMsgMsg(be *Bitmessage, from *identity.Private, to *identity.Public)
 	message := &wire.MsgMsg{
 		ObjectType:  wire.ObjectTypeMsg,
 		ExpiresTime: getExpireTime(&be.Expiration, defaultMsgExpiration),
+		Version:     1,
 
 		StreamNumber:       from.Address.Stream, // TODO What is this field? It's not listed in the wiki!
 		FromStreamNumber:   from.Address.Stream,
@@ -307,15 +308,15 @@ func generateMsgMsg(be *Bitmessage, from *identity.Private, to *identity.Public)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	return obj, 0, 0, nil
+	return obj, from.NonceTrialsPerByte, from.ExtraBytes, nil
 }
 
 // GenerateObject generates the wire.MsgObject form of the message.
 func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgObject,
 	nonceTrials, extraBytes uint64, genErr error) {
-	smtpLog.Trace("GenerateObject")
 	from, err := book.LookupPrivateIdentity(be.From)
 	if err != nil {
+		smtpLog.Error("GenerateObject: Error returned private identity: ", err)
 		return nil, 0, 0, err
 	}
 
@@ -324,6 +325,7 @@ func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgO
 	} else {
 		to, err := book.LookupPublicIdentity(be.To)
 		if err != nil {
+			smtpLog.Error("GenerateObject: results of lookup public identity: ", to, ", ", err)
 			return nil, 0, 0, err
 		}
 		// Indicates that a pubkey request was sent.
@@ -334,7 +336,8 @@ func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgO
 	}
 
 	if genErr != nil {
-		return nil, 0, 0, err
+		smtpLog.Error("GenerateObject: ", err)
+		return nil, 0, 0, genErr
 	}
 	be.object = object
 	return object, nonceTrials, extraBytes, nil
@@ -342,11 +345,10 @@ func (be *Bitmessage) GenerateObject(book keymgr.AddressBook) (object *wire.MsgO
 
 // SubmitPow attempts to submit a message for pow.
 func (be *Bitmessage) SubmitPow(powQueue *store.PowQueue, addr keymgr.AddressBook) (uint64, error) {
-	smtpLog.Trace("SubmitPow")
 	// Attempt to generate the wire.Object form of the message.
 	obj, nonceTrials, extraBytes, err := be.GenerateObject(addr)
 	if obj == nil {
-		smtpLog.Trace("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
+		smtpLog.Error("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
 		return 0, err
 	}
 
@@ -369,7 +371,6 @@ func (be *Bitmessage) SubmitPow(powQueue *store.PowQueue, addr keymgr.AddressBoo
 		be.state.PowIndex = index
 	}
 
-	smtpLog.Trace("SubmitPow: object submitted to pow queue.")
 	return index, nil
 }
 

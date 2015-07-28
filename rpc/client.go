@@ -140,6 +140,7 @@ func (c *Client) GetIdentity(address string) (*identity.Public, error) {
 // SendObject sends the given object to bmd so that it can send it out to the
 // network.
 func (c *Client) SendObject(obj []byte) (uint64, error) {
+	serverLog.Trace("Sending object into the network.")
 	res, err := c.bmd.SendObject(context.Background(), &pb.Object{Contents: obj})
 	if err != nil {
 		return 0, err

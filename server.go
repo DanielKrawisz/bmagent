@@ -57,7 +57,6 @@ type server struct {
 	bmd              *rpc.Client
 	keymgr           *keymgr.Manager
 	store            *store.Store
-	folders          *email.User
 	started          int32
 	shutdown         int32
 	msgCounter       uint64
@@ -235,14 +234,14 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		return
 	}
 
+	log.Infof("Got new message from %s:\n%s", address, string(msg.Message))
+
 	// Decryption was successful. Add message to store.
 	mbox, err := s.imapUser.MailboxByName(email.InboxFolderName)
 	if err != nil {
 		log.Critical("MailboxByName (%s) failed: %v", email.InboxFolderName, err)
 		return
 	}
-
-	// TODO Store public key of the sender in bmd
 
 	// Read message.
 	bmsg, err := email.MsgRead(msg, address, ofChan)
@@ -256,7 +255,6 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		log.Error("Failed to save message: ", err)
 		return
 	}
-	//log.Infof("Got new message from %s:\n%s", bmsg.From, string(msg.Message))
 
 	// Check if length of Ack is correct and message isn't from a channel.
 	if len(msg.Ack) < wire.MessageHeaderSize || ofChan {
@@ -274,7 +272,6 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		log.Infof("Failed to send ack for message #%d: %v", counter, err)
 		return
 	}
-
 }
 
 // newBroadcast is called when a new broadcast is received by the RPC client.
@@ -310,8 +307,27 @@ func (s *server) newBroadcast(counter uint64, obj []byte) {
 		return
 	}
 
-	//mbox.InsertMessage(msg.Message, msg.Encoding)
 	serverLog.Infof("Got new broadcast from %s:\n%s", fromAddress, msg.Message)
+
+	// Decryption was successful. Add message to store.
+	mbox, err := s.imapUser.MailboxByName(email.InboxFolderName)
+	if err != nil {
+		log.Critical("MailboxByName (%s) failed: %v", email.InboxFolderName, err)
+		return
+	}
+
+	// Read message.
+	bmsg, err := email.BroadcastRead(msg)
+	if err != nil {
+		log.Error("Failed to decode message: ", err)
+		return
+	}
+
+	err = mbox.(*email.Mailbox).AddNew(bmsg, types.FlagRecent)
+	if err != nil {
+		log.Error("Failed to save message: ", err)
+		return
+	}
 }
 
 // newGetpubkey is called when a new getpubkey is received by the RPC client.
@@ -362,6 +378,8 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 		return
 	}
 
+	serverLog.Trace("Return pubkey request generated.")
+
 	// Add it to POW queue.
 	b := wire.EncodeMessage(pkMsg)[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
@@ -411,9 +429,7 @@ func (s *server) pkRequestHandler() {
 						" key request store: %v", err)
 				}
 
-				// TODO process pending messages with this public identity and
-				// add them to pow queue.
-				s.folders.DeliverPublicKey(address, public)
+				s.imapUser.DeliverPublicKey(address, public)
 			})
 		}
 	}
@@ -433,7 +449,7 @@ func (s *server) powHandler() {
 		case <-t.C:
 			target, hash, err := s.store.PowQueue.PeekForPow()
 			if err == nil { // We have something to process
-				serverLog.Trace("powHandler: about to process pow for an object.")
+				serverLog.Trace("powHandler: about to process pow for an object with target ", target)
 				nonce := cfg.powHandler(target, hash)
 				serverLog.Trace("powHandler: proof of work calculated.")
 
@@ -465,7 +481,7 @@ func (s *server) powHandler() {
 				} else {
 					if msg.ObjectType == wire.ObjectTypeMsg ||
 						msg.ObjectType == wire.ObjectTypeBroadcast {
-						s.folders.DeliverPow(index, msg)
+						s.imapUser.DeliverPow(index, msg)
 					}
 				}
 				serverLog.Trace("powHandler: object sent into network..")
@@ -525,7 +541,6 @@ func (s *server) saveData() {
 // or sends a getpubkey request if it doesn't exist in its store. If both return
 // types are nil, it means a getpubkey request has been queued.
 func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, error) {
-	serverLog.Trace("getOrRequestPublicIdentity called on ", address)
 	id, err := s.bmd.GetIdentity(address)
 	if err == nil {
 		return id, nil
@@ -538,7 +553,6 @@ func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, e
 		return nil, fmt.Errorf("Failed to decode address: %v", err)
 	}
 
-	serverLog.Trace("getOrRequestPublicIdentity: address not found, so sent to pow queue.")
 	// We don't have the identity so craft a getpubkey request.
 	var tag wire.ShaHash
 	copy(tag[:], addr.Tag())

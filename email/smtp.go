@@ -148,15 +148,6 @@ func (serv *SMTPServer) validateSender(from string) bool {
 		}
 	}
 
-	if serv == nil {
-		panic("serv is nil WTF!??!?!!")
-	}
-	if serv.user == nil {
-		panic("user is nil!!")
-	}
-	if serv.user.addressBook == nil {
-		panic("addressBoook is nil!!!!!!")
-	}
 	_, err = serv.user.addressBook.LookupPrivateIdentity(bmAddr)
 	if err != nil {
 		return false
@@ -176,7 +167,7 @@ func (serv *SMTPServer) messageReceived(message *data.Message) (string, error) {
 	// Convert to bitmessage.
 	bm, err := NewBitmessageFromSMTP(message.Content)
 	if err != nil {
-		smtpLog.Info("messageReceived. unable to parse message:", err)
+		smtpLog.Error("messageReceived. unable to parse message:", err)
 		return "", err
 	}
 
