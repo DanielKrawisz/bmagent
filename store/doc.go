@@ -17,6 +17,6 @@
 //          previous copy of the store knows the master key and can decrypt all
 //          messages.
 //
-// WARNING 2: Master key is kept in memory. The package is susceptible to memory
+// WARNING 2: Master key is kept in memory. The package is vulnerable to memory
 //            reading malware.
 package store

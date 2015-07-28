@@ -10,9 +10,10 @@ using version 0.1 alpha.
 
 If you wish to send a bitmessage, just write an email with an address of the
 form <destination bitmessage address>@bm.addr. For sending out a broadcast,
-shoot an e-mail to broadcast@bm.addr. Don't forget to add the From addresses
-in your e-mail client! You can also send commands to bmclient via the address
-command@bm.client
+shoot an e-mail to broadcast@bm.addr. Don't forget to add valid From addresses
+in your e-mail client! From addresses are considered valid if bmclient holds
+private keys for them. You can also send commands to bmclient via the address
+bmclient@bm.addr.
 
 Have a bug to report? Care to help out? Please see our github repo:
 https://github.com/monetas/bmclient/`
@@ -35,7 +36,7 @@ const (
 	// that are out in the network, but have not been received yet (no ack).
 	LimboFolderName = "Limbo"
 
-	// defaultTrashFolderName is the default name for the trash folder.
+	// SentFolderName is the default name for the sent folder.
 	SentFolderName = "Sent"
 
 	// TrashFolderName is the default name for the trash folder.
@@ -44,8 +45,9 @@ const (
 	// DraftsFolderName is the default name for the drafts folder.
 	DraftsFolderName = "Drafts"
 
-	// DraftsFolderName is the default name for the drafts folder.
-	CommandFolderName = "Command"
+	// CommandsFolderName is the default name for the folder containing
+	// responses to sent commands.
+	CommandsFolderName = "Commands"
 
 	// BroadcastAddress is the address where all broadcasts must be sent.
 	BroadcastAddress = "broadcast@bm.addr"

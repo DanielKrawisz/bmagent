@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
@@ -43,6 +44,12 @@ const (
 	storeDbName = "store.db"
 
 	defaultPowHandler = "parallel"
+
+	defaultMsgExpiry        = time.Hour * 60      // 2.5 days
+	defaultBroadcastExpiry  = time.Hour * 48      // 2 days
+	defaultPubkeyExpiry     = time.Hour * 24 * 14 // 14 days
+	defaultGetpubkeyExpiry  = time.Hour * 24 * 14 // 14 days
+	defaultUnknownObjExpiry = time.Hour * 24
 )
 
 var (
@@ -85,8 +92,10 @@ type config struct {
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
-	ProofOfWork string `long:"pow" description:"Choose proof-of-work handler. Options: {sequential, parallel}"`
-	PowThreads  int    `long:"powthreads" description:"Number of threads to use for parallel proof-of-work calculation. It should not be greater than the number of cores"`
+	ProofOfWork     string        `long:"pow" description:"Choose proof-of-work handler. Options: {sequential, parallel}"`
+	PowThreads      int           `long:"powthreads" description:"Number of threads to use for parallel proof-of-work calculation. It should not be greater than the number of cores"`
+	MsgExpiry       time.Duration `long:"msgexpiry" description:"Time after which a message sent out should expire, more means more time for POW calculations"`
+	BroadcastExpiry time.Duration `long:"broadcastexpiry" description:"Time after which a broadcast sent out should expire, more means more time for POW calculations"`
 
 	powHandler  func(target uint64, hash []byte) uint64
 	keyfilePath string
@@ -303,14 +312,16 @@ func checkCreateDir(path string) error {
 func loadConfig() (*config, []string, error) {
 	// Default config.
 	cfg := config{
-		DebugLevel:  defaultLogLevel,
-		ConfigFile:  defaultConfigFile,
-		DataDir:     defaultDataDir,
-		LogDir:      defaultLogDir,
-		TLSKey:      defaultTLSKeyFile,
-		TLSCert:     defaultTLSCertFile,
-		PowThreads:  runtime.NumCPU(),
-		ProofOfWork: defaultPowHandler,
+		DebugLevel:      defaultLogLevel,
+		ConfigFile:      defaultConfigFile,
+		DataDir:         defaultDataDir,
+		LogDir:          defaultLogDir,
+		TLSKey:          defaultTLSKeyFile,
+		TLSCert:         defaultTLSCertFile,
+		PowThreads:      runtime.NumCPU(),
+		ProofOfWork:     defaultPowHandler,
+		MsgExpiry:       defaultMsgExpiry,
+		BroadcastExpiry: defaultBroadcastExpiry,
 	}
 
 	// A config file in the current directory takes precedence.
@@ -468,6 +479,8 @@ func loadConfig() (*config, []string, error) {
 
 	// Import private keys from PyBitmessage's keys.dat file.
 	if cfg.ImportKeyFile != "" {
+		cfg.ImportKeyFile = cleanAndExpandPath(cfg.ImportKeyFile)
+
 		// We need to open the keyfile and store.
 		keymgr, store, err := openDatabases(&cfg)
 		if err != nil {

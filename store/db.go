@@ -65,6 +65,10 @@ var (
 	// IMAP requires existence of unique message IDs that do not change over
 	// sessions.
 	mailboxLatestIDKey = []byte("mailboxLatestID")
+
+	// powQueueLatestIDKey contains the index of the last element in the POW
+	// queue.
+	powQueueLatestIDKey = []byte("powQueueLatestID")
 )
 
 var (
@@ -162,7 +166,14 @@ func Open(file string, pass []byte) (*Store, error) {
 			}
 
 			// Set ID for messages to 0.
-			return bucket.Put(mailboxLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
+			zero := []byte{0, 0, 0, 0, 0, 0, 0, 0}
+			err = bucket.Put(mailboxLatestIDKey, zero)
+			if err != nil {
+				return err
+			}
+
+			// Set ID for PoW queue to 0.
+			return bucket.Put(powQueueLatestIDKey, zero)
 
 		} else if len(v) < nonceSize+keySize+secretbox.Overhead {
 			return errors.New("Encrypted master key too short.")

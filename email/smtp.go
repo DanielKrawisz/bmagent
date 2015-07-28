@@ -6,6 +6,8 @@ package email
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -48,7 +50,6 @@ func smtpRun(smtp *smtp.Protocol, conn net.Conn) {
 		// Read a line of text from the stream.
 		command, err := reader.ReadString([]byte("\n")[0])
 		if err != nil {
-			imapLog.Error(err)
 			break
 		}
 
@@ -80,11 +81,10 @@ func (serv *SMTPServer) Serve(l net.Listener) error {
 		smtp := smtp.NewProtocol()
 		// TODO add TLS support
 		// smtp.RequireTLS = serv.cfg.RequireTLS
-		smtp.LogHandler = serv.logHandler
+		smtp.LogHandler = smtpLogHandler
 		smtp.ValidateSenderHandler = serv.validateSender
 		smtp.ValidateRecipientHandler = serv.validateRecipient
-		// TODO put this back in.
-		//smtp.ValidateAuthenticationHandler = serv.validateAuth
+		smtp.ValidateAuthenticationHandler = serv.validateAuth
 		smtp.GetAuthenticationMechanismsHandler = func() []string { return []string{"PLAIN"} }
 
 		smtp.MessageReceivedHandler = serv.messageReceived
@@ -96,11 +96,20 @@ func (serv *SMTPServer) Serve(l net.Listener) error {
 
 // validateAuth authenticates the SMTP client.
 func (serv *SMTPServer) validateAuth(mechanism string, args ...string) (*smtp.Reply, bool) {
-	fmt.Println("validateAuth. mechanism: ", mechanism, "; args:", args)
-	smtpLog.Trace("validateAuth. mechanism: ", mechanism)
-	smtpLog.Trace("validateAuth. args:", args)
-	user := args[0]
-	pass := args[1]
+	if mechanism != "PLAIN" {
+		return smtp.ReplyUnsupportedAuth(), false
+	}
+
+	b, err := base64.StdEncoding.DecodeString(args[0])
+	if err != nil {
+		return smtp.ReplyError(errors.New("Invalid BASE64 encoding")), false
+	}
+	s := bytes.Split(b, []byte{0x00})
+	if len(s) != 3 {
+		return smtp.ReplyInvalidAuth(), false
+	}
+	user := string(s[1])
+	pass := string(s[2])
 	// TODO Use time constant comparisons.
 	if user != serv.cfg.Username || pass != serv.cfg.Password {
 		return smtp.ReplyInvalidAuth(), false
@@ -109,7 +118,7 @@ func (serv *SMTPServer) validateAuth(mechanism string, args ...string) (*smtp.Re
 }
 
 // validateRecipient validates whether the recipient is a valid recipient.
-func (serv *SMTPServer) validateRecipient(to string) bool {
+func (s *SMTPServer) validateRecipient(to string) bool {
 	addr, err := mail.ParseAddress(to)
 	if err != nil {
 		return false
@@ -120,7 +129,7 @@ func (serv *SMTPServer) validateRecipient(to string) bool {
 	case BmclientAddress:
 		return true
 	default:
-		to, err = EmailToBM(to)
+		to, err = emailToBM(to)
 		if err != nil {
 			return false
 		}
@@ -131,51 +140,48 @@ func (serv *SMTPServer) validateRecipient(to string) bool {
 // validateSender validates whether the recipient is a valid sender. For a
 // sender to be valid, we must hold the private keys of the sender's Bitmessage
 // address.
-func (serv *SMTPServer) validateSender(from string) bool {
+func (s *SMTPServer) validateSender(from string) bool {
 	addr, err := mail.ParseAddress(from)
 	if err != nil {
 		return false
 	}
 
-	var bmAddr string
-	switch addr.Address {
-	case BmclientAddress:
-		return true
-	default:
-		bmAddr, err = EmailToBM(addr.Address)
-		if err != nil {
-			return false
-		}
+	bmAddr, err := emailToBM(addr.Address)
+	if err != nil {
+		return false
 	}
 
-	_, err = serv.user.addressBook.LookupPrivateIdentity(bmAddr)
+	_, err = s.user.server.GetPrivateID(bmAddr)
 	if err != nil {
 		return false
 	}
 	return true
 }
 
-// logHandler handles logging for the SMTP protocol.
-func (serv *SMTPServer) logHandler(message string, args ...interface{}) {
+// smtpLogHandler handles logging for the SMTP protocol.
+func smtpLogHandler(message string, args ...interface{}) {
 	smtpLog.Debugf(message, args...)
 }
 
 // messageReceived is called for each message recieved by the SMTP server.
-func (serv *SMTPServer) messageReceived(message *data.Message) (string, error) {
-	smtpLog.Info("messageReceived.Message received:", message.Content.Body)
+func (s *SMTPServer) messageReceived(message *data.Message) (string, error) {
+	smtpLog.Debug("Received message from SMTP server.")
 
 	// Convert to bitmessage.
 	bm, err := NewBitmessageFromSMTP(message.Content)
 	if err != nil {
-		smtpLog.Error("messageReceived. unable to parse message:", err)
+		smtpLog.Error("NewBitmessageFromSMTP gave error: ", err)
 		return "", err
 	}
 
-	return string(message.ID), serv.user.DeliverFromSMTP(bm)
+	return string(message.ID), s.user.DeliverFromSMTP(bm)
 }
 
 // NewSMTPServer returns a new smtp server.
 func NewSMTPServer(cfg *SMTPConfig, user *User) *SMTPServer {
+	// Set the correct log handler.
+	data.LogHandler = smtpLogHandler
+
 	return &SMTPServer{
 		cfg:  cfg,
 		user: user,
@@ -237,6 +243,24 @@ func getContentType(contentType string) (content, subtype string, param map[stri
 	return matches[1], matches[2], param, nil
 }
 
+// getPlainBody retrieves the plaintext body from the e-mail.
+func getPlainBody(email *data.Content) (string, error) {
+	contentType, ok := email.Headers["Content-Type"]
+	if !ok {
+		return "", errors.New("Unrecognized MIME version")
+	}
+	content, subtype, _, err := getContentType(contentType[0])
+	if err != nil {
+		return "", err
+	}
+
+	if content == "text" && subtype == "plain" {
+		return email.Body, nil
+	}
+
+	return "", nil
+}
+
 // getSMTPBody return the body of an e-mail to be delivered through SMTP.
 func getSMTPBody(email *data.Content) (string, error) {
 	if version, ok := email.Headers["MIME-Version"]; ok {
@@ -244,6 +268,7 @@ func getSMTPBody(email *data.Content) (string, error) {
 			return "", errors.New("Unrecognized MIME version")
 		}
 
+		// Case 1: message just has type text/plain
 		contentType, ok := email.Headers["Content-Type"]
 		if !ok {
 			return "", errors.New("Unrecognized MIME version")
@@ -252,16 +277,23 @@ func getSMTPBody(email *data.Content) (string, error) {
 		if err != nil {
 			return "", err
 		}
-
-		if content != "text" || subtype != "plain" {
-			smtpLog.Tracef("content: %s; subtype: %s", content, subtype)
-			// TODO we should be able to support html bodies.
-			return "", errors.New(fmt.Sprint("Unsupported Content-Type:", contentType[0], "; use text/plain instead"))
+		if content == "text" && subtype == "plain" {
+			return email.Body, nil
 		}
 
-		//return email.MIME.Parts[0].Body, nil
-		return email.Body, nil
-	}
+		// Case 2: message has type mime/alternative, so get text/plain
+		if content == "multipart" && subtype == "alternative" {
+			for _, part := range email.ParseMIMEBody().Parts {
+				body, _ := getPlainBody(part)
+				if body != "" {
+					return body, nil
+				}
+			}
+			return "", errors.New("Couldn't find a text/plain MIME part")
+		}
 
+		// TODO we should be able to support html bodies eventually.
+		return "", fmt.Errorf("Unsupported Content-Type: %s; use text/plain instead", contentType[0])
+	}
 	return email.Body, nil
 }
