@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"crypto/aes"
 	"crypto/sha256"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"net"
@@ -20,6 +19,7 @@ import (
 	"github.com/jordwest/imap-server/types"
 	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/keymgr"
+	"github.com/monetas/bmclient/powmgr"
 	"github.com/monetas/bmclient/rpc"
 	"github.com/monetas/bmclient/store"
 	"github.com/monetas/bmutil"
@@ -49,6 +49,7 @@ type server struct {
 	bmd              *rpc.Client
 	keymgr           *keymgr.Manager
 	store            *store.Store
+	powManager       *powmgr.PowManager
 	started          int32
 	shutdown         int32
 	msgCounter       uint64
@@ -71,6 +72,7 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 		bmd:           bmd,
 		keymgr:        kmgr,
 		store:         s,
+		powManager:    powmgr.New(s.PowQueue),
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
@@ -176,7 +178,7 @@ func (s *server) Start() {
 	// Start proof of work handler.
 	serverLog.Info("Starting proof-of-work handler.")
 	s.wg.Add(1)
-	go s.powHandler()
+	go s.powManager.PowHandler(s.receiveDonePow, cfg.powHandler, &s.wg)
 
 	// Start saving data periodically.
 	s.wg.Add(1)
@@ -439,72 +441,30 @@ func (s *server) pkRequestHandler() {
 	}
 }
 
-// powHandler manages the proof-of-work queue. It makes sure that only one
-// object is processed at a time. After doing POW, it sends the object out on
-// the network.
-func (s *server) powHandler() {
-	defer s.wg.Done()
-	t := time.NewTicker(powCheckerInterval)
+func (s *server) receiveDonePow(index uint64, obj []byte) {
+	// Create MsgObject.
+	msg := &wire.MsgObject{}
+	err := msg.Decode(bytes.NewReader(obj))
+	if err != nil {
+		serverLog.Critical("MsgObject.Decode failed: ", err)
+		return
+	}
 
-	for {
-		select {
-		case <-s.quit:
+	// TODO don't do following if object is an ack message
+	// Send the object out on the network.
+	_, err = s.bmd.SendObject(obj)
+	if err != nil {
+		serverLog.Error("Failed to send object:", err)
+		return
+	}
+	serverLog.Trace("powHandler: Object sent to the network.")
+
+	if msg.ObjectType == wire.ObjectTypeMsg ||
+		msg.ObjectType == wire.ObjectTypeBroadcast {
+		err := s.imapUser.DeliverPow(index, msg)
+		if err != nil {
+			serverLog.Critical("DeliverPow failed: ", err)
 			return
-		case <-t.C:
-			target, hash, err := s.store.PowQueue.PeekForPow()
-			if err != nil {
-				// The only allowed error is store.ErrNotFound, which means that
-				// there is nothing to process.
-				if err != store.ErrNotFound {
-					serverLog.Criticalf("Peek on PowQueue failed: %v", err)
-				}
-				continue
-			}
-
-			// We have something to process
-			serverLog.Infof("powHandler: About to process pow for an object; target=%d.",
-				target)
-			nonce := cfg.powHandler(target, hash)
-			serverLog.Infof("powHandler: Proof of work calculated; nonce=%d.", nonce)
-
-			// Since we have the required nonce value and have processed
-			// the pending message, remove it from the queue.
-			index, obj, err := s.store.PowQueue.Dequeue()
-			if err != nil {
-				serverLog.Critical("Dequeue on PowQueue failed: ", err)
-				continue
-			}
-
-			// Re-assemble message as bytes.
-			nonceBytes := make([]byte, 8)
-			binary.BigEndian.PutUint64(nonceBytes, nonce)
-			obj = append(nonceBytes, obj...)
-
-			// Create MsgObject.
-			msg := &wire.MsgObject{}
-			err = msg.Decode(bytes.NewReader(obj))
-			if err != nil {
-				serverLog.Critical("MsgObject.Decode failed: ", err)
-				continue
-			}
-
-			// TODO don't do following if object is an ack message
-			// Send the object out on the network.
-			_, err = s.bmd.SendObject(obj)
-			if err != nil {
-				serverLog.Error("Failed to send object:", err)
-				continue
-			}
-			serverLog.Trace("powHandler: Object sent to the network.")
-
-			if msg.ObjectType == wire.ObjectTypeMsg ||
-				msg.ObjectType == wire.ObjectTypeBroadcast {
-				err := s.imapUser.DeliverPow(index, msg)
-				if err != nil {
-					serverLog.Critical("DeliverPow failed: ", err)
-					continue
-				}
-			}
 		}
 	}
 }
@@ -619,6 +579,7 @@ func (s *server) Stop() {
 	s.imapUser = nil // Prevent pointer cycle.
 
 	s.bmd.Stop()
+	s.powManager.Stop()
 	close(s.quit)
 }
 

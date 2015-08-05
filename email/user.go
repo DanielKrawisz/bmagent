@@ -30,7 +30,7 @@ func NewUser(server ServerOps) (*User, error) {
 		server: server,
 	}
 
-	mboxes := server.Store().Mailboxes()
+	mboxes := server.Mailboxes()
 	// The user is allowed to save in some mailboxes but not others.
 	for _, mbox := range mboxes {
 		mb, err := NewMailbox(mbox)
@@ -88,7 +88,7 @@ func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
 	// This will only happen if the pubkey can be found. An error is only
 	// returned if the message could not be generated and the pubkey request
 	// could not be sent.
-	_, err := bm.SubmitPow(u.server.PowQueue(), u.server)
+	_, err := bm.SubmitPow(u.server)
 	if err != nil {
 		smtpLog.Error("Unable to submit for proof-of-work: ", err)
 		return err
@@ -135,7 +135,7 @@ func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
 		}
 
 		// Add the message to the pow queue.
-		_, err := bmsg.SubmitPow(u.server.PowQueue(), u.server)
+		_, err := bmsg.SubmitPow(u.server)
 		if err != nil {
 			return errors.New("Unable to add message to pow queue.")
 		}
