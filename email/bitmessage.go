@@ -18,7 +18,6 @@ import (
 	"github.com/mailhog/data"
 	"github.com/DanielKrawisz/bmagent/message/format"
 	"github.com/DanielKrawisz/bmagent/message/serialize"
-	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/cipher"
 	"github.com/DanielKrawisz/bmutil/identity"
@@ -306,7 +305,7 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 }
 
 // SubmitPow attempts to submit a message for pow.
-func (m *Bitmessage) SubmitPow(powQueue *store.PowQueue, s ServerOps) (uint64, error) {
+func (m *Bitmessage) SubmitPow(s ServerOps) (uint64, error) {
 	// Attempt to generate the wire.Object form of the message.
 	obj, nonceTrials, extraBytes, err := m.GenerateObject(s)
 	if obj == nil {
@@ -323,7 +322,7 @@ func (m *Bitmessage) SubmitPow(powQueue *store.PowQueue, s ServerOps) (uint64, e
 
 	target := pow.CalculateTarget(uint64(len(q)),
 		uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
-	index, err := powQueue.Enqueue(target, q)
+	index, err := s.RunPow(target, q)
 	if err != nil {
 		return 0, err
 	}

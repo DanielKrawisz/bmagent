@@ -31,9 +31,9 @@ type ServerOps interface {
 	// given type will expire on the network. It's used for POW calculations.
 	GetObjectExpiry(wire.ObjectType) time.Duration
 
-	// PowQueue returns the store.PowQueue associated with the server.
-	PowQueue() *store.PowQueue
+	// RunPow submits some data to have the pow calculated and submitted to the network.
+	RunPow(uint64, []byte) (uint64, error)
 
-	// Store returns the store.Store associated with the server.
-	Store() *store.Store
+	// Mailboxes returns the set of mailboxes in the store.
+	Mailboxes() []*store.Mailbox
 }

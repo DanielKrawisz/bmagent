@@ -81,11 +81,11 @@ func (s *serverOps) GetObjectExpiry(objType wire.ObjectType) time.Duration {
 }
 
 // PowQueue returns the store.PowQueue associated with the server.
-func (s *serverOps) PowQueue() *store.PowQueue {
-	return s.server.store.PowQueue
+func (s *serverOps) RunPow(target uint64, obj []byte) (uint64, error) {
+	return s.server.powManager.RunPow(target, obj)
 }
 
 // Store returns the store.Store associated with the server.
-func (s *serverOps) Store() *store.Store {
-	return s.server.store
+func (s *serverOps) Mailboxes() []*store.Mailbox {
+	return s.server.store.Mailboxes()
 }
