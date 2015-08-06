@@ -65,6 +65,10 @@ var (
 	// IMAP requires existence of unique message IDs that do not change over
 	// sessions.
 	mailboxLatestIDKey = []byte("mailboxLatestID")
+
+	// powQueueLatestIDKey contains the index of the last element in the POW
+	// queue.
+	powQueueLatestIDKey = []byte("powQueueLatestID")
 )
 
 var (
@@ -90,7 +94,7 @@ type Store struct {
 	PowQueue           *PowQueue
 	BroadcastAddresses *BroadcastAddresses
 	mutex              sync.RWMutex        // For protecting the map.
-	mailboxes          map[string]*Mailbox // Map addresses to all mailboxes.
+	mailboxes          map[string]*Mailbox // Map names to all mailboxes.
 }
 
 // deriveKey is used to derive a 32 byte key for encryption/decryption
@@ -162,7 +166,14 @@ func Open(file string, pass []byte) (*Store, error) {
 			}
 
 			// Set ID for messages to 0.
-			return bucket.Put(mailboxLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
+			zero := []byte{0, 0, 0, 0, 0, 0, 0, 0}
+			err = bucket.Put(mailboxLatestIDKey, zero)
+			if err != nil {
+				return err
+			}
+
+			// Set ID for PoW queue to 0.
+			return bucket.Put(powQueueLatestIDKey, zero)
 
 		} else if len(v) < nonceSize+keySize+secretbox.Overhead {
 			return errors.New("Encrypted master key too short.")
@@ -224,7 +235,7 @@ func Open(file string, pass []byte) (*Store, error) {
 	// Load existing mailboxes.
 	err = db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
-			store.mailboxes[string(name)], _ = newMailbox(store, string(name), false)
+			store.mailboxes[string(name)], _ = NewMailbox(store, string(name), false)
 			return nil
 		})
 	})
@@ -251,8 +262,7 @@ func (s *Store) checkAndUpgrade(tx *bolt.Tx) error {
 	return nil
 }
 
-// NewMailbox creates a new mailbox for an address. It takes the address,
-// MailboxType and a name for the mailbox. Address must be unique. Name must
+// NewMailbox creates a new mailbox. Name must
 // be unique for a MailboxType.
 func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 
@@ -263,7 +273,7 @@ func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 	}
 
 	// We're good, so create the mailbox.
-	mbox, err := newMailbox(s, name, true)
+	mbox, err := NewMailbox(s, name, true)
 	if err != nil {
 		return nil, err
 	}
@@ -287,6 +297,15 @@ func (s *Store) MailboxByName(name string) (*Mailbox, error) {
 		return nil, ErrNotFound
 	}
 	return mbox, nil
+}
+
+// Mailboxes returns a slice containing pointers to all mailboxes in the store.
+func (s *Store) Mailboxes() []*Mailbox {
+	mboxes := make([]*Mailbox, 0, len(s.mailboxes))
+	for _, mbox := range s.mailboxes {
+		mboxes = append(mboxes, mbox)
+	}
+	return mboxes
 }
 
 // ChangePassphrase changes the passphrase of the data store. It does not

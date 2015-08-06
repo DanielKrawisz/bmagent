@@ -23,16 +23,9 @@ func newPowQueue(store *Store) (*PowQueue, error) {
 	q := &PowQueue{store: store}
 
 	err := store.db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(powQueueBucket)
+		_, err := tx.CreateBucketIfNotExists(powQueueBucket)
 		if err != nil {
 			return err
-		}
-		// Get the index value of the last stored element.
-		lastIndex, _ := bucket.Cursor().Last()
-		if lastIndex == nil { // No entries
-			q.nextIndex = 1
-		} else {
-			q.nextIndex = binary.BigEndian.Uint64(lastIndex) + 1
 		}
 		return nil
 	})
@@ -46,10 +39,7 @@ func newPowQueue(store *Store) (*PowQueue, error) {
 // Enqueue adds an object message with a target value for PoW to the end of the
 // queue. It returns the index value of the stored element.
 func (q *PowQueue) Enqueue(target uint64, obj []byte) (uint64, error) {
-	// Key is the next index
-	idx := q.nextIndex
-	k := make([]byte, 8)
-	binary.BigEndian.PutUint64(k, idx)
+	var idx uint64
 
 	// Value is stored as: target (8 bytes) || object
 	v := make([]byte, 8+len(obj))
@@ -57,12 +47,21 @@ func (q *PowQueue) Enqueue(target uint64, obj []byte) (uint64, error) {
 	copy(v[8:], obj)
 
 	err := q.store.db.Update(func(tx *bolt.Tx) error {
+		idx = binary.BigEndian.Uint64(tx.Bucket(miscBucket).Get(powQueueLatestIDKey)) + 1
+
+		// Increment powQueueLatestID. That'll be our k.
+		k := make([]byte, 8)
+		binary.BigEndian.PutUint64(k, idx)
+
+		err := tx.Bucket(miscBucket).Put(powQueueLatestIDKey, k)
+		if err != nil {
+			return err
+		}
 		return tx.Bucket(powQueueBucket).Put(k, v)
 	})
 	if err != nil {
 		return 0, err
 	}
-	q.nextIndex++
 
 	return idx, nil
 }

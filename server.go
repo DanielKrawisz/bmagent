@@ -11,10 +11,14 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/jordwest/imap-server"
+	"github.com/jordwest/imap-server/types"
+	"github.com/monetas/bmclient/email"
 	"github.com/monetas/bmclient/keymgr"
 	"github.com/monetas/bmclient/rpc"
 	"github.com/monetas/bmclient/store"
@@ -28,26 +32,15 @@ import (
 const (
 	// pkCheckerInterval is the interval after which bmclient should query bmd
 	// for retrieving any new public identities (that we queried for before).
-	pkCheckerInterval = time.Minute * 5
+	pkCheckerInterval = time.Minute * 2
 
 	// powCheckerInterval is the interval after with bmclient should check the
 	// proof-of-work queue and process next item.
-	powCheckerInterval = time.Second * 10
+	powCheckerInterval = time.Second * 5
 
 	// saveInterval is the interval after which data in memory should be saved
 	// to disk.
 	saveInterval = time.Minute * 5
-
-	// pubkeyExpiry is the time after which a pubkey sent out to the network
-	// expires.
-	pubkeyExpiry = time.Hour * 24 * 14
-
-	// getpubkeyExpiry is the time after which a getpubkey request sent out to
-	// the network expires.
-	getpubkeyExpiry = time.Hour * 24 * 14
-
-	// inboxName is the name of the inbox, as stored in the store.
-	inboxName = "Inbox"
 )
 
 // server struct manages everything that a running instance of bmclient
@@ -61,6 +54,11 @@ type server struct {
 	msgCounter       uint64
 	broadcastCounter uint64
 	getpubkeyCounter uint64
+	smtp             *email.SMTPServer
+	smtpListeners    []net.Listener
+	imap             *imap.Server
+	imapUser         *email.User
+	imapListeners    []net.Listener
 	quit             chan struct{}
 	wg               sync.WaitGroup
 }
@@ -68,17 +66,65 @@ type server struct {
 // newServer initializes a new instance of server.
 func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 	s *store.Store) (*server, error) {
+
 	srvr := &server{
-		bmd:    bmd,
-		keymgr: kmgr,
-		store:  s,
-		quit:   make(chan struct{}),
+		bmd:           bmd,
+		keymgr:        kmgr,
+		store:         s,
+		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
+		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
+		quit:          make(chan struct{}),
 	}
+
+	so := &serverOps{
+		pubIDs: make(map[string]*identity.Public),
+		server: srvr,
+	}
+
+	// Create an email.User from the store.
+	user, err := email.NewUser(so)
+	if err != nil {
+		return nil, err
+	}
+	srvr.imapUser = user
+
+	// Setup SMTP and IMAP servers.
+	srvr.smtp = email.NewSMTPServer(&email.SMTPConfig{
+		RequireTLS: !cfg.DisableServerTLS,
+		Username:   cfg.Username,
+		Password:   cfg.Password,
+	}, user)
+	srvr.imap = imap.NewServer(email.NewBitmessageStore(user, &email.IMAPConfig{
+		RequireTLS: !cfg.DisableServerTLS,
+		Username:   cfg.Username,
+		Password:   cfg.Password,
+	}))
+
+	// Setup tracer for IMAP.
+	// srvr.imap.Transcript = os.Stderr
+
+	// Set RPC client handlers.
 	bmd.SetHandlers(srvr.newMessage, srvr.newBroadcast, srvr.newGetpubkey)
 
-	// Load counter values from store.
-	var err error
+	// Setup IMAP listeners.
+	for _, laddr := range cfg.IMAPListeners {
+		l, err := net.Listen("tcp", laddr)
+		if err != nil {
+			return nil, imapLog.Criticalf("Failed to listen on %s: %v", l, err)
+		}
+		srvr.imapListeners = append(srvr.imapListeners, l)
+	}
 
+	// Setup SMTP listeners.
+	for _, laddr := range cfg.SMTPListeners {
+		l, err := net.Listen("tcp", laddr)
+		if err != nil {
+			return nil, smtpLog.Criticalf("Failed to listen on %s: %v", l, err)
+		}
+		srvr.smtpListeners = append(srvr.smtpListeners, l)
+	}
+
+	// Load counter values from store.
 	srvr.msgCounter, err = s.GetCounter(wire.ObjectTypeMsg)
 	if err != nil {
 		serverLog.Critical("Failed to get message counter:", err)
@@ -109,10 +155,18 @@ func (s *server) Start() {
 	s.bmd.Start(s.msgCounter, s.broadcastCounter, s.getpubkeyCounter)
 
 	// Start IMAP server.
+	for _, l := range s.imapListeners {
+		imapLog.Infof("Listening on %s", l.Addr())
+		go s.imap.Serve(l)
+	}
 
 	// Start SMTP server.
+	for _, l := range s.smtpListeners {
+		smtpLog.Infof("Listening on %s", l.Addr())
+		go s.smtp.Serve(l)
+	}
 
-	// Start RPC server.
+	// TODO Start RPC server.
 
 	// Start public key request handler.
 	serverLog.Info("Starting public key request handler.")
@@ -151,11 +205,14 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 
 	// Contains the address of the identity used to decrypt the message.
 	var address string
+	// Whether the message was received from a channel.
+	var ofChan bool
 
 	// Try decrypting with all available identities.
 	err = s.keymgr.ForEach(func(id *keymgr.PrivateID) error {
 		if cipher.TryDecryptAndVerifyMsg(msg, &id.Private) == nil {
 			address, _ = id.Address.Encode()
+			ofChan = id.IsChan
 			return errors.New("decryption successful")
 		}
 		return nil
@@ -166,38 +223,44 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	}
 
 	// Decryption was successful. Add message to store.
-	_, err = s.store.MailboxByName(inboxName)
+	mbox, err := s.imapUser.MailboxByName(email.InboxFolderName)
 	if err != nil {
-		serverLog.Errorf("Failed to get mailbox for %v", address)
+		log.Critical("MailboxByName(%s) failed: %v", email.InboxFolderName, err)
 		return
 	}
 
-	from := bmutil.Address{
-		Version: msg.FromAddressVersion,
-		Stream:  msg.FromStreamNumber,
-		Ripe:    *msg.Destination,
-	}
-	fromAddress, err := from.Encode()
+	// TODO Store public key of the sender in bmd
+
+	// Read message.
+	bmsg, err := email.MsgRead(msg, address, ofChan)
 	if err != nil {
-		fromAddress = "INVALID"
-		log.Errorf("Invalid sender of message #%d (address encode failure): %v",
-			counter, err)
+		log.Errorf("Failed to decode message #%d: %v", counter, err)
+		return
 	}
 
-	//mbox.InsertMessage(msg.Message, msg.Encoding)
-	log.Infof("Got new message from %s:\n%s", fromAddress, string(msg.Message))
+	err = mbox.(*email.Mailbox).AddNew(bmsg, types.FlagRecent)
+	if err != nil {
+		log.Errorf("Failed to save message #%d: %v", counter, err)
+		return
+	}
+
+	// Check if length of Ack is correct and message isn't from a channel.
+	if len(msg.Ack) < wire.MessageHeaderSize || ofChan {
+		return
+	}
 
 	// Send out ack if necessary.
 	ack := &wire.MsgObject{}
-	err = ack.Decode(bytes.NewReader(msg.Ack))
+	err = ack.Decode(bytes.NewReader(msg.Ack[wire.MessageHeaderSize:]))
 	if err != nil { // Can't send invalid Ack.
 		return
 	}
-	_, err = s.bmd.SendObject(msg.Ack)
+	_, err = s.bmd.SendObject(msg.Ack[wire.MessageHeaderSize:])
 	if err != nil {
 		log.Infof("Failed to send ack for message #%d: %v", counter, err)
 		return
 	}
+
 }
 
 // newBroadcast is called when a new broadcast is received by the RPC client.
@@ -277,10 +340,12 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 		return
 	}
 
+	addr, _ := privID.Address.Encode()
+	serverLog.Infof("Received a getpubkey request for %s, sending out the pubkey.", addr)
+
 	// Generate a pubkey message.
-	pkMsg, err := cipher.GeneratePubKey(&privID.Private, pubkeyExpiry)
+	pkMsg, err := cipher.GeneratePubKey(&privID.Private, defaultPubkeyExpiry)
 	if err != nil {
-		addr, _ := privID.Address.Encode()
 		serverLog.Errorf("Failed to generate pubkey for %s: %v", addr, err)
 		return
 	}
@@ -311,33 +376,65 @@ func (s *server) pkRequestHandler() {
 		case <-s.quit:
 			return
 		case <-t.C:
+			var mtx sync.Mutex // Protect the following map
+			addresses := make(map[string]*identity.Public)
+			var wg sync.WaitGroup
+
 			// Go through our store and check if server has any new public
 			// identity.
-			s.store.PubkeyRequests.ForEach(func(address string, addTime time.Time) {
-				_, err := s.bmd.GetIdentity(address)
-				if err == rpc.ErrIdentityNotFound {
-					// TODO check whether addTime has exceeded a set constant.
-					// If it has, delete the message from queue and generate a
-					// bounce message.
-					return
-				} else if err != nil {
-					rpccLog.Errorf("GetIdentity gave on %s unexpected error %v",
-						address, err)
-					return
+			s.store.PubkeyRequests.ForEach(func(address string, reqCount uint32,
+				lastReqTime time.Time) error {
+
+				serverLog.Tracef("Checking whether we have public key for %s.",
+					address)
+				wg.Add(1)
+
+				// Run requests in parellel because they're I/O dependent.
+				go func(addr string) {
+					defer wg.Done()
+
+					public, err := s.bmd.GetIdentity(addr)
+					if err == rpc.ErrIdentityNotFound {
+						// TODO Check whether lastReqTime has exceeded a set
+						// constant. If it has, send a new request.
+
+						// TODO Check whether reqCount has exceeded a set
+						// constant. If it has, delete the message from queue
+						// and generate a bounce message.
+						return
+					} else if err != nil {
+						rpccLog.Errorf("GetIdentity(%s) gave unexpected error %v",
+							addr, err)
+						return
+					}
+					mtx.Lock()
+					addresses[addr] = public
+					mtx.Unlock()
+				}(address)
+
+				return nil
+			})
+			wg.Wait()
+
+			for address, public := range addresses {
+				serverLog.Tracef("Received pubkey for %s. Processing pending messages.",
+					address)
+
+				// Process pending messages with this public identity and add
+				// them to pow queue.
+				err := s.imapUser.DeliverPublicKey(address, public)
+				if err != nil {
+					serverLog.Error("DeliverPublicKey failed: ", err)
 				}
 
-				// Now that we have the public identity, remove it from the
+				// Now that we have the public identities, remove them from the
 				// PK request store.
 				err = s.store.PubkeyRequests.Remove(address)
 				if err != nil {
-					serverLog.Criticalf("Failed to remove address from public"+
-						" key request store: %v", err)
+					serverLog.Critical("Failed to remove address from public"+
+						" key request store: ", err)
 				}
-
-				// TODO process pending messages with this public identity and
-				// add them to pow queue.
-
-			})
+			}
 		}
 	}
 }
@@ -355,48 +452,59 @@ func (s *server) powHandler() {
 			return
 		case <-t.C:
 			target, hash, err := s.store.PowQueue.PeekForPow()
-			if err == nil { // We have something to process
-				nonce := cfg.powHandler(target, hash)
-
-				// Since we have the required nonce value and have processed
-				// the pending message, remove it from the queue.
-				_, obj, err := s.store.PowQueue.Dequeue()
-				if err != nil {
-					serverLog.Criticalf("Dequeue on PowQueue failed: %v", err)
-					continue
+			if err != nil {
+				// The only allowed error is store.ErrNotFound, which means that
+				// there is nothing to process.
+				if err != store.ErrNotFound {
+					serverLog.Criticalf("Peek on PowQueue failed: %v", err)
 				}
-
-				// Re-assemble message as bytes.
-				nonceBytes := make([]byte, 8)
-				binary.BigEndian.PutUint64(nonceBytes, nonce)
-				obj = append(nonceBytes, obj...)
-
-				// Create MsgObject.
-				msg := &wire.MsgObject{}
-				err = msg.Decode(bytes.NewReader(obj))
-				if err != nil {
-					serverLog.Criticalf("MsgObject.Decode failed: %v", err)
-					continue
-				}
-
-				// TODO take appropriate actions for messages in various folders
-				if msg.ObjectType == wire.ObjectTypeMsg ||
-					msg.ObjectType == wire.ObjectTypeBroadcast {
-
-				}
-
-				// Send the object out on the network.
-				_, err = s.bmd.SendObject(obj)
-				if err != nil {
-					serverLog.Errorf("Failed to send object: %v", err)
-				}
-
-			} else if err != store.ErrNotFound {
-				serverLog.Criticalf("Peek on PowQueue failed: %v", err)
+				continue
 			}
 
-			// The only allowed error is store.ErrNotFound, which means that
-			// there is nothing to process.
+			// We have something to process
+			serverLog.Infof("powHandler: About to process pow for an object; target=%d.",
+				target)
+			nonce := cfg.powHandler(target, hash)
+			serverLog.Infof("powHandler: Proof of work calculated; nonce=%d.", nonce)
+
+			// Since we have the required nonce value and have processed
+			// the pending message, remove it from the queue.
+			index, obj, err := s.store.PowQueue.Dequeue()
+			if err != nil {
+				serverLog.Critical("Dequeue on PowQueue failed: ", err)
+				continue
+			}
+
+			// Re-assemble message as bytes.
+			nonceBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(nonceBytes, nonce)
+			obj = append(nonceBytes, obj...)
+
+			// Create MsgObject.
+			msg := &wire.MsgObject{}
+			err = msg.Decode(bytes.NewReader(obj))
+			if err != nil {
+				serverLog.Critical("MsgObject.Decode failed: ", err)
+				continue
+			}
+
+			// TODO don't do following if object is an ack message
+			// Send the object out on the network.
+			_, err = s.bmd.SendObject(obj)
+			if err != nil {
+				serverLog.Error("Failed to send object:", err)
+				continue
+			}
+			serverLog.Trace("powHandler: Object sent to the network.")
+
+			if msg.ObjectType == wire.ObjectTypeMsg ||
+				msg.ObjectType == wire.ObjectTypeBroadcast {
+				err := s.imapUser.DeliverPow(index, msg)
+				if err != nil {
+					serverLog.Critical("DeliverPow failed: ", err)
+					continue
+				}
+			}
 		}
 	}
 }
@@ -443,9 +551,10 @@ func (s *server) saveData() {
 }
 
 // getOrRequestPublicIdentity retrieves the needed public identity from bmd
-// or sends a getpubkey request if it doesn't exist in its store. If both return
-// types are nil, it means a getpubkey request has been queued.
+// or sends a getpubkey request if it doesn't exist in its database. If both
+// return types are nil, it means a getpubkey request has been queued.
 func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, error) {
+	serverLog.Trace("getOrRequestPublicIdentity called for ", address)
 	id, err := s.bmd.GetIdentity(address)
 	if err == nil {
 		return id, nil
@@ -458,12 +567,13 @@ func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, e
 		return nil, fmt.Errorf("Failed to decode address: %v", err)
 	}
 
+	serverLog.Trace("getOrRequestPublicIdentity: address not found, so sent to pow queue.")
 	// We don't have the identity so craft a getpubkey request.
 	var tag wire.ShaHash
 	copy(tag[:], addr.Tag())
 
-	msg := wire.NewMsgGetPubKey(0, time.Now().Add(getpubkeyExpiry), addr.Version,
-		addr.Stream, (*wire.RipeHash)(&addr.Ripe), &tag)
+	msg := wire.NewMsgGetPubKey(0, time.Now().Add(defaultGetpubkeyExpiry),
+		addr.Version, addr.Stream, (*wire.RipeHash)(&addr.Ripe), &tag)
 
 	// Enqueue the request for proof-of-work.
 	b := wire.EncodeMessage(msg)[8:] // exclude nonce
@@ -476,6 +586,14 @@ func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, e
 		return nil, err
 	}
 
+	// Store a record of the public key request.
+	count, err := s.store.PubkeyRequests.New(address)
+	if err != nil {
+		return nil, err
+	}
+
+	serverLog.Tracef("getOrRequestPublicIdentity: Requested address %s %d time(s).",
+		address, count)
 	return nil, nil
 }
 
@@ -486,7 +604,19 @@ func (s *server) Stop() {
 		return
 	}
 
+	// Save any data in memory.
 	s.saveData()
+
+	// Close all SMTP listeners.
+	for _, l := range s.smtpListeners {
+		l.Close()
+	}
+
+	// Close all IMAP listeners.
+	for _, l := range s.imapListeners {
+		l.Close()
+	}
+	s.imapUser = nil // Prevent pointer cycle.
 
 	s.bmd.Stop()
 	close(s.quit)

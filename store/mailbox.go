@@ -32,8 +32,8 @@ type Mailbox struct {
 	name  string
 }
 
-// newMailbox creates a new Mailbox, initializing the database if specified.
-func newMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error) {
+// NewMailbox creates a new Mailbox, initializing the database if specified.
+func NewMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error) {
 	mbox := &Mailbox{
 		store: store,
 		name:  name,
@@ -179,7 +179,7 @@ func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 // execute any other database operations in it.
 func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 	f func(id, suffix uint64, msg []byte) error) error {
-	if lowID > highID {
+	if highID != 0 && lowID > highID {
 		return errors.New("Nice try, son. But lowID cannot be greater than highID.")
 	}
 
@@ -211,6 +211,7 @@ func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 
 			msg, success := mbox.store.decrypt(v)
 			if !success {
+				fmt.Println("About to return a decryption failed error.")
 				return ErrDecryptionFailed
 			}
 
@@ -242,8 +243,8 @@ func (mbox *Mailbox) DeleteMessage(id uint64) error {
 	})
 }
 
-// GetName returns the user-friendly name of the mailbox.
-func (mbox *Mailbox) GetName() string {
+// Name returns the user-friendly name of the mailbox.
+func (mbox *Mailbox) Name() string {
 	return mbox.name
 }
 
@@ -314,8 +315,22 @@ func (mbox *Mailbox) Delete() error {
 	})
 }
 
-// GetLastID returns the highest index value in the mailbox.
-func (mbox *Mailbox) GetLastID() (uint64, error) {
+// NextID returns the next index value that will be assigned in the mailbox..
+func (mbox *Mailbox) NextID() (uint64, error) {
+	var id uint64
+
+	err := mbox.store.db.View(func(tx *bolt.Tx) error {
+		id = binary.BigEndian.Uint64(tx.Bucket(miscBucket).Get(mailboxLatestIDKey)) + 1
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+// LastID returns the highest index value in the mailbox.
+func (mbox *Mailbox) LastID() (uint64, error) {
 	var id uint64
 
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
@@ -339,9 +354,9 @@ func (mbox *Mailbox) GetLastID() (uint64, error) {
 	return id, nil
 }
 
-// GetLastIDBySuffix returns the highest index value from messages with the
+// LastIDBySuffix returns the highest index value from messages with the
 // specified suffix in the mailbox.
-func (mbox *Mailbox) GetLastIDBySuffix(suffix uint64) (uint64, error) {
+func (mbox *Mailbox) LastIDBySuffix(suffix uint64) (uint64, error) {
 	var id uint64
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
 		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()

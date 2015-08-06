@@ -44,7 +44,7 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Check name.
-	testName := mbox.GetName()
+	testName := mbox.Name()
 	if name != testName {
 		t.Errorf("Name, expected %s got %s", name, testName)
 	}
@@ -56,12 +56,12 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Try getting last IDs when mailbox is empty.
-	_, err = mbox.GetLastID()
+	_, err = mbox.LastID()
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
 
-	_, err = mbox.GetLastIDBySuffix(1)
+	_, err = mbox.LastIDBySuffix(1)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
@@ -124,8 +124,8 @@ func TestMailbox(t *testing.T) {
 	// expectedCount = 0
 	testForEachMessage(mbox, 0, 0, 3, 0, t)
 
-	// Test GetLastID. Should be 2.
-	id, err := mbox.GetLastID()
+	// Test LastID. Should be 2.
+	id, err := mbox.LastID()
 	if err != nil {
 		t.Error(err)
 	}
@@ -134,32 +134,32 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Verify that the last ID for message with suffix 1 is 1.
-	testGetLastIDBySuffix(mbox, 1, 1, t)
+	testLastIDBySuffix(mbox, 1, 1, t)
 
 	// Verify that the last ID for message with suffix 2 is 2.
-	testGetLastIDBySuffix(mbox, 2, 2, t)
+	testLastIDBySuffix(mbox, 2, 2, t)
 
 	// Try deleting messages.
 	testDeleteMessage(mbox, 1, t)
 
 	// Check the last ID now. Should still be 2.
-	testGetLastIDBySuffix(mbox, 2, 2, t)
+	testLastIDBySuffix(mbox, 2, 2, t)
 
 	// Verify that the last ID for message with suffix 1 that was just deleted
 	// is gone too.
-	_, err = mbox.GetLastIDBySuffix(1)
+	_, err = mbox.LastIDBySuffix(1)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
 
 	// Verify that the last ID for message with suffix 2 is 2, as expected.
-	testGetLastIDBySuffix(mbox, 2, 2, t)
+	testLastIDBySuffix(mbox, 2, 2, t)
 
 	// Delete the last message.
 	testDeleteMessage(mbox, 2, t)
 
-	// GetLastID should error out.
-	_, err = mbox.GetLastID()
+	// LastID should error out.
+	_, err = mbox.LastID()
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
@@ -254,9 +254,9 @@ func testDeleteMessage(mbox *store.Mailbox, id uint64, t *testing.T) {
 	}
 }
 
-func testGetLastIDBySuffix(mbox *store.Mailbox, suffix, expectedID uint64,
+func testLastIDBySuffix(mbox *store.Mailbox, suffix, expectedID uint64,
 	t *testing.T) {
-	id, err := mbox.GetLastIDBySuffix(suffix)
+	id, err := mbox.LastIDBySuffix(suffix)
 	if err != nil {
 		t.Errorf("For suffix %d, got error %v", suffix, err)
 	}
