@@ -14,28 +14,6 @@ import (
 	"github.com/monetas/bmclient/store"
 )
 
-// IMAPMailbox represents an IMAP e-mail folder. mailstore.Mailbox only defines
-// the functionality required to interact with an IMAP client, so extra
-// functions can be defined here if necessary.
-type IMAPMailbox interface {
-	mailstore.Mailbox
-
-	Save(*IMAPEmail) error
-
-	// Refresh updates cached statistics like number of messages in inbox,
-	// next UID, last UID, number of recent/unread messages etc. It is meant to
-	// be called after the mailbox has been modified by an agent other than the
-	// IMAP server. This could be the SMTP server, or new message from bmd.
-	Refresh() error
-}
-
-// IMAPUser represents an imap e-mail user account, which contains multiple
-// folders.
-type IMAPUser interface {
-	mailstore.User
-	//Deliver(*data.Message, types.Flags) (*ImapEmail, error)
-}
-
 // IMAPConfig contains configuration options for the IMAP server.
 type IMAPConfig struct {
 	Username   string

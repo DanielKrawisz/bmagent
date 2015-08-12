@@ -73,7 +73,7 @@ type IMAPData struct {
 	UID            uint64
 	SequenceNumber uint32
 	Flags          types.Flags
-	DateReceived   time.Time
+	TimeReceived   time.Time
 	Mailbox        *Mailbox
 }
 
@@ -119,10 +119,10 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 
 	var imapData *serialize.ImapData
 	if m.ImapData != nil {
-		date := m.ImapData.DateReceived.Format(dateFormat)
+		t := m.ImapData.TimeReceived.Format(dateFormat)
 
 		imapData = &serialize.ImapData{
-			TimeReceived: date,
+			TimeReceived: t,
 			Flags:        int32(m.ImapData.Flags),
 		}
 	}
@@ -438,14 +438,14 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 	}
 
 	if msg.ImapData != nil {
-		dateReceived, err := time.Parse(dateFormat, msg.ImapData.TimeReceived)
+		timeReceived, err := time.Parse(dateFormat, msg.ImapData.TimeReceived)
 		if err != nil {
 			return nil, err
 		}
 
 		l.ImapData = &IMAPData{
 			Flags:        types.Flags(msg.ImapData.Flags),
-			DateReceived: dateReceived,
+			TimeReceived: timeReceived,
 		}
 	}
 
@@ -497,7 +497,7 @@ func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 		headers["To"] = []string{bmToEmail(m.To)}
 	}
 
-	headers["Date"] = []string{m.ImapData.DateReceived.Format(dateFormat)}
+	headers["Date"] = []string{m.ImapData.TimeReceived.Format(dateFormat)}
 	headers["Expires"] = []string{m.Expiration.Format(dateFormat)}
 	if m.OfChannel {
 		headers["Reply-To"] = []string{bmToEmail(m.To)}
@@ -514,7 +514,7 @@ func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 		ImapSequenceNumber: m.ImapData.SequenceNumber,
 		ImapUID:            m.ImapData.UID,
 		ImapFlags:          m.ImapData.Flags,
-		Date:               m.ImapData.DateReceived,
+		Date:               m.ImapData.TimeReceived,
 		Mailbox:            m.ImapData.Mailbox,
 		Content:            content,
 	}

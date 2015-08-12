@@ -22,7 +22,7 @@ type IMAPEmail struct {
 	ImapUID            uint64
 	ImapFlags          types.Flags
 	Date               time.Time
-	Mailbox            IMAPMailbox
+	Mailbox            *Mailbox
 	Content            *data.Content
 }
 
@@ -90,6 +90,12 @@ func (e *IMAPEmail) SetBody(body string) mailstore.Message {
 
 // SetHeaders sets the headers of a message.
 func (e *IMAPEmail) SetHeaders(headers textproto.MIMEHeader) mailstore.Message {
+	if date := headers.Get("Date"); date != "" {
+		d, err := time.Parse(dateFormat, date)
+		if err == nil {
+			e.Date = d
+		}
+	}
 	e.Content.Headers = headers
 	return e
 }

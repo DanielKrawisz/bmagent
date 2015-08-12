@@ -113,15 +113,11 @@ func (box *Mailbox) updateMailboxStats(entry *Bitmessage, id uint64) {
 	}
 }
 
-// Refresh updates cached statistics like number of messages in inbox,
+// refresh updates cached statistics like number of messages in inbox,
 // next UID, last UID, number of recent/unread messages etc. It is meant to
 // be called after the mailbox has been modified by an agent other than the
 // IMAP server. This could be the SMTP server, or new message from bmd.
-func (box *Mailbox) Refresh() error {
-	box.Lock()
-	defer box.Unlock()
-
-	var err error
+func (box *Mailbox) refresh() error {
 
 	// Set NextUID
 	nextUID, err := box.mbox.NextID()
@@ -468,38 +464,24 @@ func (box *Mailbox) bitmessageSetBySequenceNumber(set types.SequenceSet) []*Bitm
 
 // AddNew adds a new Bitmessage to the Mailbox.
 func (box *Mailbox) AddNew(bmsg *Bitmessage, flags types.Flags) error {
-	smtpLog.Trace("AddNew: Bitmessage received in folder ", box.Name())
+	box.Lock()
+	defer box.Unlock()
 
-	imapData := &IMAPData{
-		SequenceNumber: box.messages(),
-		Flags:          flags,
-		DateReceived:   time.Now(),
-		Mailbox:        box,
-	}
+	smtpLog.Trace("AddNew: Bitmessage received in folder ", box.Name())
 
 	if bmsg.state == nil {
 		bmsg.state = &MessageState{}
 	}
 
-	bmsg.ImapData = imapData
-
-	msg, err := bmsg.Serialize()
-	if err != nil {
-		return err
+	bmsg.ImapData = &IMAPData{
+		SequenceNumber: box.messages() + 1,
+		Flags:          flags,
+		TimeReceived:   time.Now(),
+		Mailbox:        box,
 	}
 
-	uid, err := box.mbox.InsertMessage(msg, 0, bmsg.Message.Encoding())
-	if err != nil {
-		return err
-	}
+	box.SaveBitmessage(bmsg)
 
-	// Update the mailbox.
-	box.updateMailboxStats(bmsg, uid)
-	box.uids = append(box.uids, uid)
-
-	// Set the message with the correct uid and sequence number.
-	imapData.UID = uid
-	imapData.SequenceNumber = uint32(len(box.uids))
 	return nil
 }
 
@@ -552,13 +534,13 @@ func (box *Mailbox) DeleteBitmessageByUID(id uint64) error {
 		return nil
 	}
 
+	box.Lock()
+	defer box.Unlock()
+
 	err := box.mbox.DeleteMessage(id)
 	if err != nil {
 		return err
 	}
-
-	box.Lock()
-	defer box.Unlock()
 
 	// Update the box's state based on the information in the message deleted.
 	if bmsg.ImapData != nil {
@@ -583,6 +565,7 @@ func (box *Mailbox) DeleteBitmessageByUID(id uint64) error {
 
 // SaveBitmessage saves the given Bitmessage in the folder.
 func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
+
 	if msg.ImapData.UID != 0 { // The message already exists and needs to be replaced.
 		// Delete the old message from the database.
 		err := box.mbox.DeleteMessage(uint64(msg.ImapData.UID))
@@ -609,11 +592,12 @@ func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
 
 	msg.ImapData.UID = newUID
 
-	err = box.Refresh()
+	err = box.refresh()
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).Refresh gave error %v", box.Name(), err)
 		return err
 	}
+
 	return nil
 }
 
@@ -630,7 +614,7 @@ func (box *Mailbox) Save(email *IMAPEmail) error {
 		UID:            email.ImapUID,
 		SequenceNumber: email.ImapSequenceNumber,
 		Flags:          email.ImapFlags,
-		DateReceived:   email.Date,
+		TimeReceived:   email.Date,
 		Mailbox:        box,
 	}
 
@@ -643,14 +627,54 @@ func (box *Mailbox) Save(email *IMAPEmail) error {
 		if previous.ImapData.UID != msg.ImapData.UID {
 			return errors.New("Invalid uid")
 		}
-		if previous.ImapData.DateReceived != msg.ImapData.DateReceived {
+		if previous.ImapData.TimeReceived != msg.ImapData.TimeReceived {
 			return errors.New("Cannot change date received")
 		}
 
 		msg.state = previous.state
 	}
 
+	box.Lock()
+	defer box.Unlock()
 	return box.SaveBitmessage(msg)
+}
+
+// DeleteFlaggedMessages deletes messages that were flagged for deletion.
+func (box *Mailbox) DeleteFlaggedMessages() ([]mailstore.Message, error) {
+	box.RLock()
+	var delBMsgs []*Bitmessage
+
+	// Gather UIDs of all messages to be deleted.
+	for _, uid := range box.uids {
+		b := box.bmsgByUID(uid)
+		if b == nil {
+			continue
+		}
+		if b.ImapData.Flags.HasFlags(types.FlagDeleted) {
+			delBMsgs = append(delBMsgs, b)
+		}
+	}
+	box.RUnlock()
+
+	// Delete them.
+	msgs := make([]mailstore.Message, 0, len(delBMsgs))
+	for _, b := range delBMsgs {
+		msg, err := b.ToEmail()
+		if err != nil {
+			imapLog.Errorf("Failed to convert #%d to e-mail: %v", b.ImapData.UID,
+				err)
+			// Don't return because we want this message to be deleted anyway.
+		} else {
+			msgs = append(msgs, msg)
+		}
+
+		err = box.DeleteBitmessageByUID(b.ImapData.UID)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return msgs, nil
 }
 
 // This error is used to cause mailbox.ForEachMessage to stop looping through
@@ -682,7 +706,10 @@ func (box *Mailbox) ReceiveAck(ack []byte) *Bitmessage {
 	}
 
 	ackMatch.state.AckReceived = true
+
+	box.Lock()
 	box.SaveBitmessage(ackMatch)
+	box.Unlock()
 
 	return ackMatch
 }
@@ -694,6 +721,7 @@ func (box *Mailbox) NewMessage() mailstore.Message {
 		ImapFlags: types.FlagRecent,
 		Mailbox:   box,
 		Content:   &data.Content{},
+		Date:      time.Now(),
 	}
 }
 
@@ -704,7 +732,7 @@ func NewMailbox(mbox *store.Mailbox) (*Mailbox, error) {
 	}
 
 	// Populate various data fields.
-	if err := m.Refresh(); err != nil {
+	if err := m.refresh(); err != nil {
 		return nil, err
 	}
 	return m, nil
