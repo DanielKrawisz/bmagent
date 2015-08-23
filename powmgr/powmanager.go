@@ -6,8 +6,8 @@ package powmgr
 
 import (
 	"encoding/binary"
-	"sync"
 
+	"github.com/DanielKrawisz/runner"
 	"github.com/monetas/bmclient/store"
 )
 
@@ -16,19 +16,51 @@ import (
 // added to the pow queue, it goes down the queue and runs the pow for every
 // item in the queue, and then sends the completed item to the server.
 type PowManager struct {
+	run      *runner.Runner
 	powQueue *store.PowQueue
 	// newPowRequest signals that a new pow request has been enqueued.
 	newPowChan chan struct{}
-	// quitChan signals the pow handler to quit.
-	quitChan chan struct{}
+
+	// donePowFunc is called when a new nonce is generated.
+	donePowFunc func(index uint64, obj []byte)
+
+	// powFunc is the function that calculates the pow.
+	powFunc func(target uint64, hash []byte) uint64
 }
 
 // New creates a new PowManager.
-func New(pq *store.PowQueue) *PowManager {
-	return &PowManager{
-		powQueue: pq,
-		quitChan: make(chan struct{}),
+func New(pq *store.PowQueue,
+	donePowFunc func(index uint64, obj []byte),
+	powFunc func(target uint64, hash []byte) uint64) *PowManager {
+
+	pm := &PowManager{
+		powQueue:    pq,
+		donePowFunc: donePowFunc,
+		powFunc:     powFunc,
 	}
+
+	pm.run = runner.New([]runner.Runnable{pm.powHandler},
+		func() error {
+			pm.newPowChan = make(chan struct{})
+			return nil
+		},
+		func() error {
+			pm.newPowChan = nil
+			return nil
+		},
+	)
+
+	return pm
+}
+
+// Start starts the PowManager.
+func (pm *PowManager) Start() {
+	pm.run.Start()
+}
+
+// Stop stops the PowManager
+func (pm *PowManager) Stop() {
+	pm.run.Stop()
 }
 
 // RunPow adds an object message with a target value for PoW to the end of the
@@ -48,35 +80,22 @@ func (pm *PowManager) RunPow(target uint64, obj []byte) (uint64, error) {
 	return index, nil
 }
 
-// PowHandler manages the proof-of-work queue. It makes sure that only one
+// powHandler manages the proof-of-work queue. It makes sure that only one
 // object is processed at a time. After doing POW, it returns the object
 // to the server.
-// parameters:
-//  * donePowFunc is used to signal that a nonce has been calculated.
-//  * powFunc is the function that calculates the pow.
-//  * wg is an optional wait group that is called when the function ends.
-func (pm *PowManager) PowHandler(
-	donePowFunc func(index uint64, obj []byte),
-	powFunc func(target uint64, hash []byte) uint64,
-	wg *sync.WaitGroup) {
-
-	if wg != nil {
-		defer wg.Done()
-	}
-
+func (pm *PowManager) powHandler(quit <-chan struct{}) error {
 	// If the PowHandler is awake, then it does not respond to signals
 	// from newPowChan and just keeps processing down the queue until the
 	// queue is empty. Then it goes to sleep.
 	awake := true
 
 	donePowChan := make(chan uint64)
-	pm.newPowChan = make(chan struct{})
 
 	// calculatePow handles the pow calculation for a single object.
 	// Eventually, this might be upgraded so that it could be interrupted
 	// in the middle of a calculation.
 	calculatePow := func(target uint64, hash []byte) {
-		donePowChan <- powFunc(target, hash)
+		donePowChan <- pm.powFunc(target, hash)
 	}
 
 	// startNewPow peeks for the latest information from the queue and begins
@@ -103,7 +122,7 @@ func (pm *PowManager) PowHandler(
 out:
 	for {
 		select {
-		case <-pm.quitChan:
+		case <-quit:
 			break out
 		case <-pm.newPowChan:
 			// ignore if the pow handler is awake because it's already working.
@@ -126,14 +145,11 @@ out:
 			obj = append(nonceBytes, obj...)
 
 			// Send the data to the server.
-			donePowFunc(index, obj)
+			pm.donePowFunc(index, obj)
 
 			startNewPow()
 		}
 	}
-}
 
-// Stop stops the pow queue.
-func (pm *PowManager) Stop() {
-	close(pm.quitChan)
+	return nil
 }
