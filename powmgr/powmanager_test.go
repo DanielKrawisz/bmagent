@@ -21,8 +21,6 @@ func TestPowHandler(t *testing.T) {
 	var mutex sync.RWMutex
 	powChan := make(chan struct{})
 	donePowChan := make(chan uint64)
-	var wg sync.WaitGroup
-	wg.Add(1)
 
 	// A function that does not actually calculate the pow.
 	mockPowFunc := func(target uint64, hash []byte) uint64 {
@@ -64,7 +62,7 @@ func TestPowHandler(t *testing.T) {
 	}
 
 	target := uint64(1152921504606846975)
-	pm := powmgr.New(s.PowQueue)
+	pm := powmgr.New(s.PowQueue, mockPowDone, mockPowFunc)
 
 	// Test that an item can be added to the queue and will be run
 	// once the queue handler is started.
@@ -72,7 +70,7 @@ func TestPowHandler(t *testing.T) {
 	if err != nil {
 		t.Error("Unable to submit to pow queue.")
 	}
-	go pm.PowHandler(mockPowDone, mockPowFunc, &wg)
+	pm.Start()
 	test1 := <-donePowChan
 	if test1 != 1 {
 		t.Error("Incorrect test index returned.")
@@ -113,5 +111,4 @@ func TestPowHandler(t *testing.T) {
 	}
 
 	pm.Stop()
-	wg.Wait()
 }

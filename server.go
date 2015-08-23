@@ -73,7 +73,6 @@ func newServer(bmd *rpc.Client, users map[string]*User,
 		bmd:           bmd,
 		users:         users,
 		store:         s,
-		powManager:    powmgr.New(s.PowQueue),
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
@@ -144,6 +143,9 @@ func newServer(bmd *rpc.Client, users map[string]*User,
 		serverLog.Critical("Failed to get getpubkey counter:", err)
 	}
 
+	// Setup pow manager.
+	srvr.powManager = powmgr.New(s.PowQueue, srvr.receiveDonePow, cfg.powHandler)
+
 	return srvr, nil
 }
 
@@ -177,10 +179,9 @@ func (s *server) Start() {
 	s.wg.Add(1)
 	go s.pkRequestHandler()
 
-	// Start proof of work handler.
-	serverLog.Info("Starting proof-of-work handler.")
-	s.wg.Add(1)
-	go s.powManager.PowHandler(s.receiveDonePow, cfg.powHandler, &s.wg)
+	// Start proof of work manager.
+	serverLog.Info("Starting proof-of-work manager.")
+	s.powManager.Start()
 
 	// Start saving data periodically.
 	s.wg.Add(1)
