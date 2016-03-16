@@ -1,4 +1,5 @@
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -8,8 +9,8 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/monetas/bmclient/store"
-	"github.com/monetas/bmutil"
+	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmutil"
 )
 
 func TestBroadcastAddresses(t *testing.T) {

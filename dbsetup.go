@@ -2,6 +2,7 @@
 // Copyright (c) 2013-2014 The btcsuite developers
 
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -18,11 +19,11 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btcutil/hdkeychain"
-	"github.com/monetas/bmclient/email"
-	"github.com/monetas/bmclient/keymgr"
-	"github.com/monetas/bmclient/store"
-	"github.com/monetas/bmutil/identity"
-	"github.com/monetas/bmutil/pow"
+	"github.com/DanielKrawisz/bmagent/email"
+	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
 	ini "github.com/vaughan0/go-ini"
 	"golang.org/x/crypto/ssh/terminal"
 )

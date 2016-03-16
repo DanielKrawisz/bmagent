@@ -1,4 +1,5 @@
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -18,15 +19,15 @@ import (
 
 	"github.com/jordwest/imap-server"
 	"github.com/jordwest/imap-server/types"
-	"github.com/monetas/bmclient/email"
-	"github.com/monetas/bmclient/keymgr"
-	"github.com/monetas/bmclient/rpc"
-	"github.com/monetas/bmclient/store"
-	"github.com/monetas/bmutil"
-	"github.com/monetas/bmutil/cipher"
-	"github.com/monetas/bmutil/identity"
-	"github.com/monetas/bmutil/pow"
-	"github.com/monetas/bmutil/wire"
+	"github.com/DanielKrawisz/bmagent/email"
+	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/rpc"
+	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmutil"
+	"github.com/DanielKrawisz/bmutil/cipher"
+	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
+	"github.com/DanielKrawisz/bmutil/wire"
 )
 
 const (

@@ -2,6 +2,7 @@
 // Copyright (c) 2013-2014 The btcsuite developers
 
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -21,7 +22,7 @@ import (
 
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
-	"github.com/monetas/bmutil/pow"
+	"github.com/DanielKrawisz/bmutil/pow"
 	ini "github.com/vaughan0/go-ini"
 )
 

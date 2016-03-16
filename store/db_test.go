@@ -1,4 +1,5 @@
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -9,7 +10,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/monetas/bmclient/store"
+	"github.com/DanielKrawisz/bmagent/store"
 )
 
 func TestOpenClose(t *testing.T) {

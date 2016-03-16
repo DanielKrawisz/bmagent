@@ -1,10 +1,10 @@
-bmclient
+bmagent
 ========
 
 [![Build Status](https://travis-ci.org/monetas/bmclient.png?branch=master)]
 (https://travis-ci.org/monetas/bmclient)
 
-bmclient is a daemon handling Bitmessage identities for a single user. It acts
+bmagent is a daemon handling Bitmessage identities for a single user. It acts
 as an RPC client to bmd and an IMAP and SMTP server for interfacing with
 traditional e-mail clients like Thunderbird, Outlook and Mail. It extensively
 shares code and design philosophy with [btcwallet](https://github.com/btcsuite/btcwallet).
@@ -13,12 +13,12 @@ Private keys can be generated both randomly and deterministically using a seed.
 Due to the sensitive nature of these private keys, they are stored encrypted
 on disk using a key derived from the passphrase.
 
-bmclient is not a network node and requires connection to a running instance of
+bmagent is not a network node and requires connection to a running instance of
 bmd using JSON-RPC over websockets. Full bmd installation instructions can be
 found [here](https://github.com/monetas/bmd).
 
 No graphical frontends are planned as of right now. All communication between
-the user and bmclient can be done using IMAP/SMTP or JSON-RPC over websockets
+the user and bmagent can be done using IMAP/SMTP or JSON-RPC over websockets
 for the more advanced users or use cases.
 
 ## Installation
@@ -32,10 +32,10 @@ for the more advanced users or use cases.
   dependencies:
 ```bash
 $ go get -u -v github.com/monetas/bmd/...
-$ go get -u -v github.com/monetas/bmclient/...
+$ go get -u -v github.com/monetas/bmagent/...
 ```
 
-- bmd and bmclient will now be installed in either ```$GOROOT/bin``` or
+- bmd and bmagent will now be installed in either ```$GOROOT/bin``` or
   ```$GOPATH/bin``` depending on your configuration. If you did not already
   add to your system path during the installation, we recommend you do so now.
 
@@ -43,16 +43,16 @@ $ go get -u -v github.com/monetas/bmclient/...
 
 ### Linux/BSD/POSIX - Build from Source
 
-- Run the following commands to update bmclient, all dependencies, and install it:
+- Run the following commands to update bmagent, all dependencies, and install it:
 
 ```bash
 $ go get -u -v github.com/monetas/bmd/...
-$ go get -u -v github.com/monetas/bmclient/...
+$ go get -u -v github.com/monetas/bmagent/...
 ```
 
 ## Getting Started
 
-The follow instructions detail how to get started with bmclient connecting to a
+The follow instructions detail how to get started with bmagent connecting to a
 localhost bmd.
 
 ### Linux/BSD/POSIX/Source
@@ -67,13 +67,13 @@ $ bmd -u rpcuser -P rpcpass
   key to the network:
 
 ```bash
-$ bmclient -u rpcuser -P rpcpass --create
+$ bmagent -u rpcuser -P rpcpass --create
 ```
 
-- Run the following command to start bmclient:
+- Run the following command to start bmagent:
 
 ```bash
-$ bmclient -u rpcuser -P rpcpass
+$ bmagent -u rpcuser -P rpcpass
 ```
 
 - Start your e-mail client and connect to localhost:143 for IMAP (with TLS) and
@@ -81,7 +81,7 @@ $ bmclient -u rpcuser -P rpcpass
   password.
 
 If everything appears to be working, it is recommended at this point to copy the
-sample bmd and bmclient configurations and update with your RPC and IMAP/SMTP
+sample bmd and bmagent configurations and update with your RPC and IMAP/SMTP
 username and password.
 
 ```bash
@@ -93,9 +93,9 @@ $ $EDITOR ~/.bmclient/bmclient.conf
 
 ## Issue Tracker
 
-The [integrated github issue tracker](https://github.com/monetas/bmclient/issues)
+The [integrated github issue tracker](https://github.com/DanielKrawisz/bmagent/issues)
 is used for this project.
 
 ## License
 
-bmclient is licensed under the liberal ISC License.
+bmagent is licensed under the liberal ISC License.

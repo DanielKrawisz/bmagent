@@ -1,4 +1,5 @@
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -16,7 +17,7 @@ private keys for them. You can also send commands to bmclient via the address
 bmclient@bm.addr.
 
 Have a bug to report? Care to help out? Please see our github repo:
-https://github.com/monetas/bmclient/`
+https://github.com/DanielKrawisz/bmagent/`
 
 const commandWelcomeMsg = `
 (put a list of commands here.)`

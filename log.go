@@ -2,6 +2,7 @@
 // Copyright (c) 2013-2015 The btcsuite developers
 
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -13,8 +14,8 @@ import (
 
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
-	"github.com/monetas/bmclient/email"
-	"github.com/monetas/bmclient/rpc"
+	"github.com/DanielKrawisz/bmagent/email"
+	"github.com/DanielKrawisz/bmagent/rpc"
 )
 
 // Loggers per subsytem. Note that backendLog is a seelog logger that all of

@@ -1,4 +1,5 @@
 // Copyright (c) 2015 Monetas.
+// Copyright 2016 Daniel Krawisz.
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
@@ -10,8 +11,8 @@ import (
 
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
-	"github.com/monetas/bmclient/message/format"
-	"github.com/monetas/bmclient/store"
+	"github.com/DanielKrawisz/bmagent/message/format"
+	"github.com/DanielKrawisz/bmagent/store"
 )
 
 // IMAPConfig contains configuration options for the IMAP server.
