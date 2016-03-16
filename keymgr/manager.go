@@ -12,6 +12,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/golangcrypto/nacl/secretbox"
 	"github.com/monetas/bmutil"
@@ -67,7 +68,7 @@ func New(seed []byte) (*Manager, error) {
 	mgr := &Manager{db: &db{}}
 
 	// Generate master key.
-	mKey, err := hdkeychain.NewMaster(seed)
+	mKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
 	if err != nil {
 		return nil, err
 	}
