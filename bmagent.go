@@ -29,17 +29,17 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	// Work around defer not working after os.Exit.
-	if err := bmclientMain(); err != nil {
+	if err := bmagentMain(); err != nil {
 		os.Exit(1)
 	}
 }
 
-// bmclientMain is a work-around main function that is required since deferred
+// bmagentMain is a work-around main function that is required since deferred
 // functions (such as log flushing) are not called with calls to os.Exit.
 // Instead, main runs this function and checks for a non-nil error, at which
 // point any defers have already run, and if the error is non-nil, the program
 // can be exited with an error exit status.
-func bmclientMain() error {
+func bmagentMain() error {
 	// Load configuration and parse command line.  This function also
 	// initializes logging and configures it accordingly.
 	tcfg, _, err := loadConfig()

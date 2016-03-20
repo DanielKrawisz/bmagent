@@ -28,10 +28,10 @@ import (
 
 const (
 	defaultCAFilename       = "bmd.cert"
-	defaultConfigFilename   = "bmclient.conf"
+	defaultConfigFilename   = "bmagent.conf"
 	defaultLogLevel         = "info"
 	defaultLogDirname       = "logs"
-	defaultLogFilename      = "bmclient.log"
+	defaultLogFilename      = "bmagent.log"
 	defaultDisallowFree     = false
 	defaultRPCMaxClients    = 10
 	defaultRPCMaxWebsockets = 25
@@ -54,7 +54,7 @@ const (
 )
 
 var (
-	defaultDataDir     = btcutil.AppDataDir("bmclient", false)
+	defaultDataDir     = btcutil.AppDataDir("bmagent", false)
 	bmdDataDir         = btcutil.AppDataDir("bmd", false)
 	bmdHomedirCAFile   = filepath.Join(bmdDataDir, "rpc.cert")
 	defaultConfigFile  = filepath.Join(defaultDataDir, defaultConfigFilename)
@@ -72,7 +72,7 @@ type config struct {
 	ConfigFile string `short:"C" long:"configfile" description:"Path to configuration file"`
 
 	Create        bool   `long:"create" description:"Create the identity and message databases if they don't exist"`
-	ImportKeyFile string `long:"importkeyfile" description:"Path to keys.db from PyBitmessage. If set, private keys from this file are imported into bmclient"`
+	ImportKeyFile string `long:"importkeyfile" description:"Path to keys.db from PyBitmessage. If set, private keys from this file are imported into bmagent"`
 
 	EnableRPC     bool     `long:"rpc" description:"Enable built-in RPC server -- NOTE: The RPC server is disabled by default"`
 	RPCListeners  []string `long:"rpclisten" description:"Listen for RPC/websocket connections on this interface/port (default port: 8446)"`
@@ -470,7 +470,6 @@ func loadConfig() (*config, []string, error) {
 		os.Exit(0)
 
 	} else if !fileExists(cfg.keyfilePath) || !fileExists(cfg.storePath) {
-
 		err := errors.New("The key file and/or data store do not exist. " +
 			"Run with the --create option to\ninitialize and create them.")
 

@@ -170,6 +170,10 @@ func (s *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, err
 	
 	// TODO is this a good host name? 
 	message := smtpMessage.Parse("bmagent")
+	
+	// Check for command.
+	//smtpLog.Info("And its from ", message.Content.Headers["From"][0]);
+	//message.Content.Headers["From"][0]
 
 	// Convert to bitmessage.
 	bm, err := NewBitmessageFromSMTP(message.Content)

@@ -99,3 +99,14 @@ is used for this project.
 ## License
 
 bmagent is licensed under the liberal ISC License.
+
+## TODO
+
+bmagent should only take what it needs from each object to determine whether it can
+be decrypted. Get the whole object if it can be decrypted. 
+
+There needs to be an implementation of email.IMAPMailbox for draft messages. 
+
+rpc interface. 
+
+Allow multiple users.

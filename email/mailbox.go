@@ -239,7 +239,7 @@ func (box *Mailbox) MessageBySequenceNumber(seqno uint32) mailstore.Message {
 	return email
 }
 
-// bmsgByUID returns a Bitmessage by its uid. It's not protected with locks.
+// bmsgByUID returns a Bitmessage by its uid. This function not protected with locks.
 func (box *Mailbox) bmsgByUID(uid uint64) *Bitmessage {
 	suffix, msg, err := box.mbox.GetMessage(uid)
 	if err != nil {
@@ -605,6 +605,7 @@ func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
 // Save saves an IMAP email in the Mailbox. It is part of the IMAPMailbox
 // interface.
 func (box *Mailbox) Save(email *IMAPEmail) error {
+	imapLog.Info("Trying to save an imap message.")
 	msg, err := NewBitmessageFromSMTP(email.Content)
 	if err != nil {
 		imapLog.Errorf("Error saving message #%d: %v", email.ImapUID, err)
