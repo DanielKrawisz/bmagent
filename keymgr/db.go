@@ -19,7 +19,7 @@ var (
 )
 
 // db is a representation of how data should be encoded.
-type db struct {
+type db struct {	
 	// Version is the version of key manager file.
 	Version int `json:"version"`
 

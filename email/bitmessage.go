@@ -39,10 +39,12 @@ var (
 	// address is invalid and a valid Bitmessage address cannot be extracted
 	// from it.
 	ErrInvalidEmail = errors.New("Invalid Bitmessage address")
+	
+	emailRegexString = fmt.Sprintf("%s@bm\\.addr", bmAddrPattern)
 
 	// emailRegex is used for extracting Bitmessage address from an e-mail
 	// address.
-	emailRegex = regexp.MustCompile(fmt.Sprintf("(%s)@bm\\.addr", bmAddrPattern))
+	emailRegex = regexp.MustCompile(emailRegexString)
 )
 
 // bmToEmail converts a Bitmessage address to an e-mail address.
@@ -558,12 +560,13 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		return nil, fmt.Errorf("Invalid From address %v.", from)
 	}
 	switch addr.Address {
-	case BmclientAddress:
-		from = strings.Split(BmclientAddress, "@")[0]
+	case BmagentAddress:
+		from = strings.Split(BmagentAddress, "@")[0]
 	default:
 		from, err = emailToBM(addr.Address)
 		if err != nil {
-			return nil, errors.New("From address must be of the form <bm-address>@bm.addr")
+			return nil, errors.New(
+				fmt.Sprintf("From address must be of the form %s.", emailRegexString))
 		}
 	}
 
@@ -574,12 +577,13 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	switch addr.Address {
 	case BroadcastAddress:
 		to = ""
-	case BmclientAddress:
-		to = strings.Split(BmclientAddress, "@")[0]
+	case BmagentAddress:
+		to = strings.Split(BmagentAddress, "@")[0]
 	default:
 		to, err = emailToBM(to)
 		if err != nil {
-			return nil, errors.New("To address must be of the form <bm-address>@bm.addr or broadcast@bm.addr")
+			return nil, errors.New(fmt.Sprintf(
+			"To address must be of the form %s, %s, or %s.", BroadcastAddress, BmagentAddress))
 		}
 	}
 
@@ -590,6 +594,69 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	bcc, okBcc := header["Bcc"]
 	if (okCc && len(cc) > 0) || (okBcc && len(bcc) > 0) {
 		return nil, errors.New("Invalid headers: do not use CC or BCC with Bitmessage")
+	}
+
+	// Expires is a rarely-used header that is relevant to Bitmessage.
+	// If it is set, use it to generate the expire time of the message.
+	// Otherwise, use the default.
+	var expiration time.Time
+	if expireStr, ok := header["Expires"]; ok {
+		exp, err := time.Parse(dateFormat, expireStr[0])
+		if err != nil {
+			return nil, err
+		}
+		expiration = exp
+	}
+
+	var subject string
+	if subj, ok := header["Subject"]; ok {
+		subject = subj[0]
+	} else {
+		subject = ""
+	}
+
+	body, err := getSMTPBody(smtp)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Bitmessage{
+		From:       from,
+		To:         to,
+		Expiration: expiration,
+		Ack:        nil,
+		Message: &format.Encoding2{
+			Subject: subject,
+			Body:    body,
+		},
+		state: &MessageState{
+			// false if broadcast; Code for setting it false if sending to
+			// channel/self is in GenerateObject.
+			AckExpected: to != "",
+		},
+	}, nil
+}
+
+// NewBitmessageDraftFromSMTP takes an SMTP e-mail and turns it into a Bitmessage, 
+// but is less strict than NewBitmessageFromSMTP in how it checks the email.
+func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bitmessage, error) {
+	header := smtp.Headers
+
+	// Check that To and From are set.
+	var to, from string
+	
+	toList, ok := header["To"]
+	if !ok || len(toList) != 1 {
+		to = ""
+	} else if len(toList) != 1 {
+		to = toList[0]
+	}
+
+	fromList, ok := header["From"]
+	if !ok || len(fromList) != 1 {
+		from = ""
+	} else {
+		from = fromList[0]
 	}
 
 	// Expires is a rarely-used header that is relevant to Bitmessage.

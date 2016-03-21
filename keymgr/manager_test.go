@@ -17,7 +17,7 @@ import (
 func TestOperation(t *testing.T) {
 	// Initialize a new key manager.
 	seed := []byte("a secure psuedorandom seed (clearly not)")
-	mgr, err := keymgr.New(seed)
+	mgr, err := keymgr.New(seed, "daniel")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestOperation(t *testing.T) {
 
 	// Save and encrypt the private keys held by the key manager.
 	pass := []byte("a very nice and secure password for my keyfile")
-	encData, err := mgr.SaveEncrypted(pass)
+	encData, err := mgr.ExportEncrypted(pass)
 	if err != nil {
 		t.Fatal(err)
 	}

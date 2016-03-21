@@ -74,10 +74,12 @@ func GetSequenceNumber(uids []uint64, uid uint64) uint32 {
 }
 
 // Mailbox implements a mailbox that is compatible with IMAP. It implements the
-// email.IMAPMailbox interface. Only public functions take care of
+// mailstore.Mailbox interface. Only public functions take care of
 // locking/unlocking the embedded RWMutex.
 type Mailbox struct {
 	mbox         *store.Mailbox
+	drafts       bool // Whether this is a drafts folder. 
+	
 	sync.RWMutex // Protect the following fields.
 	uids         []uint64
 	numRecent    uint32
@@ -98,7 +100,7 @@ func (box *Mailbox) decodeBitmessageForImap(uid uint64, seqno uint32, msg []byte
 }
 
 // Name returns the name of the mailbox.
-// This is part of the email.ImapFolder interface.
+// This is part of the mailstore.Mailbox interface.
 func (box *Mailbox) Name() string {
 	return box.mbox.Name()
 }
@@ -159,7 +161,7 @@ func (box *Mailbox) refresh() error {
 
 // NextUID returns the unique identifier that will LIKELY be assigned
 // to the next mail that is added to this mailbox.
-// This is part of the email.ImapFolder interface.
+// This is part of the mailstore.Mailbox interface.
 func (box *Mailbox) NextUID() uint32 {
 	box.RLock()
 	defer box.RUnlock()
@@ -169,7 +171,7 @@ func (box *Mailbox) NextUID() uint32 {
 
 // LastUID assigns the UID of the very last message in the mailbox.
 // If the mailbox is empty, this should return the next expected UID.
-// This is part of the email.ImapFolder interface.
+// This is part of the mailstore.Mailbox interface.
 func (box *Mailbox) LastUID() uint32 {
 	box.RLock()
 	defer box.RUnlock()
@@ -178,7 +180,7 @@ func (box *Mailbox) LastUID() uint32 {
 }
 
 // Recent returns the number of recent messages in the mailbox.
-// This is part of the email.ImapFolder interface.
+// This is part of the mailstore.Mailbox interface.
 func (box *Mailbox) Recent() uint32 {
 	box.RLock()
 	defer box.RUnlock()
@@ -187,7 +189,7 @@ func (box *Mailbox) Recent() uint32 {
 }
 
 // Messages returns the number of messages in the mailbox.
-// This is part of the email.ImapFolder interface.
+// This is part of the mailstore.Mailbox interface.
 func (box *Mailbox) Messages() uint32 {
 	box.RLock()
 	defer box.RUnlock()
@@ -202,7 +204,7 @@ func (box *Mailbox) messages() uint32 {
 }
 
 // Unseen returns the number of messages that do not have the Unseen flag set yet
-// This is part of the email.ImapFolder interface.
+// This is part of the mailstore.Mailbox interface.
 func (box *Mailbox) Unseen() uint32 {
 	box.RLock()
 	defer box.RUnlock()
@@ -566,7 +568,6 @@ func (box *Mailbox) DeleteBitmessageByUID(id uint64) error {
 
 // SaveBitmessage saves the given Bitmessage in the folder.
 func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
-
 	if msg.ImapData.UID != 0 { // The message already exists and needs to be replaced.
 		// Delete the old message from the database.
 		err := box.mbox.DeleteMessage(uint64(msg.ImapData.UID))
@@ -602,11 +603,15 @@ func (box *Mailbox) SaveBitmessage(msg *Bitmessage) error {
 	return nil
 }
 
-// Save saves an IMAP email in the Mailbox. It is part of the IMAPMailbox
-// interface.
-func (box *Mailbox) Save(email *IMAPEmail) error {
-	imapLog.Info("Trying to save an imap message.")
-	msg, err := NewBitmessageFromSMTP(email.Content)
+// Save saves an IMAP email in the Mailbox. 
+func (box *Mailbox) Save(email *IMAPEmail) error {	
+	var msg *Bitmessage
+	var err error
+	if box.drafts {
+		msg, err = NewBitmessageDraftFromSMTP(email.Content)
+	} else {
+		msg, err = NewBitmessageFromSMTP(email.Content)
+	}
 	if err != nil {
 		imapLog.Errorf("Error saving message #%d: %v", email.ImapUID, err)
 		return err
@@ -731,6 +736,20 @@ func (box *Mailbox) NewMessage() mailstore.Message {
 func NewMailbox(mbox *store.Mailbox) (*Mailbox, error) {
 	m := &Mailbox{
 		mbox: mbox,
+	}
+
+	// Populate various data fields.
+	if err := m.refresh(); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+// NewDrafts returns a new Drafts folder.
+func NewDrafts(mbox *store.Mailbox) (*Mailbox, error) {
+	m := &Mailbox{
+		mbox: mbox,
+		drafts: true,
 	}
 
 	// Populate various data fields.

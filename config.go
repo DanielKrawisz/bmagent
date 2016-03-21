@@ -51,6 +51,8 @@ const (
 	defaultPubkeyExpiry     = time.Hour * 24 * 14 // 14 days
 	defaultGetpubkeyExpiry  = time.Hour * 24 * 14 // 14 days
 	defaultUnknownObjExpiry = time.Hour * 24
+	
+	defaultPlaintextDB = true // TODO change to false for production version.
 )
 
 var (
@@ -97,6 +99,8 @@ type config struct {
 	PowThreads      int           `long:"powthreads" description:"Number of threads to use for parallel proof-of-work calculation. It should not be greater than the number of cores"`
 	MsgExpiry       time.Duration `long:"msgexpiry" description:"Time after which a message sent out should expire, more means more time for POW calculations"`
 	BroadcastExpiry time.Duration `long:"broadcastexpiry" description:"Time after which a broadcast sent out should expire, more means more time for POW calculations"`
+
+	PlaintextDB bool `long:"plaintextdb" description:"Allow plaintext database (useful for testing purposes)."`
 
 	powHandler  func(target uint64, hash []byte) uint64
 	keyfilePath string
@@ -323,6 +327,7 @@ func loadConfig() (*config, []string, error) {
 		ProofOfWork:     defaultPowHandler,
 		MsgExpiry:       defaultMsgExpiry,
 		BroadcastExpiry: defaultBroadcastExpiry,
+		PlaintextDB:     defaultPlaintextDB,
 	}
 
 	// A config file in the current directory takes precedence.

@@ -17,7 +17,7 @@ import (
 	"github.com/DanielKrawisz/bmutil/wire"
 )
 
-// User implements the email.IMAPAccount interface and represents
+// User implements the mailstore.User interface and represents
 // a collection of imap folders belonging to a single user.
 type User struct {
 	boxes  map[string]*Mailbox
@@ -34,11 +34,19 @@ func NewUser(server ServerOps) (*User, error) {
 	mboxes := server.Store().Mailboxes()
 	// The user is allowed to save in some mailboxes but not others.
 	for _, mbox := range mboxes {
-		mb, err := NewMailbox(mbox)
+		var name = mbox.Name()
+		var mb *Mailbox
+		var err error
+		switch name {
+			case DraftsFolderName:
+			mb, err = NewDrafts(mbox)
+			default:
+			mb, err = NewMailbox(mbox)
+		}
 		if err != nil {
 			return nil, err
 		}
-		u.boxes[mb.Name()] = mb
+		u.boxes[name] = mb
 	}
 
 	return u, nil

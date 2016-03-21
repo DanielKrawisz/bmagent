@@ -94,7 +94,7 @@ func promptConsolePass(prefix string, confirm bool) ([]byte, error) {
 		fmt.Print("\n")
 		pass = bytes.TrimSpace(pass)
 		if len(pass) == 0 {
-			continue
+			return nil, nil
 		}
 
 		if !confirm {
@@ -120,15 +120,35 @@ func promptConsolePass(prefix string, confirm bool) ([]byte, error) {
 // promptKeyfilePassPhrase is used to prompt for the passphrase required to
 // decrypt the key file.
 func promptKeyfilePassPhrase() ([]byte, error) {
-	prompt := "Enter the private passphrase of your key file: "
-	return promptConsolePass(prompt, false)
+	prompt := "Enter key file passphrase: "
+	var pass []byte
+	var err error
+	for {
+		pass, err = promptConsolePass(prompt, false)
+		if (err != nil) {
+			return nil, err
+		}
+		if (pass != nil) {
+			return pass, err
+		}
+	}
 }
 
 // promptStorePassPhrase is used to prompt for the passphrase required to
 // decrypt the data store.
 func promptStorePassPhrase() ([]byte, error) {
-	prompt := "Enter the private passphrase of your data store: "
-	return promptConsolePass(prompt, false)
+	prompt := "Enter data store passphrase: "
+	var pass []byte
+	var err error
+	for {
+		pass, err = promptConsolePass(prompt, false)
+		if (err != nil) {
+			return nil, err
+		}
+		if (pass != nil) {
+			return pass, err
+		}
+	}
 }
 
 // promptConsoleSeed prompts the user whether they want to use an existing
@@ -200,11 +220,20 @@ func promptConsoleSeed() ([]byte, error) {
 // key file and data store and generates them accordingly. The new databases
 // will reside at the provided path.
 func createDatabases(cfg *config) error {
+	var keyfilePass, storePass []byte
+	var err error
+	
 	// Start by prompting for the private passphrase for the key file.
 	prompt := "Enter passphrase for the key file"
-	keyfilePass, err := promptConsolePass(prompt, true)
-	if err != nil {
-		return err
+	for {
+		keyfilePass, err = promptConsolePass(prompt, true)
+		if err != nil {
+			return err
+		}
+		
+		if cfg.PlaintextDB || keyfilePass != nil {
+			break
+		}
 	}
 
 	// Ascertain the address generation seed. This will either be an
@@ -217,30 +246,50 @@ func createDatabases(cfg *config) error {
 
 	// Prompt for the private passphrase for the data store.
 	prompt = "\nEnter passphrase for the data store"
-	storePass, err := promptConsolePass(prompt, true)
+	for {
+		storePass, err = promptConsolePass(prompt, true)
+		if err != nil {
+			return err
+		}
+		
+		if cfg.PlaintextDB || storePass != nil {
+			break
+		}
+	}
 
 	// Create the key file.
 	fmt.Println("\nCreating the key file...")
 
 	// Intialize key manager with seed.
-	kmgr, err := keymgr.New(seed)
+	kmgr, err := keymgr.New(seed, "daniel")
 	if err != nil {
 		return err
 	}
 
-	// Save key file to disk with the specified passphrase.
-	enc, err := kmgr.SaveEncrypted(keyfilePass)
+	// Save key file to disk with the specified passphrase, if one was given.
+	var out []byte
+	if (keyfilePass == nil) {
+		out, err = kmgr.ExportPlaintext()
+	} else {
+		out, err = kmgr.ExportEncrypted(keyfilePass)
+	}
 	if err != nil {
 		return err
 	}
-	err = ioutil.WriteFile(cfg.keyfilePath, enc, 0600)
+	
+	err = ioutil.WriteFile(cfg.keyfilePath, out, 0600)
 	if err != nil {
 		return err
 	}
 
 	// Create the data store.
 	fmt.Println("Creating the data store...")
-	s, err := store.Open(cfg.storePath, storePass)
+	load, err := store.Open(cfg.storePath)
+	if err != nil {
+		return fmt.Errorf("Failed to create data store: %v", err)
+	}
+	
+	s, err := load.Construct(storePass)
 	if err != nil {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
@@ -264,37 +313,62 @@ func createDatabases(cfg *config) error {
 // openDatabases returns an instance of keymgr.Manager, and store.Store based on
 // the configuration.
 func openDatabases(cfg *config) (*keymgr.Manager, *store.Store, error) {
-	// Read key file passphrase from console.
-	keyfilePass, err := promptConsolePass("Enter key file passphrase", false)
+	// Read key file.
+	keyFile, err := ioutil.ReadFile(cfg.keyfilePath)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// Read store passphrase from console.
-	storePass, err := promptConsolePass("Enter data store passphrase", false)
+	
+	var kmgr *keymgr.Manager
+	
+	if cfg.PlaintextDB { // If allowed, check for plaintext key file. 		
+		// Attempt to load unencrypted key file. 
+		kmgr, _, err = keymgr.FromPlaintext(keyFile)
+		if err != nil { 
+			return nil, nil, err
+		}
+	}
+	
+	if kmgr == nil {
+	
+		// Read key file passphrase from console.
+		keyfilePass, err := promptKeyfilePassPhrase()
+		if err != nil {
+			return nil, nil, err
+		}
+	
+		// Create an instance of key manager.
+		kmgr, err = keymgr.FromEncrypted(keyFile, keyfilePass)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Failed to create key manager: %v", err)
+		}
+	
+		cfg.keyfilePass = keyfilePass
+	}
+	
+	load, err := store.Open(cfg.storePath)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// Read encrypted key file.
-	enc, err := ioutil.ReadFile(cfg.keyfilePath)
-	if err != nil {
-		return nil, nil, err
+	
+	var dstore *store.Store
+	
+	if cfg.PlaintextDB && !load.IsEncrypted() {
+		dstore, err = load.Construct(nil)
+	} else {
+		
+		// Read store passphrase from console.
+		storePass, err := promptStorePassPhrase()
+		if err != nil {
+			return nil, nil, err
+		}
+	
+		// Open store.
+		dstore, err = load.Construct(storePass)
+		if err != nil {
+			return nil, nil, fmt.Errorf("Failed to open data store: %v", err)
+		}
 	}
-
-	// Create an instance of key manager.
-	kmgr, err := keymgr.FromEncrypted(enc, keyfilePass)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to create key manager: %v", err)
-	}
-
-	// Open store.
-	dstore, err := store.Open(cfg.storePath, storePass)
-	if err != nil {
-		return nil, nil, fmt.Errorf("Failed to open data store: %v", err)
-	}
-
-	cfg.keyfilePass = keyfilePass
 
 	return kmgr, dstore, nil
 }
@@ -349,13 +423,25 @@ func importKeyfile(kmgr *keymgr.Manager, str *store.Store, f ini.File) {
 }
 
 func saveKeyfile(kmgr *keymgr.Manager, pass []byte, file string) {
-	enc, err := kmgr.SaveEncrypted(pass)
+	var serialized []byte
+	var err error
+	
+	if pass == nil {
+		if !cfg.PlaintextDB {
+			log.Warn("No password supplied for keyfile.")
+		}
+		
+		serialized, err = kmgr.ExportPlaintext()
+	} else {	
+		serialized, err = kmgr.ExportEncrypted(pass)
+	}
+	
 	if err != nil {
 		log.Criticalf("Failed to serialize key file: %v", err)
 		return
 	}
 
-	err = ioutil.WriteFile(file, enc, 0600)
+	err = ioutil.WriteFile(file, serialized, 0600)
 	if err != nil {
 		log.Criticalf("Failed to write key file: %v", err)
 	}

@@ -5,10 +5,6 @@
 
 package email
 
-import (
-	"regexp"
-)
-
 const welcomeMsg = `
 Welcome to bmagent and to the anonymous, encrypted world of Bitmessage! You are
 using version 0.1 alpha.
@@ -70,10 +66,5 @@ const (
     // BmagentAddress is the address for controlling bmclient. This could
     // include creating a new identity, importing a pre-existing identity,
     // subscribing to a broadcast address etc.
-    BmclientAddress = "[a-z]+@bm\\.agent"
-)
-
-var (
-	// Regex for matching email addresses that represent commands.
-	commandRegex = regexp.MustCompile(BmclientAddress)
+    BmagentAddress = "command@bm.agent"
 )

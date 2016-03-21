@@ -54,7 +54,7 @@ var (
 	mailboxDataBucket = []byte("data")
 
 	// Used for storing the encrypted master key used for encryption/decryption.
-	dbMasterKeyKey = []byte("dbMasterKey")
+	dbMasterKeyEnc = []byte("dbMasterKeyEnc")
 
 	// Used for PBKDF2, to generate key used to decrypt master key.
 	saltKey = []byte("salt")
@@ -86,10 +86,39 @@ var (
 	ErrDuplicateMailbox = errors.New("duplicate mailbox")
 )
 
+// Type for transforming underlying database into Store. (used to abstract
+// the details of the underlying bolt db).
+type Loader struct {
+	db *bolt.DB
+}
+
+// Open creates a new Store from the given file.
+func Open(file string) (*Loader, error) {
+	db, err := bolt.Open(file, 0600, &bolt.Options{Timeout: dbTimeout})
+	if err != nil {
+		return nil, err
+	}
+	return &Loader{
+		db:        db,
+	}, nil
+}
+
+// Close performs any necessary cleanups and then closes the store.
+func (l *Loader) Close() error {
+	if l.db == nil {
+		return nil
+	}
+	
+	defer func() {
+		l.db = nil
+	}()
+	return l.db.Close()
+}
+
 // Store persists all information about public key requests, pending POW,
 // incoming/outgoing/pending messages to disk.
 type Store struct {
-	masterKey          *[keySize]byte
+	masterKey          *[keySize]byte      // can be nil.
 	db                 *bolt.DB
 	PubkeyRequests     *PKRequests
 	PowQueue           *PowQueue
@@ -108,19 +137,41 @@ func deriveKey(pass, salt []byte) *[keySize]byte {
 	return &key
 }
 
-// Open creates a new Store from the given file.
-func Open(file string, pass []byte) (*Store, error) {
-	db, err := bolt.Open(file, 0600, &bolt.Options{Timeout: dbTimeout})
-	if err != nil {
-		return nil, err
+func (l *Loader) IsEncrypted() bool {
+	if l.db == nil {
+		return false
 	}
+	
+	tx, err := l.db.Begin(false)
+	if err != nil {
+		l.Close()
+		return false
+	}
+	
+	defer tx.Rollback()
+	
+	bucket := tx.Bucket(miscBucket)
+	
+	return bucket != nil && bucket.Get(dbMasterKeyEnc) != nil
+}
+
+// Open creates a new Store from the given file.
+func (l *Loader) Construct(pass []byte) (*Store, error) {
+	if pass == nil {
+		clientLog.Warn("Unencrypted database opened.")
+	}
+	
+	if l.db == nil {
+		return nil, errors.New("Closed database.");
+	}
+	
 	store := &Store{
-		db:        db,
+		db:        l.db,
 		mailboxes: make(map[string]*Mailbox),
 	}
 
-	// Verify passphrase, or create it, if necessary.
-	err = db.Update(func(tx *bolt.Tx) error {
+	// Verify passphrase, or create it if necessary.
+	err := l.db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(miscBucket)
 		if err != nil {
 			return err
@@ -129,35 +180,35 @@ func Open(file string, pass []byte) (*Store, error) {
 		if err != nil {
 			return err
 		}
-
-		var masterKey [keySize]byte
-		var nonce [nonceSize]byte
-
-		v := bucket.Get(dbMasterKeyKey)
-		if v == nil { // It's a new database.
-
-			// Generate master key.
-			_, err := rand.Read(masterKey[:])
-			if err != nil {
-				return err
-			}
-
-			// Store master key in store.
-			store.masterKey = &masterKey
-
-			// Encrypt master key.
-			salt, v, err := store.encryptMasterKey(pass)
-
-			// Store salt in database.
-			err = bucket.Put(saltKey, salt)
-			if err != nil {
-				return err
-			}
-
-			// Store encrypted master key in database.
-			err = bucket.Put(dbMasterKeyKey, v)
-			if err != nil {
-				return err
+		
+		bVersion := bucket.Get(versionKey)
+		if bVersion == nil { // This is a new database.
+			if (pass != nil) {
+				var masterKey [keySize]byte
+				
+				// Generate master key.
+				_, err := rand.Read(masterKey[:])
+				if err != nil {
+					return err
+				}
+	
+				// Store master key in store.
+				store.masterKey = &masterKey
+	
+				// Encrypt master key.
+				salt, v, err := store.encryptMasterKey(pass)
+	
+				// Store salt in database.
+				err = bucket.Put(saltKey, salt)
+				if err != nil {
+					return err
+				}
+	
+				// Store encrypted master key in database.
+				err = bucket.Put(dbMasterKeyEnc, v)
+				if err != nil {
+					return err
+				}
 			}
 
 			// Set database version.
@@ -175,53 +226,75 @@ func Open(file string, pass []byte) (*Store, error) {
 
 			// Set ID for PoW queue to 0.
 			return bucket.Put(powQueueLatestIDKey, zero)
-
-		} else if len(v) < nonceSize+keySize+secretbox.Overhead {
-			return errors.New("Encrypted master key too short.")
+		}
+		
+		// Check if upgrade is required. 
+		if bVersion[0] != latestStoreVersion {
+			err = store.upgrade(tx)
+			if err != nil {
+				return err;
+			}
 		}
 
-		// We're opening an existing database.
-		copy(nonce[:], v[:nonceSize])
-		salt := bucket.Get(saltKey)
-		key := deriveKey(pass, salt)
-
-		mKey, success := secretbox.Open(nil, v[nonceSize:], &nonce, key)
-		if !success {
-			return ErrDecryptionFailed
+		v := bucket.Get(dbMasterKeyEnc)
+		if v == nil {
+			if pass != nil {
+				return errors.New("Password given for unencrypted database.")
+			}
+		} else {
+			if pass == nil {
+				return errors.New("No password supplied for encrypted database.")
+			}
+			
+			var masterKey [keySize]byte
+			var nonce [nonceSize]byte
+		
+			if len(v) < nonceSize+keySize+secretbox.Overhead {
+				return errors.New("Encrypted master key too short.")
+			}
+			
+			copy(nonce[:], v[:nonceSize])
+			salt := bucket.Get(saltKey)
+			key := deriveKey(pass, salt)
+	
+			mKey, success := secretbox.Open(nil, v[nonceSize:], &nonce, key)
+			if !success {
+				return ErrDecryptionFailed
+			}
+	
+			// Store decrypted master key in memory.
+			copy(masterKey[:], mKey)
+			store.masterKey = &masterKey
 		}
-
-		// Store decrypted master key in memory.
-		copy(masterKey[:], mKey)
-		store.masterKey = &masterKey
-
-		// Upgrade database if necessary.
-		return store.checkAndUpgrade(tx)
+		
+		return nil
 	})
+	
 	if err != nil {
-		db.Close()
+		l.Close()
 		return nil, err
 	}
 
 	store.PubkeyRequests, err = newPKRequestStore(store)
 	if err != nil {
-		db.Close()
+		l.Close()
 		return nil, err
 	}
 
 	store.PowQueue, err = newPowQueue(store)
 	if err != nil {
-		db.Close()
+		l.Close()
 		return nil, err
 	}
 
 	store.BroadcastAddresses, err = newBroadcastsStore(store)
 	if err != nil {
-		db.Close()
+		l.Close()
 		return nil, err
 	}
 
 	// Create bucket needed for mailboxes.
-	err = db.Update(func(tx *bolt.Tx) error {
+	err = l.db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(mailboxesBucket)
 		if err != nil {
 			return err
@@ -229,21 +302,23 @@ func Open(file string, pass []byte) (*Store, error) {
 		return nil
 	})
 	if err != nil {
-		db.Close()
+		l.Close()
 		return nil, err
 	}
 
 	// Load existing mailboxes.
-	err = db.View(func(tx *bolt.Tx) error {
+	err = l.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
 			store.mailboxes[string(name)], _ = NewMailbox(store, string(name), false)
 			return nil
 		})
 	})
 	if err != nil {
-		db.Close()
+		l.Close()
 		return nil, err
 	}
+	
+	l.db = nil
 
 	return store, nil
 }
@@ -253,9 +328,9 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
-// checkAndUpgrade is responsible for checking the version of the data store
+// upgrade is responsible for checking the version of the data store
 // and upgrading itself if necessary.
-func (s *Store) checkAndUpgrade(tx *bolt.Tx) error {
+func (s *Store) upgrade(tx *bolt.Tx) error {
 	bVersion := tx.Bucket(miscBucket).Get(versionKey)
 	if bVersion[0] != latestStoreVersion {
 		return errors.New("Unrecognized version of data store.")
@@ -313,6 +388,10 @@ func (s *Store) Mailboxes() []*Mailbox {
 // protect against a previous compromise of the data file. Refer to package docs
 // for more details.
 func (s *Store) ChangePassphrase(pass []byte) error {
+	if (s.masterKey == nil) {
+		return errors.New("Database is not encrypted.")
+	}
+	
 	// Encrypt master key.
 	salt, v, err := s.encryptMasterKey(pass)
 
@@ -326,7 +405,7 @@ func (s *Store) ChangePassphrase(pass []byte) error {
 		}
 
 		// Store encrypted master key in database.
-		err = bucket.Put(dbMasterKeyKey, v)
+		err = bucket.Put(dbMasterKeyEnc, v)
 		if err != nil {
 			return err
 		}
@@ -401,6 +480,10 @@ func (s *Store) encryptMasterKey(pass []byte) ([]byte, []byte, error) {
 // encrypt encrypts the data using nacl.Secretbox with the master key. It
 // generates a random nonce and prepends to the output.
 func (s *Store) encrypt(data []byte) ([]byte, error) {
+	if (s.masterKey == nil) {
+		return data, nil
+	}
+	
 	// Generate a random nonce
 	var nonce [nonceSize]byte
 	_, err := rand.Read(nonce[:])
@@ -417,6 +500,10 @@ func (s *Store) encrypt(data []byte) ([]byte, error) {
 // decrypt undoes the operation done by encrypt. It takes the prepended nonce
 // and decrypts what follows with the master key.
 func (s *Store) decrypt(data []byte) ([]byte, bool) {
+	if (s.masterKey == nil) {
+		return data, true
+	}
+	
 	// Read nonce
 	var nonce [nonceSize]byte
 	copy(nonce[:], data[:nonceSize])

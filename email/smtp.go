@@ -127,7 +127,7 @@ func (s *SMTPServer) validateRecipient(to string) bool {
 	switch addr.Address {
 	case BroadcastAddress:
 		return true
-	case BmclientAddress:
+	case BmagentAddress:
 		return true
 	default:
 		to, err = emailToBM(to)
@@ -166,7 +166,7 @@ func smtpLogHandler(message string, args ...interface{}) {
 
 // messageReceived is called for each message recieved by the SMTP server.
 func (s *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, error) {
-	smtpLog.Debug("Received message from SMTP server.")
+	smtpLog.Info("Received message from SMTP server.")
 	
 	// TODO is this a good host name? 
 	message := smtpMessage.Parse("bmagent")

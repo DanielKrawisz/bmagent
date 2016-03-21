@@ -7,7 +7,6 @@ package email
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
@@ -32,6 +31,8 @@ type BitmessageStore struct {
 // a username and password and returns a mailstore.User if the credentials
 // are valid.
 func (s *BitmessageStore) Authenticate(username string, password string) (mailstore.User, error) {
+	imapLog.Tracef("imap authentication attempt with u=%s, p=%s", username, password)
+	
 	// TODO Use constant time comparisons.
 	if username != s.cfg.Username || password != s.cfg.Password {
 		return nil, errors.New("Invalid credentials")
@@ -54,7 +55,7 @@ func InitializeStore(s *store.Store) error {
 	}
 
 	// Add the introductory message.
-	from := strings.Split(BmclientAddress, "@")[0]
+	from := BmagentAddress
 	to := from
 	subject := "Welcome to bmclient!"
 
