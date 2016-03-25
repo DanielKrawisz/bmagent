@@ -23,7 +23,8 @@ func TestPKRequests(t *testing.T) {
 	fName := f.Name()
 	f.Close()
 
-	s, err := store.Open(fName, []byte("password"))
+	l, err := store.Open(fName)
+	s, err := l.Construct([]byte("password"))
 	if err != nil {
 		t.Fatal(err)
 	}

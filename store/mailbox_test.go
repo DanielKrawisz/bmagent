@@ -24,7 +24,8 @@ func TestMailbox(t *testing.T) {
 	f.Close()
 
 	pass := []byte("password")
-	s, err := store.Open(fName, pass)
+	l, err := store.Open(fName)
+	s, err := l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +85,8 @@ func TestMailbox(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err = store.Open(fName, pass)
+	l, err = store.Open(fName)
+	s, err = l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}

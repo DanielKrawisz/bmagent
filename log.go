@@ -94,19 +94,26 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 // initSeelogLogger initializes a new seelog logger that is used as the backend
 // for all logging subsytems.
-func initSeelogLogger(logFile string) {
+func initSeelogLogger(logFile string, logConsole bool) {
+	var console string
+	if logConsole {
+		console = "<console />"
+	} else {
+		console = ""
+	}
+	
 	config := `
 	<seelog type="adaptive" mininterval="2000000" maxinterval="100000000"
 		critmsgcount="500" minlevel="trace">
 		<outputs formatid="all">
-			<console />
+			%s
 			<rollingfile type="size" filename="%s" maxsize="10485760" maxrolls="3" />
 		</outputs>
 		<formats>
 			<format id="all" format="%%Time %%Date [%%LEV] %%Msg%%n" />
 		</formats>
 	</seelog>`
-	config = fmt.Sprintf(config, logFile)
+	config = fmt.Sprintf(config, console, logFile)
 
 	logger, err := seelog.LoggerFromConfigAsString(config)
 	if err != nil {

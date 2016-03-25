@@ -53,6 +53,7 @@ const (
 	defaultUnknownObjExpiry = time.Hour * 24
 	
 	defaultPlaintextDB = true // TODO change to false for production version.
+	defaultLogConsole = false
 )
 
 var (
@@ -101,6 +102,7 @@ type config struct {
 	BroadcastExpiry time.Duration `long:"broadcastexpiry" description:"Time after which a broadcast sent out should expire, more means more time for POW calculations"`
 
 	PlaintextDB bool `long:"plaintextdb" description:"Allow plaintext database (useful for testing purposes)."`
+	LogConsole  bool `long:"logconsole" description:"display logs to console."`
 
 	powHandler  func(target uint64, hash []byte) uint64
 	keyfilePath string
@@ -328,6 +330,7 @@ func loadConfig() (*config, []string, error) {
 		MsgExpiry:       defaultMsgExpiry,
 		BroadcastExpiry: defaultBroadcastExpiry,
 		PlaintextDB:     defaultPlaintextDB,
+		LogConsole:      defaultLogConsole,
 	}
 
 	// A config file in the current directory takes precedence.
@@ -415,7 +418,7 @@ func loadConfig() (*config, []string, error) {
 	}
 
 	// Initialize logging at the default logging level.
-	initSeelogLogger(filepath.Join(cfg.LogDir, defaultLogFilename))
+	initSeelogLogger(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.LogConsole)
 	setLogLevels(defaultLogLevel)
 
 	// Parse, validate, and set debug log level(s).
