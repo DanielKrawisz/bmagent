@@ -33,15 +33,8 @@ type Mailbox struct {
 	name  string
 }
 
-// NewMailbox creates a new Mailbox, initializing the database if specified.
-func NewMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error) {
-	mbox := &Mailbox{
-		store: store,
-		name:  name,
-	}
-	if !verifyOrCreate {
-		return mbox, nil
-	}
+// initializeMailbox initializes a mailbox.
+func initializeMailbox(store *Store, name string) error {
 
 	err := store.db.Update(func(tx *bolt.Tx) error {
 		// Get bucket for mailbox.
@@ -72,11 +65,11 @@ func NewMailbox(store *Store, name string, verifyOrCreate bool) (*Mailbox, error
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("Failed to create/load mailbox %s: %v",
+		return fmt.Errorf("Failed to create/load mailbox %s: %v",
 			name, err)
 	}
 
-	return mbox, nil
+	return nil
 }
 
 // InsertMessage inserts a new message with the specified suffix and id into the

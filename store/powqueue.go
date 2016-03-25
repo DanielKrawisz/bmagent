@@ -15,15 +15,15 @@ import (
 // PowQueue is a FIFO queue for objects that need proof-of-work done on them.
 // It implements Enqueue, Dequeue and Peek; the most basic queue operations.
 type PowQueue struct {
-	store     *Store
+	db     *bolt.DB
 	nextIndex uint64
 }
 
 // newPowQueue creates a new PowQueue object from the provided Store.
-func newPowQueue(store *Store) (*PowQueue, error) {
-	q := &PowQueue{store: store}
+func newPowQueue(db *bolt.DB) (*PowQueue, error) {
+	q := &PowQueue{db: db}
 
-	err := store.db.Update(func(tx *bolt.Tx) error {
+	err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(powQueueBucket)
 		if err != nil {
 			return err
@@ -47,7 +47,7 @@ func (q *PowQueue) Enqueue(target uint64, obj []byte) (uint64, error) {
 	binary.BigEndian.PutUint64(v, target)
 	copy(v[8:], obj)
 
-	err := q.store.db.Update(func(tx *bolt.Tx) error {
+	err := q.db.Update(func(tx *bolt.Tx) error {
 		idx = binary.BigEndian.Uint64(tx.Bucket(miscBucket).Get(powQueueLatestIDKey)) + 1
 
 		// Increment powQueueLatestID. That'll be our k.
@@ -72,7 +72,7 @@ func (q *PowQueue) Enqueue(target uint64, obj []byte) (uint64, error) {
 func (q *PowQueue) Dequeue() (uint64, []byte, error) {
 	var idx uint64
 	var obj []byte
-	err := q.store.db.Update(func(tx *bolt.Tx) error {
+	err := q.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(powQueueBucket)
 
 		k, v := bucket.Cursor().First()
@@ -98,7 +98,7 @@ func (q *PowQueue) PeekForPow() (uint64, []byte, error) {
 	var target uint64
 	var hash []byte
 
-	err := q.store.db.View(func(tx *bolt.Tx) error {
+	err := q.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(powQueueBucket)
 
 		k, v := bucket.Cursor().First()

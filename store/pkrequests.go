@@ -20,15 +20,12 @@ import (
 // removes them if bmd has received them. Thus, PKRequests serves as a
 // watchlist.
 type PKRequests struct {
-	store *Store
+	db    *bolt.DB
 }
 
-// newPKRequestStore creates a new PKRequests object after doing the necessary
-// initialization.
-func newPKRequestStore(store *Store) (*PKRequests, error) {
-	r := &PKRequests{store: store}
-
-	err := store.db.Update(func(tx *bolt.Tx) error {
+// initializePKRequestStore initializes the database for pub key requests.
+func initializePKRequestStore(db *bolt.DB) error {
+	err := db.Update(func(tx *bolt.Tx) error {
 		_, err := tx.CreateBucketIfNotExists(pkRequestsBucket)
 		if err != nil {
 			return err
@@ -36,10 +33,10 @@ func newPKRequestStore(store *Store) (*PKRequests, error) {
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return r, nil
+	return nil
 }
 
 // New adds a new address to the watchlist along with the current timestamp. If
@@ -50,8 +47,9 @@ func (r *PKRequests) New(addr string) (uint32, error) {
 	k := []byte(addr)
 	var count uint32
 
-	err := r.store.db.Update(func(tx *bolt.Tx) error {
-		t := tx.Bucket(pkRequestsBucket).Get(k)
+	err := r.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(pkRequestsBucket)
+		t := bucket.Get(k)
 		if t == nil { // Entry doesn't exist, so create it and set counter to 1.
 			count = 1
 		} else {
@@ -67,7 +65,7 @@ func (r *PKRequests) New(addr string) (uint32, error) {
 		}
 		v = append(v, t...)
 
-		return tx.Bucket(pkRequestsBucket).Put(k, v)
+		return bucket.Put(k, v)
 	})
 	if err != nil {
 		return 0, err
@@ -83,7 +81,7 @@ func (r *PKRequests) LastRequestTime(addr string) (time.Time, error) {
 	k := []byte(addr)
 	var v time.Time
 
-	err := r.store.db.View(func(tx *bolt.Tx) error {
+	err := r.db.View(func(tx *bolt.Tx) error {
 		t := tx.Bucket(pkRequestsBucket).Get(k)
 		if t == nil { // Entry doesn't exist.
 			return ErrNotFound
@@ -101,7 +99,7 @@ func (r *PKRequests) LastRequestTime(addr string) (time.Time, error) {
 func (r *PKRequests) Remove(addr string) error {
 	k := []byte(addr)
 
-	return r.store.db.Update(func(tx *bolt.Tx) error {
+	return r.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(pkRequestsBucket).Delete(k)
 	})
 }
@@ -111,7 +109,7 @@ func (r *PKRequests) Remove(addr string) error {
 func (r *PKRequests) ForEach(f func(address string, reqCount uint32,
 	lastReqTime time.Time) error) error {
 
-	return r.store.db.View(func(tx *bolt.Tx) error {
+	return r.db.View(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(pkRequestsBucket)
 		return bucket.ForEach(func(k []byte, v []byte) error {
 			address := string(k)

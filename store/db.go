@@ -120,11 +120,10 @@ func (l *Loader) Close() error {
 type Store struct {
 	masterKey          *[keySize]byte      // can be nil.
 	db                 *bolt.DB
-	PubkeyRequests     *PKRequests
 	PowQueue           *PowQueue
 	BroadcastAddresses *BroadcastAddresses
 	mutex              sync.RWMutex        // For protecting the map.
-	mailboxes          map[string]*Mailbox // Map names to all mailboxes.
+	mailboxes          map[string]struct{} // Map names to all mailboxes.
 }
 
 // deriveKey is used to derive a 32 byte key for encryption/decryption
@@ -167,7 +166,7 @@ func (l *Loader) Construct(pass []byte) (*Store, error) {
 	
 	store := &Store{
 		db:        l.db,
-		mailboxes: make(map[string]*Mailbox),
+		mailboxes: make(map[string]struct{}),
 	}
 
 	// Verify passphrase, or create it if necessary.
@@ -275,19 +274,19 @@ func (l *Loader) Construct(pass []byte) (*Store, error) {
 		return nil, err
 	}
 
-	store.PubkeyRequests, err = newPKRequestStore(store)
+	err = initializePKRequestStore(store.db)
 	if err != nil {
 		l.Close()
 		return nil, err
 	}
 
-	store.PowQueue, err = newPowQueue(store)
+	store.PowQueue, err = newPowQueue(store.db)
 	if err != nil {
 		l.Close()
 		return nil, err
 	}
 
-	store.BroadcastAddresses, err = newBroadcastsStore(store)
+	store.BroadcastAddresses, err = newBroadcastsStore(store.db)
 	if err != nil {
 		l.Close()
 		return nil, err
@@ -309,7 +308,7 @@ func (l *Loader) Construct(pass []byte) (*Store, error) {
 	// Load existing mailboxes.
 	err = l.db.View(func(tx *bolt.Tx) error {
 		return tx.Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
-			store.mailboxes[string(name)], _ = NewMailbox(store, string(name), false)
+			store.mailboxes[string(name)] = struct{}{}
 			return nil
 		})
 	})
@@ -317,8 +316,6 @@ func (l *Loader) Construct(pass []byte) (*Store, error) {
 		l.Close()
 		return nil, err
 	}
-	
-	l.db = nil
 
 	return store, nil
 }
@@ -349,17 +346,17 @@ func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 	}
 
 	// We're good, so create the mailbox.
-	mbox, err := NewMailbox(s, name, true)
+	err := initializeMailbox(s, name)
 	if err != nil {
 		return nil, err
 	}
 
 	// Save mailbox in the local map.
 	s.mutex.Lock()
-	s.mailboxes[name] = mbox
+	s.mailboxes[name] = struct{}{}
 	s.mutex.Unlock()
 
-	return mbox, nil
+	return &Mailbox{store: s, name: name}, nil
 }
 
 // MailboxByName retrieves the mailbox associated with the name. If the
@@ -368,18 +365,18 @@ func (s *Store) MailboxByName(name string) (*Mailbox, error) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
 
-	mbox, ok := s.mailboxes[name]
+	_, ok := s.mailboxes[name]
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return mbox, nil
+	return &Mailbox{store: s, name: name}, nil
 }
 
 // Mailboxes returns a slice containing pointers to all mailboxes in the store.
 func (s *Store) Mailboxes() []*Mailbox {
 	mboxes := make([]*Mailbox, 0, len(s.mailboxes))
-	for _, mbox := range s.mailboxes {
-		mboxes = append(mboxes, mbox)
+	for name, _ := range s.mailboxes {
+		mboxes = append(mboxes, &Mailbox{store: s, name: name})
 	}
 	return mboxes
 }
@@ -509,4 +506,8 @@ func (s *Store) decrypt(data []byte) ([]byte, bool) {
 	copy(nonce[:], data[:nonceSize])
 
 	return secretbox.Open(nil, data[nonceSize:], &nonce, s.masterKey)
+}
+
+func (s *Store) PubkeyRequests() *PKRequests {
+	return &PKRequests{db:s.db}
 }

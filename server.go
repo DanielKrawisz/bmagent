@@ -380,10 +380,12 @@ func (s *server) pkRequestHandler() {
 			var mtx sync.Mutex // Protect the following map
 			addresses := make(map[string]*identity.Public)
 			var wg sync.WaitGroup
+			
+			pk := s.store.PubkeyRequests()
 
 			// Go through our store and check if server has any new public
 			// identity.
-			s.store.PubkeyRequests.ForEach(func(address string, reqCount uint32,
+			pk.ForEach(func(address string, reqCount uint32,
 				lastReqTime time.Time) error {
 
 				serverLog.Tracef("Checking whether we have public key for %s.",
@@ -430,7 +432,7 @@ func (s *server) pkRequestHandler() {
 
 				// Now that we have the public identities, remove them from the
 				// PK request store.
-				err = s.store.PubkeyRequests.Remove(address)
+				err = pk.Remove(address)
 				if err != nil {
 					serverLog.Critical("Failed to remove address from public"+
 						" key request store: ", err)
@@ -588,7 +590,7 @@ func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, e
 	}
 
 	// Store a record of the public key request.
-	count, err := s.store.PubkeyRequests.New(address)
+	count, err := s.store.PubkeyRequests().New(address)
 	if err != nil {
 		return nil, err
 	}

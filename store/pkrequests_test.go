@@ -30,7 +30,7 @@ func TestPKRequests(t *testing.T) {
 	}
 
 	// Start.
-	q := s.PubkeyRequests
+	q := s.PubkeyRequests()
 
 	addr1 := "BM-2DB6AzjZvzM8NkS3HMYWMP9R1Rt778mhN8"
 	addr2 := "BM-2DAV89w336ovy6BUJnfVRD5B9qipFbRgmr"

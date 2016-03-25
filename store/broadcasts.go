@@ -16,19 +16,19 @@ import (
 // to. It provides functionality for adding, removal and running a function for
 // each address.
 type BroadcastAddresses struct {
-	store *Store
+	db *bolt.DB
 	addrs []bmutil.Address // All broadcast addresses.
 }
 
 // newBroadcastsStore creates a new BroadcastAddresses object after doing the
 // necessary initialization.
-func newBroadcastsStore(store *Store) (*BroadcastAddresses, error) {
+func newBroadcastsStore(db *bolt.DB) (*BroadcastAddresses, error) {
 	b := &BroadcastAddresses{
-		store: store,
+		db : db,
 		addrs: make([]bmutil.Address, 0),
 	}
 
-	err := store.db.Update(func(tx *bolt.Tx) error {
+	err := db.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists(broadcastAddressesBucket)
 		if err != nil {
 			return err
@@ -61,7 +61,7 @@ func (b *BroadcastAddresses) Add(address string) error {
 	k := []byte(address)
 	v := []byte{}
 
-	err = b.store.db.Update(func(tx *bolt.Tx) error {
+	err = b.db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket(broadcastAddressesBucket).Put(k, v)
 	})
 	if err != nil {
@@ -81,7 +81,7 @@ func (b *BroadcastAddresses) Remove(address string) error {
 
 	k := []byte(address)
 
-	err = b.store.db.Update(func(tx *bolt.Tx) error {
+	err = b.db.Update(func(tx *bolt.Tx) error {
 		if tx.Bucket(broadcastAddressesBucket).Get(k) == nil {
 			return ErrNotFound
 		}
