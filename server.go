@@ -48,7 +48,7 @@ const (
 // comprises of and would need.
 type server struct {
 	bmd              *rpc.Client
-	keymgr           *keymgr.Manager
+	users            map[string]*User
 	store            *store.Store
 	started          int32
 	shutdown         int32
@@ -65,12 +65,12 @@ type server struct {
 }
 
 // newServer initializes a new instance of server.
-func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
+func newServer(bmd *rpc.Client, users map[string]*User,
 	s *store.Store) (*server, error) {
 
 	srvr := &server{
 		bmd:           bmd,
-		keymgr:        kmgr,
+		users:         users,
 		store:         s,
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
@@ -79,6 +79,7 @@ func newServer(bmd *rpc.Client, kmgr *keymgr.Manager,
 
 	so := &serverOps{
 		pubIDs: make(map[string]*identity.Public),
+		user: users["daniel"], // TODO really allow multiple users. 
 		server: srvr,
 	}
 
@@ -210,14 +211,22 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	var ofChan bool
 
 	// Try decrypting with all available identities.
-	err = s.keymgr.ForEach(func(id *keymgr.PrivateID) error {
-		if cipher.TryDecryptAndVerifyMsg(msg, &id.Private) == nil {
-			address, _ = id.Address.Encode()
-			ofChan = id.IsChan
-			return errors.New("decryption successful")
+	for _, user := range s.users {
+		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
+			if cipher.TryDecryptAndVerifyMsg(msg, &id.Private) == nil {
+				address, _ = id.Address.Encode()
+				ofChan = id.IsChan
+				return errors.New("decryption successful")
+			}
+			return nil
+		})
+	
+		if err != nil {
+			// Decryption successful.
+			break
 		}
-		return nil
-	})
+	}
+	
 	if err == nil {
 		// Decryption unsuccessful.
 		return
@@ -319,24 +328,29 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 	var privID *keymgr.PrivateID
 
 	// Check if the getpubkey request corresponds to any of our identities.
-	err = s.keymgr.ForEach(func(id *keymgr.PrivateID) error {
-		if id.Disabled || id.IsChan { // We don't care about these.
+	for _, user := range s.users {
+		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
+			if id.Disabled || id.IsChan { // We don't care about these.
+				return nil
+			}
+	
+			var cond bool // condition to satisfy
+			switch msg.Version {
+			case wire.SimplePubKeyVersion, wire.ExtendedPubKeyVersion:
+				cond = bytes.Equal(id.Address.Ripe[:], msg.Ripe[:])
+			case wire.TagGetPubKeyVersion:
+				cond = bytes.Equal(id.Address.Tag(), msg.Tag[:])
+			}
+			if cond {
+				privID = id
+				return errors.New("We have a match.")
+			}
 			return nil
+		})
+		if err != nil {
+			break
 		}
-
-		var cond bool // condition to satisfy
-		switch msg.Version {
-		case wire.SimplePubKeyVersion, wire.ExtendedPubKeyVersion:
-			cond = bytes.Equal(id.Address.Ripe[:], msg.Ripe[:])
-		case wire.TagGetPubKeyVersion:
-			cond = bytes.Equal(id.Address.Tag(), msg.Tag[:])
-		}
-		if cond {
-			privID = id
-			return errors.New("We have a match.")
-		}
-		return nil
-	})
+	}
 	if err == nil {
 		return
 	}
@@ -531,7 +545,9 @@ func (s *server) savePeriodically() {
 // saveData saves any data in memory to disk. This includes writing the keyfile
 // and counter values to the store.
 func (s *server) saveData() {
-	saveKeyfile(s.keymgr, cfg.keyfilePass, cfg.keyfilePath)
+	for _, user := range s.users {
+		user.SaveKeyfile()
+	}
 
 	// Save counter values to store.
 	err := s.store.SetCounter(wire.ObjectTypeMsg,

@@ -17,6 +17,7 @@ import (
 // serverOps implements the email.ServerOps interface.
 type serverOps struct {
 	pubIDs map[string]*identity.Public // a cache
+	user *User
 	server *server
 }
 
@@ -54,7 +55,7 @@ func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) 
 // GetPrivateID queries the key manager for the right private key for the given
 // address.
 func (s *serverOps) GetPrivateID(addr string) (*keymgr.PrivateID, error) {
-	identity, err := s.server.keymgr.LookupByAddress(addr)
+	identity, err := s.user.Keys.LookupByAddress(addr)
 	if err != nil {
 		return nil, err
 	}

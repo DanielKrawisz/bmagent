@@ -422,31 +422,6 @@ func importKeyfile(kmgr *keymgr.Manager, str *store.Store, f ini.File) {
 	fmt.Printf("Imported %d private identities.\n", i)
 }
 
-func saveKeyfile(kmgr *keymgr.Manager, pass []byte, file string) {
-	var serialized []byte
-	var err error
-	
-	if pass == nil {
-		if !cfg.PlaintextDB {
-			log.Warn("No password supplied for keyfile.")
-		}
-		
-		serialized, err = kmgr.ExportPlaintext()
-	} else {	
-		serialized, err = kmgr.ExportEncrypted(pass)
-	}
-	
-	if err != nil {
-		log.Criticalf("Failed to serialize key file: %v", err)
-		return
-	}
-
-	err = ioutil.WriteFile(file, serialized, 0600)
-	if err != nil {
-		log.Criticalf("Failed to write key file: %v", err)
-	}
-}
-
 func readIniBool(m map[string]string, key string, defaultValue bool) bool {
 	str, ok := m[key]
 	ret := defaultValue

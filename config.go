@@ -105,8 +105,10 @@ type config struct {
 	LogConsole  bool `long:"logconsole" description:"display logs to console."`
 
 	powHandler  func(target uint64, hash []byte) uint64
-	keyfilePath string
 	storePath   string
+	
+	// TODO there should not be a global path for a single key file. 
+	keyfilePath string
 	keyfilePass []byte
 }
 
@@ -503,8 +505,10 @@ func loadConfig() (*config, []string, error) {
 		}
 
 		importKeyfile(keymgr, store, file)
+		
+		u := &User{keymgr, cfg.keyfilePath, cfg.keyfilePass}
+		u.SaveKeyfile()
 
-		saveKeyfile(keymgr, cfg.keyfilePass, cfg.keyfilePath)
 		store.Close()
 
 		// Imported successfully, so exit now with success.

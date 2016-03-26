@@ -52,7 +52,7 @@ func bmagentMain() error {
 	// Load the identities and message databases. The identities database must
 	// have been created with the --create option already or this will return an
 	// appropriate error.
-	keymgr, store, err := openDatabases(cfg)
+	keys, store, err := openDatabases(cfg)
 	if err != nil {
 		log.Errorf("%v", err)
 		return err
@@ -85,7 +85,9 @@ func bmagentMain() error {
 	}
 
 	// Initialize all servers.
-	server, err := newServer(rpcc, keymgr, store)
+	users := make(map[string]*User)
+	users[keys.Username] = &User{Keys:keys, Pass:cfg.keyfilePass, Path:cfg.keyfilePath}
+	server, err := newServer(rpcc, users, store)
 	if err != nil {
 		log.Errorf("Unable to create servers: %v", err)
 		return err
