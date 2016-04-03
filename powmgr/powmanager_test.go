@@ -20,7 +20,7 @@ func TestPowHandler(t *testing.T) {
 	var powWait bool
 	var mutex sync.RWMutex
 	powChan := make(chan struct{})
-	donePowChan := make(chan uint64)
+	donePowChan := make(chan struct{index uint64; user uint32})
 
 	// A function that does not actually calculate the pow.
 	mockPowFunc := func(target uint64, hash []byte) uint64 {
@@ -35,8 +35,8 @@ func TestPowHandler(t *testing.T) {
 	}
 
 	//A function that handles the completed pow.
-	mockPowDone := func(index uint64, obj []byte) {
-		donePowChan <- index
+	mockPowDone := func(index uint64, user uint32, obj []byte) {
+		donePowChan <- struct{index uint64; user uint32}{index: index, user: user}
 	}
 
 	// Open store.
@@ -66,25 +66,31 @@ func TestPowHandler(t *testing.T) {
 
 	// Test that an item can be added to the queue and will be run
 	// once the queue handler is started.
-	_, err = pm.RunPow(target, testObj[0])
+	_, err = pm.RunPow(target, 33, testObj[0])
 	if err != nil {
 		t.Error("Unable to submit to pow queue.")
 	}
 	pm.Start()
 	test1 := <-donePowChan
-	if test1 != 1 {
+	if test1.index != 1 {
 		t.Error("Incorrect test index returned.")
+	}
+	if test1.user != 33 {
+		t.Errorf("Incorrect test userid returned; expected %d got %d ", 33, test1.user)
 	}
 
 	// Test that an item can be added to the queue after it is
 	// running and that the item will be calculated.
-	_, err = pm.RunPow(target, testObj[1])
+	_, err = pm.RunPow(target, 45, testObj[1])
 	if err != nil {
 		t.Error("Unable to submit to pow queue.")
 	}
 	test2 := <-donePowChan
-	if test2 != 2 {
+	if test2.index != 2 {
 		t.Error("Incorrect test index returned.")
+	}
+	if test2.user != 45 {
+		t.Errorf("Incorrect test userid returned; expected %d got %d ", 45, test2.user)
 	}
 
 	// Test that an item can be added to the queue while another
@@ -93,8 +99,8 @@ func TestPowHandler(t *testing.T) {
 	powWait = true
 	mutex.Unlock()
 
-	pm.RunPow(target, testObj[2])
-	pm.RunPow(target, testObj[3])
+	pm.RunPow(target,  78, testObj[2])
+	pm.RunPow(target, 999, testObj[3])
 
 	mutex.Lock()
 	powWait = false
@@ -102,11 +108,11 @@ func TestPowHandler(t *testing.T) {
 
 	powChan <- struct{}{}
 	test3 := <-donePowChan
-	if test3 != 3 {
+	if test3.index != 3 {
 		t.Error("Incorrect test index returned.")
 	}
 	test4 := <-donePowChan
-	if test4 != 4 {
+	if test4.index != 4 {
 		t.Error("Incorrect test index returned.")
 	}
 

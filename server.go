@@ -48,7 +48,7 @@ const (
 // comprises of and would need.
 type server struct {
 	bmd              *rpc.Client
-	users            map[string]*User
+	users            map[uint32]*User
 	store            *store.Store
 	powManager       *powmgr.PowManager
 	started          int32
@@ -59,45 +59,50 @@ type server struct {
 	smtp             *email.SMTPServer
 	smtpListeners    []net.Listener
 	imap             *imap.Server
-	imapUser         *email.User
+	imapUser         map[uint32]*email.User
 	imapListeners    []net.Listener
 	quit             chan struct{}
 	wg               sync.WaitGroup
 }
 
 // newServer initializes a new instance of server.
-func newServer(bmd *rpc.Client, users map[string]*User,
+func newServer(bmd *rpc.Client, user *User,
 	s *store.Store) (*server, error) {
 
 	srvr := &server{
 		bmd:           bmd,
-		users:         users,
+		users:         make(map[uint32]*User),
 		store:         s,
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
+		imapUser:      make(map[uint32]*email.User), 
 	}
-
+	
+	// TODO allow for more than one user. Right now there is just 1 user.
+	srvr.users[1] = user
+	
 	so := &serverOps{
 		pubIDs: make(map[string]*identity.Public),
-		user: users["daniel"], // TODO really allow multiple users. 
+		id: 1, 
+		user: user, 
 		server: srvr,
 	}
-
+		
 	// Create an email.User from the store.
-	user, err := email.NewUser(so)
+	imapUser, err := email.NewUser(so)
 	if err != nil {
 		return nil, err
 	}
-	srvr.imapUser = user
+	srvr.imapUser[1] = imapUser
 
 	// Setup SMTP and IMAP servers.
 	srvr.smtp = email.NewSMTPServer(&email.SMTPConfig{
 		RequireTLS: !cfg.DisableServerTLS,
 		Username:   cfg.Username,
 		Password:   cfg.Password,
-	}, user)
-	srvr.imap = imap.NewServer(email.NewBitmessageStore(user, &email.IMAPConfig{
+	}, imapUser)
+	srvr.imap = imap.NewServer(email.NewBitmessageStore(imapUser, &email.IMAPConfig{
 		RequireTLS: !cfg.DisableServerTLS,
 		Username:   cfg.Username,
 		Password:   cfg.Password,
@@ -212,9 +217,11 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	var address string
 	// Whether the message was received from a channel.
 	var ofChan bool
+	
+	var id uint32
 
 	// Try decrypting with all available identities.
-	for _, user := range s.users {
+	for uid, user := range s.users {
 		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
 			if cipher.TryDecryptAndVerifyMsg(msg, &id.Private) == nil {
 				address, _ = id.Address.Encode()
@@ -225,6 +232,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		})
 	
 		if err != nil {
+			id = uid
 			// Decryption successful.
 			break
 		}
@@ -236,7 +244,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	}
 
 	// Decryption was successful. Add message to store.
-	mbox, err := s.imapUser.MailboxByName(email.InboxFolderName)
+	mbox, err := s.imapUser[id].MailboxByName(email.InboxFolderName)
 	if err != nil {
 		log.Critical("MailboxByName(%s) failed: %v", email.InboxFolderName, err)
 		return
@@ -329,9 +337,11 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 	}
 
 	var privID *keymgr.PrivateID
+	var id uint32
 
 	// Check if the getpubkey request corresponds to any of our identities.
-	for _, user := range s.users {
+	for uid, user := range s.users {
+		id = uid
 		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
 			if id.Disabled || id.IsChan { // We don't care about these.
 				return nil
@@ -374,7 +384,7 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 		uint64(pkMsg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	_, err = s.store.PowQueue.Enqueue(target, b)
+	_, err = s.store.PowQueue.Enqueue(target, id, b)
 	if err != nil {
 		serverLog.Critical("Failed to enqueue pow request:", err)
 		return
@@ -442,14 +452,16 @@ func (s *server) pkRequestHandler() {
 
 				// Process pending messages with this public identity and add
 				// them to pow queue.
-				err := s.imapUser.DeliverPublicKey(address, public)
-				if err != nil {
-					serverLog.Error("DeliverPublicKey failed: ", err)
+				for _, user := range s.imapUser {
+					err := user.DeliverPublicKey(address, public)
+					if err != nil {
+						serverLog.Error("DeliverPublicKey failed: ", err)
+					}
 				}
 
 				// Now that we have the public identities, remove them from the
 				// PK request store.
-				err = pk.Remove(address)
+				err := pk.Remove(address)
 				if err != nil {
 					serverLog.Critical("Failed to remove address from public"+
 						" key request store: ", err)
@@ -459,7 +471,7 @@ func (s *server) pkRequestHandler() {
 	}
 }
 
-func (s *server) receiveDonePow(index uint64, obj []byte) {
+func (s *server) receiveDonePow(index uint64, user uint32, obj []byte) {
 	// Create MsgObject.
 	msg := &wire.MsgObject{}
 	err := msg.Decode(bytes.NewReader(obj))
@@ -479,7 +491,7 @@ func (s *server) receiveDonePow(index uint64, obj []byte) {
 
 	if msg.ObjectType == wire.ObjectTypeMsg ||
 		msg.ObjectType == wire.ObjectTypeBroadcast {
-		err := s.imapUser.DeliverPow(index, msg)
+		err := s.imapUser[user].DeliverPow(index, msg)
 		if err != nil {
 			serverLog.Critical("DeliverPow failed: ", err)
 			return
@@ -533,7 +545,7 @@ func (s *server) saveData() {
 // getOrRequestPublicIdentity retrieves the needed public identity from bmd
 // or sends a getpubkey request if it doesn't exist in its database. If both
 // return types are nil, it means a getpubkey request has been queued.
-func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, error) {
+func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*identity.Public, error) {
 	serverLog.Trace("getOrRequestPublicIdentity called for ", address)
 	id, err := s.bmd.GetIdentity(address)
 	if err == nil {
@@ -561,7 +573,7 @@ func (s *server) getOrRequestPublicIdentity(address string) (*identity.Public, e
 		uint64(msg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	_, err = s.store.PowQueue.Enqueue(target, b)
+	_, err = s.store.PowQueue.Enqueue(target, user, b)
 	if err != nil {
 		return nil, err
 	}

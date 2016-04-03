@@ -17,6 +17,7 @@ import (
 // serverOps implements the email.ServerOps interface.
 type serverOps struct {
 	pubIDs map[string]*identity.Public // a cache
+	id uint32
 	user *User
 	server *server
 }
@@ -40,7 +41,7 @@ func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) 
 		return nil, err
 	}
 
-	pubID, err := s.server.getOrRequestPublicIdentity(addr)
+	pubID, err := s.server.getOrRequestPublicIdentity(s.id, addr)
 	if err != nil { // Some error occured.
 		return nil, err
 	}
@@ -82,7 +83,7 @@ func (s *serverOps) GetObjectExpiry(objType wire.ObjectType) time.Duration {
 
 // PowQueue returns the store.PowQueue associated with the server.
 func (s *serverOps) RunPow(target uint64, obj []byte) (uint64, error) {
-	return s.server.powManager.RunPow(target, obj)
+	return s.server.powManager.RunPow(target, s.id, obj)
 }
 
 // Store returns the store.Store associated with the server.

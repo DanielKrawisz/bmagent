@@ -261,7 +261,7 @@ func createDatabases(cfg *config) error {
 	fmt.Println("\nCreating the key file...")
 
 	// Intialize key manager with seed.
-	kmgr, err := keymgr.New(seed, "daniel")
+	kmgr, err := keymgr.New(seed)
 	if err != nil {
 		return err
 	}

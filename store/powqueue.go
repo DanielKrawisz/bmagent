@@ -39,13 +39,14 @@ func newPowQueue(db *bolt.DB) (*PowQueue, error) {
 
 // Enqueue adds an object message with a target value for PoW to the end of the
 // queue. It returns the index value of the stored element.
-func (q *PowQueue) Enqueue(target uint64, obj []byte) (uint64, error) {
+func (q *PowQueue) Enqueue(target uint64, user uint32, obj []byte) (uint64, error) {
 	var idx uint64
 
-	// Value is stored as: target (8 bytes) || object
-	v := make([]byte, 8+len(obj))
+	// Value is stored as: target (8 bytes) + user (4 bytes) + object
+	v := make([]byte, 12+len(obj))
 	binary.BigEndian.PutUint64(v, target)
-	copy(v[8:], obj)
+	binary.BigEndian.PutUint32(v[8:], user)
+	copy(v[12:], obj)
 
 	err := q.db.Update(func(tx *bolt.Tx) error {
 		idx = binary.BigEndian.Uint64(tx.Bucket(miscBucket).Get(powQueueLatestIDKey)) + 1
@@ -68,9 +69,10 @@ func (q *PowQueue) Enqueue(target uint64, obj []byte) (uint64, error) {
 }
 
 // Dequeue removes the object message at beginning of the queue and returns its
-// index and itself.
-func (q *PowQueue) Dequeue() (uint64, []byte, error) {
+// index, the user that requested it, and itself.
+func (q *PowQueue) Dequeue() (uint64, uint32, []byte, error) {
 	var idx uint64
+	var user uint32
 	var obj []byte
 	err := q.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(powQueueBucket)
@@ -80,16 +82,17 @@ func (q *PowQueue) Dequeue() (uint64, []byte, error) {
 			return ErrNotFound
 		}
 		idx = binary.BigEndian.Uint64(k)
-		obj = make([]byte, len(v[8:]))
+		user = binary.BigEndian.Uint32(v[8:12])
+		obj = make([]byte, len(v[12:]))
 		copy(obj, v[8:])
 
 		return bucket.Delete(k)
 	})
 	if err != nil {
-		return 0, nil, err
+		return 0, 0, nil, err
 	}
 
-	return idx, obj, nil
+	return idx, user, obj, nil
 }
 
 // PeekForPow returns the target and hash values for the object that would be

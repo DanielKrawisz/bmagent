@@ -22,7 +22,7 @@ type PowManager struct {
 	newPowChan chan struct{}
 
 	// donePowFunc is called when a new nonce is generated.
-	donePowFunc func(index uint64, obj []byte)
+	donePowFunc func(index uint64, user uint32, obj []byte)
 
 	// powFunc is the function that calculates the pow.
 	powFunc func(target uint64, hash []byte) uint64
@@ -30,7 +30,7 @@ type PowManager struct {
 
 // New creates a new PowManager.
 func New(pq *store.PowQueue,
-	donePowFunc func(index uint64, obj []byte),
+	donePowFunc func(index uint64, user uint32, obj []byte),
 	powFunc func(target uint64, hash []byte) uint64) *PowManager {
 
 	pm := &PowManager{
@@ -66,8 +66,8 @@ func (pm *PowManager) Stop() {
 // RunPow adds an object message with a target value for PoW to the end of the
 // pow queue. It returns the index value of the stored element. If the
 // PowManager is running, then a signal is sent to start running hashes immediately.
-func (pm *PowManager) RunPow(target uint64, obj []byte) (uint64, error) {
-	index, err := pm.powQueue.Enqueue(target, obj)
+func (pm *PowManager) RunPow(target uint64, user uint32, obj []byte) (uint64, error) {
+	index, err := pm.powQueue.Enqueue(target, user, obj)
 	if err != nil {
 		return 0, err
 	}
@@ -133,7 +133,7 @@ out:
 		case nonce := <-donePowChan:
 			// Since we have the required nonce value and have processed
 			// the pending message, remove it from the queue.
-			index, obj, err := pm.powQueue.Dequeue()
+			index, user, obj, err := pm.powQueue.Dequeue()
 			if err != nil {
 				log.Critical("Dequeue on PowQueue failed: ", err)
 				continue
@@ -145,7 +145,7 @@ out:
 			obj = append(nonceBytes, obj...)
 
 			// Send the data to the server.
-			pm.donePowFunc(index, obj)
+			pm.donePowFunc(index, user, obj)
 
 			startNewPow()
 		}
