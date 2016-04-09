@@ -22,12 +22,13 @@ func TestOpenClose(t *testing.T) {
 	f.Close()
 
 	pass := []byte("password")
+	uname := "daniel"
 	passNew := []byte("new_password")
 
 	// Create a new database
 
 	l, err := store.Open(fName)
-	s, err := l.Construct(pass)
+	s, _, _, err := l.Construct(uname, pass)
 	if err != nil {
 		t.Fatal("Failed to open database:", err)
 	}
@@ -38,7 +39,7 @@ func TestOpenClose(t *testing.T) {
 
 	// Try opening same database but with incorrect passphrase
 	l, err = store.Open(fName)
-	s, err = l.Construct(passNew)
+	s, _, _, err = l.Construct(uname, passNew)
 	if err != store.ErrDecryptionFailed {
 		t.Error("Expected ErrDecryptionFailed got", err)
 	}
@@ -46,7 +47,7 @@ func TestOpenClose(t *testing.T) {
 	// Try re-opening database with correct passphrase, to make sure decryption
 	// works.
 	l, err = store.Open(fName)
-	s, err = l.Construct(pass)
+	s, _, _, err = l.Construct(uname, pass)
 	if err != nil {
 		t.Fatal("Failed to open database:", err)
 	}
@@ -64,7 +65,7 @@ func TestOpenClose(t *testing.T) {
 	// Re-open database with new passphrase to see if ChangePassphrase was
 	// successful.
 	l, err = store.Open(fName)
-	s, err = l.Construct(passNew)
+	s, _, _, err = l.Construct(uname, passNew)
 	if err != nil {
 		t.Fatal("Failed to open database:", err)
 	}
@@ -86,8 +87,9 @@ func TestCounters(t *testing.T) {
 	f.Close()
 
 	pass := []byte("password")
+	uname := "daniel"
 	l, err := store.Open(fName)
-	s, err := l.Construct(pass)
+	s, _, _, err := l.Construct(uname, pass)
 	if err != nil {
 		t.Fatal(err)
 	}

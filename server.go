@@ -50,6 +50,7 @@ type server struct {
 	bmd              *rpc.Client
 	users            map[uint32]*User
 	store            *store.Store
+	pk               *store.PKRequests
 	powManager       *powmgr.PowManager
 	started          int32
 	shutdown         int32
@@ -66,13 +67,14 @@ type server struct {
 }
 
 // newServer initializes a new instance of server.
-func newServer(bmd *rpc.Client, user *User,
-	s *store.Store) (*server, error) {
+func newServer(bmd *rpc.Client, user *User, s *store.Store, 
+	q *store.PowQueue, pk *store.PKRequests) (*server, error) {
 
 	srvr := &server{
 		bmd:           bmd,
 		users:         make(map[uint32]*User),
 		store:         s,
+		pk:            pk, 
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
@@ -149,7 +151,7 @@ func newServer(bmd *rpc.Client, user *User,
 	}
 
 	// Setup pow manager.
-	srvr.powManager = powmgr.New(s.PowQueue, srvr.receiveDonePow, cfg.powHandler)
+	srvr.powManager = powmgr.New(q, srvr.receiveDonePow, cfg.powHandler)
 
 	return srvr, nil
 }
@@ -384,7 +386,7 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 		uint64(pkMsg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	_, err = s.store.PowQueue.Enqueue(target, id, b)
+	_, err = s.powManager.RunPow(target, id, b)
 	if err != nil {
 		serverLog.Critical("Failed to enqueue pow request:", err)
 		return
@@ -407,12 +409,10 @@ func (s *server) pkRequestHandler() {
 			var mtx sync.Mutex // Protect the following map
 			addresses := make(map[string]*identity.Public)
 			var wg sync.WaitGroup
-			
-			pk := s.store.PubkeyRequests()
 
 			// Go through our store and check if server has any new public
 			// identity.
-			pk.ForEach(func(address string, reqCount uint32,
+			s.pk.ForEach(func(address string, reqCount uint32,
 				lastReqTime time.Time) error {
 
 				serverLog.Tracef("Checking whether we have public key for %s.",
@@ -461,7 +461,7 @@ func (s *server) pkRequestHandler() {
 
 				// Now that we have the public identities, remove them from the
 				// PK request store.
-				err := pk.Remove(address)
+				err := s.pk.Remove(address)
 				if err != nil {
 					serverLog.Critical("Failed to remove address from public"+
 						" key request store: ", err)
@@ -573,13 +573,13 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 		uint64(msg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	_, err = s.store.PowQueue.Enqueue(target, user, b)
+	_, err = s.powManager.RunPow(target, user, b)
 	if err != nil {
 		return nil, err
 	}
 
 	// Store a record of the public key request.
-	count, err := s.store.PubkeyRequests().New(address)
+	count, err := s.pk.New(address)
 	if err != nil {
 		return nil, err
 	}

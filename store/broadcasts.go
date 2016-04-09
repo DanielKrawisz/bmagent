@@ -17,19 +17,27 @@ import (
 // each address.
 type BroadcastAddresses struct {
 	db *bolt.DB
+	username []byte
 	addrs []bmutil.Address // All broadcast addresses.
 }
 
 // newBroadcastsStore creates a new BroadcastAddresses object after doing the
 // necessary initialization.
-func newBroadcastsStore(db *bolt.DB) (*BroadcastAddresses, error) {
+func newBroadcastsStore(db *bolt.DB, username []byte) (*BroadcastAddresses, error) {
+	
 	b := &BroadcastAddresses{
 		db : db,
+		username : username, 
 		addrs: make([]bmutil.Address, 0),
 	}
 
 	err := db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(broadcastAddressesBucket)
+		userbucket, err := tx.CreateBucketIfNotExists(username)
+		if err != nil {
+			return err
+		}
+		
+		bucket, err := userbucket.CreateBucketIfNotExists(broadcastAddressesBucket)
 		if err != nil {
 			return err
 		}
@@ -62,7 +70,7 @@ func (b *BroadcastAddresses) Add(address string) error {
 	v := []byte{}
 
 	err = b.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(broadcastAddressesBucket).Put(k, v)
+		return tx.Bucket(b.username).Bucket(broadcastAddressesBucket).Put(k, v)
 	})
 	if err != nil {
 		return err
@@ -82,7 +90,7 @@ func (b *BroadcastAddresses) Remove(address string) error {
 	k := []byte(address)
 
 	err = b.db.Update(func(tx *bolt.Tx) error {
-		if tx.Bucket(broadcastAddressesBucket).Get(k) == nil {
+		if tx.Bucket(b.username).Bucket(broadcastAddressesBucket).Get(k) == nil {
 			return ErrNotFound
 		}
 

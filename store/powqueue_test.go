@@ -25,14 +25,12 @@ func TestPowQueue(t *testing.T) {
 	f.Close()
 
 	pass := []byte("password")
+	uname := "daniel"
 	l, err := store.Open(fName)
-	s, err := l.Construct(pass)
+	s, q, _, err := l.Construct(uname, pass)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Start.
-	q := s.PowQueue
 
 	obj := []byte("test")
 	hash := bmutil.Sha512(obj)
@@ -50,14 +48,15 @@ func TestPowQueue(t *testing.T) {
 	}
 
 	// Dequeue should fail.
-	_, _, err = q.Dequeue()
+	_, _, _, err = q.Dequeue()
 	if err != store.ErrNotFound {
 		t.Errorf("Dequeue didn't give expected error %v, got %v",
 			store.ErrNotFound, err)
 	}
 
 	// First enqueue.
-	idx, err := q.Enqueue(target, obj)
+	var u uint32 = 12
+	idx, err := q.Enqueue(target, u, obj)
 	if err != nil {
 		t.Error("Enqueue failed:", err)
 	}
@@ -83,14 +82,14 @@ func TestPowQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	l, err = store.Open(fName)
-	s, err = l.Construct(pass)
+	_, q, _, err = l.Construct(uname, pass)
 	if err != nil {
 		t.Fatal(err)
 	}
-	q = s.PowQueue
 
 	// Second enqueue.
-	idx1, err := q.Enqueue(target1, obj1)
+	var u1 uint32 = 37
+	idx1, err := q.Enqueue(target1, u1, obj1)
 	if err != nil {
 		t.Error("Enqueue failed:", err)
 	}
@@ -111,7 +110,7 @@ func TestPowQueue(t *testing.T) {
 	}
 
 	// First dequeue.
-	idxT, objT, err := q.Dequeue()
+	idxT, uT, objT, err := q.Dequeue()
 	if err != nil {
 		t.Error("Dequeue failed:", err)
 	}
@@ -120,6 +119,9 @@ func TestPowQueue(t *testing.T) {
 	}
 	if idx != idxT {
 		t.Errorf("Expected %d got %d", idx, idxT)
+	}
+	if u != uT {
+		t.Errorf("Expected %d got %d", u, uT)
 	}
 
 	// Second PeekForPow. Second item should move to first now.
@@ -135,7 +137,7 @@ func TestPowQueue(t *testing.T) {
 	}
 
 	// Second dequeue.
-	idxT, objT, err = q.Dequeue()
+	idxT, uT, objT, err = q.Dequeue()
 	if err != nil {
 		t.Error("Dequeue failed:", err)
 	}
@@ -143,7 +145,10 @@ func TestPowQueue(t *testing.T) {
 		t.Errorf("Expected %v got %v", obj1, objT)
 	}
 	if idx1 != idxT {
-		t.Errorf("Expected %d got %d", idx, idxT)
+		t.Errorf("Expected %d got %d", idx1, idxT)
+	}
+	if u1 != uT {
+		t.Errorf("Expected %d got %d", u1, uT)
 	}
 
 	// PeekForPow should fail.
@@ -154,7 +159,7 @@ func TestPowQueue(t *testing.T) {
 	}
 
 	// Dequeue should fail.
-	_, _, err = q.Dequeue()
+	_, _, _, err = q.Dequeue()
 	if err != store.ErrNotFound {
 		t.Errorf("Dequeue didn't give expected error %v, got %v",
 			store.ErrNotFound, err)

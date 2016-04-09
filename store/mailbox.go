@@ -9,8 +9,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"time"
+	"fmt"
 
 	"github.com/boltdb/bolt"
 )
@@ -30,19 +30,25 @@ var (
 // in the data store.
 type Mailbox struct {
 	store *Store
+	uname []byte
 	name  string
 }
 
 // initializeMailbox initializes a mailbox.
-func initializeMailbox(store *Store, name string) error {
+func initializeMailbox(store *Store, uname []byte, name string) error {
 
 	err := store.db.Update(func(tx *bolt.Tx) error {
 		// Get bucket for mailbox.
-		bucket := tx.Bucket(mailboxesBucket).Bucket([]byte(name))
+		bucket := tx.Bucket(uname).Bucket(mailboxesBucket).Bucket([]byte(name))
 
 		if bucket == nil {
 			// New mailbox so initialize it with all the data.
-			bucket, err := tx.Bucket(mailboxesBucket).CreateBucket([]byte(name))
+			bucket, err := tx.Bucket(uname).CreateBucketIfNotExists(mailboxesBucket)
+			if err != nil {
+				return err
+			}
+			
+			bucket, err = tx.Bucket(uname).Bucket(mailboxesBucket).CreateBucket([]byte(name))
 			if err != nil {
 				return err
 			}
@@ -84,17 +90,26 @@ func (mbox *Mailbox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error
 	}
 
 	err = mbox.store.db.Update(func(tx *bolt.Tx) error {
-		m := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
+		bucket := tx.Bucket(mbox.uname)
+		if bucket == nil {
+			return ErrNotFound
+		}
+		m := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
 
 		// Generate a new ID if we asked for it.
 		if id == 0 {
-			id = binary.BigEndian.Uint64(tx.Bucket(miscBucket).Get(mailboxLatestIDKey)) + 1
+			bucket := tx.Bucket(mbox.uname)
+			if bucket == nil {
+				return ErrNotFound
+			}
+			latestId := bucket.Bucket(miscBucket).Get(mailboxLatestIDKey)
+			id = binary.BigEndian.Uint64(latestId) + 1
 
 			// Increment mailboxLatestID.
 			idB := make([]byte, 8)
 			binary.BigEndian.PutUint64(idB, id)
 
-			err = tx.Bucket(miscBucket).Put(mailboxLatestIDKey, idB)
+			err = tx.Bucket(mbox.uname).Bucket(miscBucket).Put(mailboxLatestIDKey, idB)
 			if err != nil {
 				return err
 			}
@@ -134,7 +149,17 @@ func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 	binary.BigEndian.PutUint64(idBytes, id)
 
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
-		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
+		bucket := tx.Bucket(mbox.uname)
+		if bucket == nil {
+			return ErrNotFound
+		}
+		
+		bucket = bucket.Bucket(mailboxesBucket)
+		if bucket == nil {
+			return ErrNotFound
+		}
+		
+		cursor := bucket.Bucket([]byte(mbox.name)).Cursor()
 		k, v := cursor.Seek(idBytes)
 
 		// Check if the first 8 bytes match the index.
@@ -181,7 +206,11 @@ func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 	binary.BigEndian.PutUint64(bLowID, lowID)
 
 	return mbox.store.db.View(func(tx *bolt.Tx) error {
-		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
+		bucket := tx.Bucket(mbox.uname)
+		if (bucket == nil) {
+			return ErrNotFound
+		}
+		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
 
 		for k, v := cursor.Seek(bLowID); k != nil; k, v = cursor.Next() {
 			// We need this safeguard because BoltDB also loops over buckets. We
@@ -205,7 +234,6 @@ func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 
 			msg, success := mbox.store.decrypt(v)
 			if !success {
-				fmt.Println("About to return a decryption failed error.")
 				return ErrDecryptionFailed
 			}
 
@@ -225,7 +253,11 @@ func (mbox *Mailbox) DeleteMessage(id uint64) error {
 	binary.BigEndian.PutUint64(idxBytes, id)
 
 	return mbox.store.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
+		bucket := tx.Bucket(mbox.uname)
+		if bucket == nil {
+			return ErrNotFound
+		}
+		bucket = bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
 		k, v := bucket.Cursor().Seek(idxBytes)
 
 		// Check if the first 8 bytes match the index.
@@ -250,7 +282,7 @@ func (mbox *Mailbox) SetName(name string) error {
 
 	err := mbox.store.db.Update(func(tx *bolt.Tx) error {
 		// Check if some other mailbox has the same name.
-		err := tx.Bucket(mailboxesBucket).ForEach(func(k, _ []byte) error {
+		err := tx.Bucket(mbox.uname).Bucket(mailboxesBucket).ForEach(func(k, _ []byte) error {
 			if string(k) == name {
 				return ErrDuplicateMailbox
 			}
@@ -261,13 +293,13 @@ func (mbox *Mailbox) SetName(name string) error {
 		}
 
 		// Create the new mailbox.
-		b, err := tx.Bucket(mailboxesBucket).CreateBucket([]byte(name))
+		b, err := tx.Bucket(mbox.uname).Bucket(mailboxesBucket).CreateBucket([]byte(name))
 		if err != nil {
 			return err
 		}
 
 		// Copy everything.
-		oldB := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
+		oldB := tx.Bucket(mbox.uname).Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
 		oldB.ForEach(func(k, v []byte) error {
 			if v == nil { // It's a bucket.
 				b1, err := b.CreateBucket(k)
@@ -284,7 +316,7 @@ func (mbox *Mailbox) SetName(name string) error {
 		})
 
 		// Delete old mailbox.
-		return tx.Bucket(mailboxesBucket).DeleteBucket([]byte(mbox.name))
+		return tx.Bucket(mbox.uname).Bucket(mailboxesBucket).DeleteBucket([]byte(mbox.name))
 	})
 	if err != nil {
 		return err
@@ -298,7 +330,11 @@ func (mbox *Mailbox) SetName(name string) error {
 func (mbox *Mailbox) Delete() error {
 	return mbox.store.db.Update(func(tx *bolt.Tx) error {
 		// Delete the mailbox and associated data.
-		err := tx.Bucket(mailboxesBucket).DeleteBucket([]byte(mbox.name))
+		bucket := tx.Bucket(mbox.uname)
+		if bucket == nil {
+			return ErrNotFound
+		}
+		err := bucket.Bucket(mailboxesBucket).DeleteBucket([]byte(mbox.name))
 		if err != nil {
 			return err
 		}
@@ -328,7 +364,11 @@ func (mbox *Mailbox) LastID() (uint64, error) {
 	var id uint64
 
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
-		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
+		bucket := tx.Bucket(mbox.uname)
+		if bucket == nil {
+			return ErrNotFound
+		}
+		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
 
 		// Read from the end until we have a non-nil value.
 		for k, _ := cursor.Last(); ; k, _ = cursor.Prev() {
@@ -353,7 +393,12 @@ func (mbox *Mailbox) LastID() (uint64, error) {
 func (mbox *Mailbox) LastIDBySuffix(suffix uint64) (uint64, error) {
 	var id uint64
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
-		cursor := tx.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
+		bucket := tx.Bucket(mbox.uname)
+		if bucket == nil {
+			return ErrNotFound
+		}
+		
+		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
 
 		// Loop from the end, returning the first found match.
 		for k, _ := cursor.Last(); k != nil; k, _ = cursor.Prev() {

@@ -52,6 +52,8 @@ var (
 
 	// Bucket is a sub-bucket of "mailboxes"
 	mailboxDataBucket = []byte("data")
+	
+	userPrefix = []byte("user:")
 
 	// Used for storing the encrypted master key used for encryption/decryption.
 	dbMasterKeyEnc = []byte("dbMasterKeyEnc")
@@ -98,12 +100,13 @@ func Open(file string) (*Loader, error) {
 	if err != nil {
 		return nil, err
 	}
+	
 	return &Loader{
-		db:        db,
+		db: db,
 	}, nil
 }
 
-// Close performs any necessary cleanups and then closes the store.
+// Close performs any necessary cleanups and then closes the database.
 func (l *Loader) Close() error {
 	if l.db == nil {
 		return nil
@@ -120,7 +123,7 @@ func (l *Loader) Close() error {
 type Store struct {
 	masterKey          *[keySize]byte      // can be nil.
 	db                 *bolt.DB
-	PowQueue           *PowQueue
+	username           []byte
 	BroadcastAddresses *BroadcastAddresses
 	mutex              sync.RWMutex        // For protecting the map.
 	mailboxes          map[string]struct{} // Map names to all mailboxes.
@@ -155,17 +158,20 @@ func (l *Loader) IsEncrypted() bool {
 }
 
 // Open creates a new Store from the given file.
-func (l *Loader) Construct(pass []byte) (*Store, error) {
+func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PKRequests, error) {
 	if pass == nil {
 		clientLog.Warn("Unencrypted database opened.")
 	}
 	
 	if l.db == nil {
-		return nil, errors.New("Closed database.");
+		return nil, nil, nil, errors.New("Closed database.");
 	}
+	
+	uname := append(userPrefix, []byte(username)...)
 	
 	store := &Store{
 		db:        l.db,
+		username:  uname,
 		mailboxes: make(map[string]struct{}),
 	}
 
@@ -176,6 +182,18 @@ func (l *Loader) Construct(pass []byte) (*Store, error) {
 			return err
 		}
 		_, err = bucket.CreateBucketIfNotExists(countersBucket)
+		if err != nil {
+			return err
+		}
+		userBucket, err := tx.CreateBucketIfNotExists(uname)
+		if err != nil {
+			return err
+		}
+		misc, err := userBucket.CreateBucketIfNotExists(miscBucket)
+		if err != nil {
+			return err
+		}
+		_, err = userBucket.CreateBucketIfNotExists(mailboxesBucket)
 		if err != nil {
 			return err
 		}
@@ -218,7 +236,7 @@ func (l *Loader) Construct(pass []byte) (*Store, error) {
 
 			// Set ID for messages to 0.
 			zero := []byte{0, 0, 0, 0, 0, 0, 0, 0}
-			err = bucket.Put(mailboxLatestIDKey, zero)
+			err = misc.Put(mailboxLatestIDKey, zero)
 			if err != nil {
 				return err
 			}
@@ -271,53 +289,45 @@ func (l *Loader) Construct(pass []byte) (*Store, error) {
 	
 	if err != nil {
 		l.Close()
-		return nil, err
+		return nil, nil, nil, err
+	}
+	
+	q, err := newPowQueue(l.db)
+	if err != nil {
+		l.db.Close()
+		return nil, nil, nil, err
 	}
 
 	err = initializePKRequestStore(store.db)
 	if err != nil {
 		l.Close()
-		return nil, err
+		return nil, nil, nil, err
 	}
 
-	store.PowQueue, err = newPowQueue(store.db)
+	store.BroadcastAddresses, err = newBroadcastsStore(store.db, uname)
 	if err != nil {
 		l.Close()
-		return nil, err
-	}
-
-	store.BroadcastAddresses, err = newBroadcastsStore(store.db)
-	if err != nil {
-		l.Close()
-		return nil, err
-	}
-
-	// Create bucket needed for mailboxes.
-	err = l.db.Update(func(tx *bolt.Tx) error {
-		_, err := tx.CreateBucketIfNotExists(mailboxesBucket)
-		if err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
-		l.Close()
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// Load existing mailboxes.
 	err = l.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
+		/*fmt.Println("Hello...")
+		
+		fmt.Println("is this null? ", tx.Bucket(uname) == nil)
+		fmt.Println("What about this? ", tx.Bucket(uname).Bucket(mailboxesBucket) == nil)*/
+		
+		return tx.Bucket(uname).Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
 			store.mailboxes[string(name)] = struct{}{}
 			return nil
 		})
 	})
 	if err != nil {
 		l.Close()
-		return nil, err
+		return nil, nil, nil, err
 	}
 
-	return store, nil
+	return store, q, &PKRequests{db:l.db}, nil
 }
 
 // Close performs any necessary cleanups and then closes the store.
@@ -346,7 +356,7 @@ func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 	}
 
 	// We're good, so create the mailbox.
-	err := initializeMailbox(s, name)
+	err := initializeMailbox(s, s.username, name)
 	if err != nil {
 		return nil, err
 	}
@@ -356,7 +366,7 @@ func (s *Store) NewMailbox(name string) (*Mailbox, error) {
 	s.mailboxes[name] = struct{}{}
 	s.mutex.Unlock()
 
-	return &Mailbox{store: s, name: name}, nil
+	return &Mailbox{store: s, uname: s.username, name: name}, nil
 }
 
 // MailboxByName retrieves the mailbox associated with the name. If the
@@ -369,14 +379,14 @@ func (s *Store) MailboxByName(name string) (*Mailbox, error) {
 	if !ok {
 		return nil, ErrNotFound
 	}
-	return &Mailbox{store: s, name: name}, nil
+	return &Mailbox{store: s, uname: s.username, name: name}, nil
 }
 
 // Mailboxes returns a slice containing pointers to all mailboxes in the store.
 func (s *Store) Mailboxes() []*Mailbox {
 	mboxes := make([]*Mailbox, 0, len(s.mailboxes))
 	for name, _ := range s.mailboxes {
-		mboxes = append(mboxes, &Mailbox{store: s, name: name})
+		mboxes = append(mboxes, &Mailbox{store: s, uname: s.username, name: name})
 	}
 	return mboxes
 }
@@ -506,8 +516,4 @@ func (s *Store) decrypt(data []byte) ([]byte, bool) {
 	copy(nonce[:], data[:nonceSize])
 
 	return secretbox.Open(nil, data[nonceSize:], &nonce, s.masterKey)
-}
-
-func (s *Store) PubkeyRequests() *PKRequests {
-	return &PKRequests{db:s.db}
 }

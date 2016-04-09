@@ -47,9 +47,8 @@ func TestPowHandler(t *testing.T) {
 	fName := f.Name()
 	f.Close()
 
-	pass := []byte("password")
 	l, err := store.Open(fName)
-	s, err := l.Construct(pass)
+	_, q, _, err := l.Construct("daniel", []byte("password"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +61,7 @@ func TestPowHandler(t *testing.T) {
 	}
 
 	target := uint64(1152921504606846975)
-	pm := powmgr.New(s.PowQueue, mockPowDone, mockPowFunc)
+	pm := powmgr.New(q, mockPowDone, mockPowFunc)
 
 	// Test that an item can be added to the queue and will be run
 	// once the queue handler is started.

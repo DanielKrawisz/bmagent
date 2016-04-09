@@ -23,8 +23,9 @@ func TestBroadcastAddresses(t *testing.T) {
 	f.Close()
 
 	pass := []byte("password")
+	uname := "daniel"
 	l, err := store.Open(fName)
-	s, err := l.Construct(pass)
+	s, _, _, err := l.Construct(uname, pass)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,38 +24,35 @@ func TestPKRequests(t *testing.T) {
 	f.Close()
 
 	l, err := store.Open(fName)
-	s, err := l.Construct([]byte("password"))
+	s, _, pk, err := l.Construct("daniel", []byte("password"))
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	// Start.
-	q := s.PubkeyRequests()
 
 	addr1 := "BM-2DB6AzjZvzM8NkS3HMYWMP9R1Rt778mhN8"
 	addr2 := "BM-2DAV89w336ovy6BUJnfVRD5B9qipFbRgmr"
 
 	// Check if a non-existing address returns correct error.
-	_, err = q.LastRequestTime(addr1)
+	_, err = pk.LastRequestTime(addr1)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
 
 	// Test adding a new address.
-	testNewPKRequest(q, addr1, 1, t)
+	testNewPKRequest(pk, addr1, 1, t)
 
 	// Check if a non-existing address returns correct error.
-	_, err = q.LastRequestTime(addr2)
+	_, err = pk.LastRequestTime(addr2)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
 
 	// Add same address that we got ErrNotFound for before.
-	testNewPKRequest(q, addr2, 1, t)
+	testNewPKRequest(pk, addr2, 1, t)
 
 	// Check if we have the right number of addresses.
 	count := 0
-	err = q.ForEach(func(address string, reqCount uint32, lastReqTime time.Time) error {
+	err = pk.ForEach(func(address string, reqCount uint32, lastReqTime time.Time) error {
 		count++
 		return nil
 	})
@@ -67,27 +64,27 @@ func TestPKRequests(t *testing.T) {
 	}
 
 	// Test calling New repeatedly; should increment count.
-	testNewPKRequest(q, addr1, 2, t)
-	testNewPKRequest(q, addr1, 3, t)
-	testNewPKRequest(q, addr1, 4, t)
-	testNewPKRequest(q, addr2, 2, t)
+	testNewPKRequest(pk, addr1, 2, t)
+	testNewPKRequest(pk, addr1, 3, t)
+	testNewPKRequest(pk, addr1, 4, t)
+	testNewPKRequest(pk, addr2, 2, t)
 
 	// Remove addresses.
-	err = q.Remove(addr1)
+	err = pk.Remove(addr1)
 	if err != nil {
 		t.Error("Got error", err)
 	}
-	err = q.Remove(addr2)
+	err = pk.Remove(addr2)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 
 	// Check if they are there anymore.
-	_, err = q.LastRequestTime(addr1)
+	_, err = pk.LastRequestTime(addr1)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
-	_, err = q.LastRequestTime(addr2)
+	_, err = pk.LastRequestTime(addr2)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
@@ -100,16 +97,16 @@ func TestPKRequests(t *testing.T) {
 	os.Remove(fName)
 }
 
-func testNewPKRequest(q *store.PKRequests, address string,
+func testNewPKRequest(pk *store.PKRequests, address string,
 	expectedCount uint32, t *testing.T) {
 
 	// Add/update address.
-	count, err := q.New(address)
+	count, err := pk.New(address)
 	if err != nil {
 		t.Errorf("For address %s got error %v", address, err)
 	}
 	// Get time and check if it's within an acceptable margin.
-	timestamp, err := q.LastRequestTime(address)
+	timestamp, err := pk.LastRequestTime(address)
 	if err != nil {
 		t.Error("Got error", err)
 	}

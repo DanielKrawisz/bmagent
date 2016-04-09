@@ -84,7 +84,7 @@ func (q *PowQueue) Dequeue() (uint64, uint32, []byte, error) {
 		idx = binary.BigEndian.Uint64(k)
 		user = binary.BigEndian.Uint32(v[8:12])
 		obj = make([]byte, len(v[12:]))
-		copy(obj, v[8:])
+		copy(obj, v[12:])
 
 		return bucket.Delete(k)
 	})
@@ -110,7 +110,7 @@ func (q *PowQueue) PeekForPow() (uint64, []byte, error) {
 		}
 
 		target = binary.BigEndian.Uint64(v[:8])
-		hash = bmutil.Sha512(v[8:])
+		hash = bmutil.Sha512(v[12:])
 		return nil
 
 	})
