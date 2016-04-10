@@ -236,6 +236,7 @@ func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PK
 
 			// Set ID for messages to 0.
 			zero := []byte{0, 0, 0, 0, 0, 0, 0, 0}
+			// Only one id is used for the entire set of mailboxes for a given user.
 			err = misc.Put(mailboxLatestIDKey, zero)
 			if err != nil {
 				return err

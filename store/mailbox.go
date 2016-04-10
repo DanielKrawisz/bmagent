@@ -350,7 +350,8 @@ func (mbox *Mailbox) NextID() (uint64, error) {
 	var id uint64
 
 	err := mbox.store.db.View(func(tx *bolt.Tx) error {
-		id = binary.BigEndian.Uint64(tx.Bucket(miscBucket).Get(mailboxLatestIDKey)) + 1
+		// Only one id is used for the entire set of mailboxes for a given user.
+		id = binary.BigEndian.Uint64(tx.Bucket(mbox.uname).Bucket(miscBucket).Get(mailboxLatestIDKey)) + 1
 		return nil
 	})
 	if err != nil {
