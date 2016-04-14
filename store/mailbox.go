@@ -98,10 +98,6 @@ func (mbox *Mailbox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error
 
 		// Generate a new ID if we asked for it.
 		if id == 0 {
-			bucket := tx.Bucket(mbox.uname)
-			if bucket == nil {
-				return ErrNotFound
-			}
 			latestId := bucket.Bucket(miscBucket).Get(mailboxLatestIDKey)
 			id = binary.BigEndian.Uint64(latestId) + 1
 
@@ -109,7 +105,7 @@ func (mbox *Mailbox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error
 			idB := make([]byte, 8)
 			binary.BigEndian.PutUint64(idB, id)
 
-			err = tx.Bucket(mbox.uname).Bucket(miscBucket).Put(mailboxLatestIDKey, idB)
+			err = bucket.Bucket(miscBucket).Put(mailboxLatestIDKey, idB)
 			if err != nil {
 				return err
 			}
@@ -123,7 +119,7 @@ func (mbox *Mailbox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error
 
 		// Check if a message with the given ID already exists.
 		kk, _ := m.Cursor().Seek(k[:8])
-		if kk != nil && bytes.Equal(kk[:8], k[:8]) {
+		if kk != nil && len(kk) >= 8 && bytes.Equal(kk[:8], k[:8]) {
 			return ErrDuplicateID
 		}
 
