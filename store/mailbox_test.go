@@ -14,7 +14,7 @@ import (
 	"github.com/DanielKrawisz/bmagent/store"
 )
 
-func TestMailbox(t *testing.T) {
+func TestFolder(t *testing.T) {
 	// Open store.
 	f, err := ioutil.TempFile("", "tempstore")
 	if err != nil {
@@ -23,25 +23,30 @@ func TestMailbox(t *testing.T) {
 	fName := f.Name()
 	f.Close()
 
-	uname := "daniel"
 	pass := []byte("password")
 	l, err := store.Open(fName)
-	s, _, _, err := l.Construct(uname, pass)
+	s, _, _, err := l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	uname := "daniel"
+	u, err := s.NewUser(uname)
+	if err != nil {
+		t.Error(" could not create user: ", err)
 	}
 
 	// Start.
 	name := "INBOX/Test Mailbox"
 
 	// Try to get a mailbox that doesn't yet exist.
-	_, err = s.MailboxByName(name)
+	_, err = u.FolderByName(name)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
 
 	// Try to create a mailbox.
-	mbox, err := s.NewMailbox(name)
+	mbox, err := u.NewFolder(name)
 	if err != nil {
 		t.Fatal("Got error", err)
 	}
@@ -87,11 +92,15 @@ func TestMailbox(t *testing.T) {
 		t.Fatal(err)
 	}
 	l, err = store.Open(fName)
-	s, _, _, err = l.Construct(uname, pass)
+	s, _, _, err = l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}
-	mbox, err = s.MailboxByName(name)
+	u, err = s.GetUser(uname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mbox, err = u.FolderByName(name)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,19 +178,19 @@ func TestMailbox(t *testing.T) {
 	}
 
 	// Try adding mailbox with a duplicate name.
-	_, err = s.NewMailbox(name)
+	_, err = u.NewFolder(name)
 	if err != store.ErrDuplicateMailbox {
 		t.Error("Expected ErrDuplicateMailbox got", err)
 	}
 
 	// Try deleting mailbox.
-	err = mbox.Delete()
+	err = u.DeleteFolder(name)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 
 	// Check if mailbox was actually removed.
-	_, err = s.MailboxByName(name)
+	_, err = u.FolderByName(name)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got", err)
 	}
@@ -195,7 +204,7 @@ func TestMailbox(t *testing.T) {
 
 }
 
-func testInsertMessage(mbox *store.Mailbox, msg []byte, suffix uint64,
+func testInsertMessage(mbox *store.Folder, msg []byte, suffix uint64,
 	expectedID uint64, t *testing.T) {
 	// Try inserting a new message.
 	id, err := mbox.InsertMessage(msg, 0, suffix)
@@ -228,7 +237,7 @@ func testInsertMessage(mbox *store.Mailbox, msg []byte, suffix uint64,
 	}
 }
 
-func testForEachMessage(mbox *store.Mailbox, lowID, highID, suffix,
+func testForEachMessage(mbox *store.Folder, lowID, highID, suffix,
 	expectedCount uint64, t *testing.T) {
 
 	counter := uint64(0)
@@ -247,7 +256,7 @@ func testForEachMessage(mbox *store.Mailbox, lowID, highID, suffix,
 	}
 }
 
-func testDeleteMessage(mbox *store.Mailbox, id uint64, t *testing.T) {
+func testDeleteMessage(mbox *store.Folder, id uint64, t *testing.T) {
 	err := mbox.DeleteMessage(id)
 	if err != nil {
 		t.Errorf("For id %d got error %v", id, err)
@@ -258,7 +267,7 @@ func testDeleteMessage(mbox *store.Mailbox, id uint64, t *testing.T) {
 	}
 }
 
-func testLastIDBySuffix(mbox *store.Mailbox, suffix, expectedID uint64,
+func testLastIDBySuffix(mbox *store.Folder, suffix, expectedID uint64,
 	t *testing.T) {
 	id, err := mbox.LastIDBySuffix(suffix)
 	if err != nil {

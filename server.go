@@ -92,7 +92,7 @@ func newServer(bmd *rpc.Client, user *User, s *store.Store,
 	}
 		
 	// Create an email.User from the store.
-	imapUser, err := email.NewUser(so)
+	imapUser, err := email.NewUser(user.Username, so)
 	if err != nil {
 		return nil, err
 	}
@@ -308,16 +308,20 @@ func (s *server) newBroadcast(counter uint64, obj []byte) {
 
 	var fromAddress string
 
-	err = s.store.BroadcastAddresses.ForEach(func(addr *bmutil.Address) error {
-		if cipher.TryDecryptAndVerifyBroadcast(msg, addr) == nil {
-			fromAddress, _ = addr.Encode()
-			return errors.New("Broadcast decryption succeeded.")
+	for _, user := range s.store.Users {
+
+		err = user.BroadcastAddresses.ForEach(func(addr *bmutil.Address) error {
+			if cipher.TryDecryptAndVerifyBroadcast(msg, addr) == nil {
+				fromAddress, _ = addr.Encode()
+				return errors.New("Broadcast decryption succeeded.")
+			}
+			return nil
+		})
+		if err == nil { // Broadcast decryption failed.
+			return
 		}
-		return nil
-	})
-	if err == nil { // Broadcast decryption failed.
-		return
-	}
+		
+	} 
 
 	//mbox.InsertMessage(msg.Message, msg.Encoding)
 	serverLog.Infof("Got new broadcast from %s:\n%s", fromAddress, msg.Message)

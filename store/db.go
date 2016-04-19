@@ -49,6 +49,7 @@ var (
 	countersBucket           = []byte("counters")
 	broadcastAddressesBucket = []byte("broadcastAddresses")
 	mailboxesBucket          = []byte("mailboxes")
+	usersBucket              = []byte("users")
 
 	// Bucket is a sub-bucket of "mailboxes"
 	mailboxDataBucket = []byte("data")
@@ -72,6 +73,8 @@ var (
 	// powQueueLatestIDKey contains the index of the last element in the POW
 	// queue.
 	powQueueLatestIDKey = []byte("powQueueLatestID")
+	
+	usersLatestIDKey = []byte("usersLatestIDKey")
 )
 
 var (
@@ -91,7 +94,7 @@ var (
 // Type for transforming underlying database into Store. (used to abstract
 // the details of the underlying bolt db).
 type Loader struct {
-	db *bolt.DB
+	db        *bolt.DB
 }
 
 // Open creates a new Store from the given file.
@@ -121,12 +124,10 @@ func (l *Loader) Close() error {
 // Store persists all information about public key requests, pending POW,
 // incoming/outgoing/pending messages to disk.
 type Store struct {
-	masterKey          *[keySize]byte      // can be nil.
-	db                 *bolt.DB
-	username           []byte
-	BroadcastAddresses *BroadcastAddresses
-	mutex              sync.RWMutex        // For protecting the map.
-	mailboxes          map[string]struct{} // Map names to all mailboxes.
+	masterKey   *[keySize]byte      // can be nil.
+	db          *bolt.DB
+	mutex       sync.RWMutex        // For protecting the map.
+	Users       map[string]*UserData
 }
 
 // deriveKey is used to derive a 32 byte key for encryption/decryption
@@ -157,51 +158,39 @@ func (l *Loader) IsEncrypted() bool {
 	return bucket != nil && bucket.Get(dbMasterKeyEnc) != nil
 }
 
-// Open creates a new Store from the given file.
-func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PKRequests, error) {
-	if pass == nil {
-		clientLog.Warn("Unencrypted database opened.")
-	}
+// Construct creates a new Store from the given file.
+func (l *Loader) Construct(pass []byte) (*Store, *PowQueue, *PKRequests, error) {
 	
 	if l.db == nil {
 		return nil, nil, nil, errors.New("Closed database.");
 	}
 	
-	uname := append(userPrefix, []byte(username)...)
-	
-	store := &Store{
-		db:        l.db,
-		username:  uname,
-		mailboxes: make(map[string]struct{}),
+	if pass == nil {
+		clientLog.Warn("Unencrypted database opened.")
 	}
-
+	
+	var masterKey [keySize]byte
+	
 	// Verify passphrase, or create it if necessary.
 	err := l.db.Update(func(tx *bolt.Tx) error {
-		bucket, err := tx.CreateBucketIfNotExists(miscBucket)
+		
+		misc, err := tx.CreateBucketIfNotExists(miscBucket)
 		if err != nil {
 			return err
 		}
-		_, err = bucket.CreateBucketIfNotExists(countersBucket)
-		if err != nil {
-			return err
-		}
-		userBucket, err := tx.CreateBucketIfNotExists(uname)
-		if err != nil {
-			return err
-		}
-		misc, err := userBucket.CreateBucketIfNotExists(miscBucket)
-		if err != nil {
-			return err
-		}
-		_, err = userBucket.CreateBucketIfNotExists(mailboxesBucket)
+		_, err = misc.CreateBucketIfNotExists(countersBucket)
 		if err != nil {
 			return err
 		}
 		
-		bVersion := bucket.Get(versionKey)
+		_, err = tx.CreateBucketIfNotExists(usersBucket)
+		if err != nil {
+			return err
+		}
+		
+		bVersion := misc.Get(versionKey)
 		if bVersion == nil { // This is a new database.
 			if (pass != nil) {
-				var masterKey [keySize]byte
 				
 				// Generate master key.
 				_, err := rand.Read(masterKey[:])
@@ -209,52 +198,47 @@ func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PK
 					return err
 				}
 	
-				// Store master key in store.
-				store.masterKey = &masterKey
-	
 				// Encrypt master key.
-				salt, v, err := store.encryptMasterKey(pass)
+				salt, v, err := encryptKey(masterKey, pass)
 	
 				// Store salt in database.
-				err = bucket.Put(saltKey, salt)
+				err = misc.Put(saltKey, salt)
 				if err != nil {
 					return err
 				}
 	
 				// Store encrypted master key in database.
-				err = bucket.Put(dbMasterKeyEnc, v)
+				err = misc.Put(dbMasterKeyEnc, v)
 				if err != nil {
 					return err
 				}
 			}
 
 			// Set database version.
-			err = bucket.Put(versionKey, []byte{latestStoreVersion})
-			if err != nil {
-				return err
-			}
-
-			// Set ID for messages to 0.
-			zero := []byte{0, 0, 0, 0, 0, 0, 0, 0}
-			// Only one id is used for the entire set of mailboxes for a given user.
-			err = misc.Put(mailboxLatestIDKey, zero)
+			err = misc.Put(versionKey, []byte{latestStoreVersion})
 			if err != nil {
 				return err
 			}
 
 			// Set ID for PoW queue to 0.
-			return bucket.Put(powQueueLatestIDKey, zero)
+			err = misc.Put(powQueueLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
+			if err != nil {
+				return err
+			}
+			
+			return misc.Put(usersLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
+		
 		}
 		
 		// Check if upgrade is required. 
 		if bVersion[0] != latestStoreVersion {
-			err = store.upgrade(tx)
+			err = upgrade(tx)
 			if err != nil {
 				return err;
 			}
 		}
 
-		v := bucket.Get(dbMasterKeyEnc)
+		v := misc.Get(dbMasterKeyEnc)
 		if v == nil {
 			if pass != nil {
 				return errors.New("Password given for unencrypted database.")
@@ -264,7 +248,6 @@ func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PK
 				return errors.New("No password supplied for encrypted database.")
 			}
 			
-			var masterKey [keySize]byte
 			var nonce [nonceSize]byte
 		
 			if len(v) < nonceSize+keySize+secretbox.Overhead {
@@ -272,7 +255,7 @@ func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PK
 			}
 			
 			copy(nonce[:], v[:nonceSize])
-			salt := bucket.Get(saltKey)
+			salt := misc.Get(saltKey)
 			key := deriveKey(pass, salt)
 	
 			mKey, success := secretbox.Open(nil, v[nonceSize:], &nonce, key)
@@ -282,7 +265,6 @@ func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PK
 	
 			// Store decrypted master key in memory.
 			copy(masterKey[:], mKey)
-			store.masterKey = &masterKey
 		}
 		
 		return nil
@@ -293,33 +275,35 @@ func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PK
 		return nil, nil, nil, err
 	}
 	
+	store := &Store{
+		db:        l.db,
+		Users: make(map[string]*UserData),
+		masterKey: &masterKey,
+	}
+	
 	q, err := newPowQueue(l.db)
 	if err != nil {
-		l.db.Close()
-		return nil, nil, nil, err
-	}
-
-	err = initializePKRequestStore(store.db)
-	if err != nil {
 		l.Close()
 		return nil, nil, nil, err
 	}
 
-	store.BroadcastAddresses, err = newBroadcastsStore(store.db, uname)
+	err = initializePKRequestStore(l.db)
 	if err != nil {
 		l.Close()
 		return nil, nil, nil, err
 	}
-
-	// Load existing mailboxes.
+	
+	if err != nil {
+		l.Close()
+		return nil, nil, nil, err
+	}
+	
+	// Load existing users.
+	users := make([]string, 0)
 	err = l.db.View(func(tx *bolt.Tx) error {
-		/*fmt.Println("Hello...")
 		
-		fmt.Println("is this null? ", tx.Bucket(uname) == nil)
-		fmt.Println("What about this? ", tx.Bucket(uname).Bucket(mailboxesBucket) == nil)*/
-		
-		return tx.Bucket(uname).Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
-			store.mailboxes[string(name)] = struct{}{}
+		return tx.Bucket(usersBucket).ForEach(func(name, _ []byte) error {
+			users = append(users, string(name))
 			return nil
 		})
 	})
@@ -327,8 +311,138 @@ func (l *Loader) Construct(username string, pass []byte) (*Store, *PowQueue, *PK
 		l.Close()
 		return nil, nil, nil, err
 	}
+	
+	for _, name := range users {
+		store.addUser(name)
+	}
 
 	return store, q, &PKRequests{db:l.db}, nil
+}
+
+func (s *Store) addUser(username string) (*UserData, error) {
+	uname := append(userPrefix, []byte(username)...)
+	
+	folders, err := s.initializeFolders(username, uname)
+	if err != nil {
+		return nil, err
+	}
+		
+	broadcast, err := newBroadcastsStore(s.db, username)
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	
+	user := &UserData{
+		masterKey : s.masterKey, 
+		db : s.db, 
+		bucketId : uname, 
+		username : username, 
+		BroadcastAddresses: broadcast, 
+		folders : folders, 
+	}
+	
+	s.Users[username] = user
+	
+	return user, nil
+}
+
+func (s *Store) initializeFolders(username string, uname []byte) (map[string]struct{}, error) {
+
+	// Verify passphrase, or create it if necessary.
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		
+		newUser := false
+		var err error
+		
+		userBucket := tx.Bucket(uname)
+		if userBucket == nil {
+			
+			userBucket, err = tx.CreateBucket(uname)
+			if err != nil {
+				return err
+			}
+			
+			users, err := tx.CreateBucketIfNotExists(usersBucket)		
+			if err != nil {
+				return err
+			}	
+			misc, err := tx.CreateBucketIfNotExists(miscBucket)
+			if err != nil {
+				return err
+			}
+			
+			index := binary.BigEndian.Uint64(misc.Get(usersLatestIDKey)) + 1
+			k := make([]byte, 8)
+			binary.BigEndian.PutUint64(k, index)
+			
+			users.Put([]byte(username), k)
+			misc.Put(usersLatestIDKey, k)
+			
+			newUser = true	
+		}
+		
+		misc, err := userBucket.CreateBucketIfNotExists(miscBucket)
+		if err != nil {
+			return err
+		}
+		_, err = userBucket.CreateBucketIfNotExists(mailboxesBucket)
+		if err != nil {
+			return err
+		}
+		
+		if newUser { // This is a new user.
+			// Set ID for messages to 0.
+			// Only one id is used for the entire set of mailboxes for a given user.
+			err = misc.Put(mailboxLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
+			if err != nil {
+				return err
+			}
+		}
+		
+		return nil
+	})
+	
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+
+	// Load existing mailboxes.
+	folders := make(map[string]struct{})
+	err = s.db.View(func(tx *bolt.Tx) error {
+		
+		return tx.Bucket(uname).Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
+			folders[string(name)] = struct{}{}
+			return nil
+		})
+	})
+	if err != nil {
+		s.Close()
+		return nil, err
+	}
+	
+	return folders, nil
+}
+
+func (s *Store) GetUser(name string) (*UserData, error) {
+	u, ok := s.Users[name]
+	if !ok {
+		return nil, errors.New("No such user.")
+	}
+	return u, nil
+}
+
+func (s *Store) NewUser(name string) (*UserData, error) {
+	_, ok := s.Users[name]
+	if ok {
+		return nil, errors.New("Duplicate user.")
+	}
+	
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	
+	return s.addUser(name)
 }
 
 // Close performs any necessary cleanups and then closes the store.
@@ -338,58 +452,12 @@ func (s *Store) Close() error {
 
 // upgrade is responsible for checking the version of the data store
 // and upgrading itself if necessary.
-func (s *Store) upgrade(tx *bolt.Tx) error {
+func upgrade(tx *bolt.Tx) error {
 	bVersion := tx.Bucket(miscBucket).Get(versionKey)
 	if bVersion[0] != latestStoreVersion {
 		return errors.New("Unrecognized version of data store.")
 	}
 	return nil
-}
-
-// NewMailbox creates a new mailbox. Name must
-// be unique for a MailboxType.
-func (s *Store) NewMailbox(name string) (*Mailbox, error) {
-
-	// Check if mailbox exists.
-	_, ok := s.mailboxes[name]
-	if ok {
-		return nil, ErrDuplicateMailbox
-	}
-
-	// We're good, so create the mailbox.
-	err := initializeMailbox(s, s.username, name)
-	if err != nil {
-		return nil, err
-	}
-
-	// Save mailbox in the local map.
-	s.mutex.Lock()
-	s.mailboxes[name] = struct{}{}
-	s.mutex.Unlock()
-
-	return &Mailbox{store: s, uname: s.username, name: name}, nil
-}
-
-// MailboxByName retrieves the mailbox associated with the name. If the
-// mailbox doesn't exist, an error is returned.
-func (s *Store) MailboxByName(name string) (*Mailbox, error) {
-	s.mutex.RLock()
-	defer s.mutex.RUnlock()
-
-	_, ok := s.mailboxes[name]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	return &Mailbox{store: s, uname: s.username, name: name}, nil
-}
-
-// Mailboxes returns a slice containing pointers to all mailboxes in the store.
-func (s *Store) Mailboxes() []*Mailbox {
-	mboxes := make([]*Mailbox, 0, len(s.mailboxes))
-	for name, _ := range s.mailboxes {
-		mboxes = append(mboxes, &Mailbox{store: s, uname: s.username, name: name})
-	}
-	return mboxes
 }
 
 // ChangePassphrase changes the passphrase of the data store. It does not
@@ -401,7 +469,7 @@ func (s *Store) ChangePassphrase(pass []byte) error {
 	}
 	
 	// Encrypt master key.
-	salt, v, err := s.encryptMasterKey(pass)
+	salt, v, err := encryptKey(*s.masterKey, pass)
 
 	return s.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(miscBucket)
@@ -457,10 +525,10 @@ func (s *Store) SetCounter(objType wire.ObjectType, counter uint64) error {
 	})
 }
 
-// encryptMasterKey is a helper function that encrypts the master key with the
+// encryptKey is a helper function that encrypts the master key with the
 // given passphrase. It generates the encryption key using PBKDF2 and returns
 // the salt used and the encrypted data.
-func (s *Store) encryptMasterKey(pass []byte) ([]byte, []byte, error) {
+func encryptKey(masterKey [keySize]byte, pass []byte) ([]byte, []byte, error) {
 	salt := make([]byte, saltLength)
 	var nonce [nonceSize]byte
 
@@ -480,15 +548,15 @@ func (s *Store) encryptMasterKey(pass []byte) ([]byte, []byte, error) {
 	// Encrypt the master key.
 	enc := make([]byte, nonceSize)
 	copy(enc[:nonceSize], nonce[:])
-	enc = secretbox.Seal(enc, s.masterKey[:], &nonce, key)
+	enc = secretbox.Seal(enc, masterKey[:], &nonce, key)
 
 	return salt, enc, nil
 }
 
 // encrypt encrypts the data using nacl.Secretbox with the master key. It
 // generates a random nonce and prepends to the output.
-func (s *Store) encrypt(data []byte) ([]byte, error) {
-	if (s.masterKey == nil) {
+func encrypt(masterKey *[keySize]byte, db *bolt.DB, data []byte) ([]byte, error) {
+	if (masterKey == nil) {
 		return data, nil
 	}
 	
@@ -502,13 +570,13 @@ func (s *Store) encrypt(data []byte) ([]byte, error) {
 	enc := make([]byte, nonceSize)
 	copy(enc[:nonceSize], nonce[:])
 
-	return secretbox.Seal(enc, data, &nonce, s.masterKey), nil
+	return secretbox.Seal(enc, data, &nonce, masterKey), nil
 }
 
 // decrypt undoes the operation done by encrypt. It takes the prepended nonce
 // and decrypts what follows with the master key.
-func (s *Store) decrypt(data []byte) ([]byte, bool) {
-	if (s.masterKey == nil) {
+func decrypt(masterKey *[keySize]byte, db *bolt.DB, data []byte) ([]byte, bool) {
+	if (masterKey == nil) {
 		return data, true
 	}
 	
@@ -516,5 +584,5 @@ func (s *Store) decrypt(data []byte) ([]byte, bool) {
 	var nonce [nonceSize]byte
 	copy(nonce[:], data[:nonceSize])
 
-	return secretbox.Open(nil, data[nonceSize:], &nonce, s.masterKey)
+	return secretbox.Open(nil, data[nonceSize:], &nonce, masterKey)
 }

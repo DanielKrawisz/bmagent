@@ -20,21 +20,30 @@ import (
 // User implements the mailstore.User interface and represents
 // a collection of imap folders belonging to a single user.
 type User struct {
+	username string
 	boxes  map[string]*Mailbox
 	server ServerOps
 }
 
 // NewUser creates a User object from the store.
-func NewUser(server ServerOps) (*User, error) {
+func NewUser(username string, server ServerOps) (*User, error) {
+	
+	mboxes := server.Folders()
+	
+	if mboxes == nil {
+		return nil, errors.New("Invalid user.")
+	}
+	
 	u := &User{
+		username : username,
 		boxes:  make(map[string]*Mailbox),
 		server: server,
 	}
-
-	mboxes := server.Mailboxes()
+	
 	// The user is allowed to save in some mailboxes but not others.
 	for _, mbox := range mboxes {
 		var name = mbox.Name()
+		fmt.Println("   creating mailbox ", name)
 		var mb *Mailbox
 		var err error
 		switch name {
@@ -71,9 +80,9 @@ func (u *User) Mailboxes() []mailstore.Mailbox {
 func (u *User) MailboxByName(name string) (mailstore.Mailbox, error) {
 	// Enforce the case insensitivity of Inbox.
 	if strings.ToLower(name) == strings.ToLower(InboxFolderName) {
-		return u.boxes[InboxFolderName], nil
+		name = InboxFolderName
 	}
-
+	
 	mbox, ok := u.boxes[name]
 	if !ok {
 		return nil, errors.New("Not found")

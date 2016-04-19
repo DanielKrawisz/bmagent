@@ -77,7 +77,7 @@ func GetSequenceNumber(uids []uint64, uid uint64) uint32 {
 // mailstore.Mailbox interface. Only public functions take care of
 // locking/unlocking the embedded RWMutex.
 type Mailbox struct {
-	mbox         *store.Mailbox
+	mbox         *store.Folder
 	drafts       bool // Whether this is a drafts folder. 
 	
 	sync.RWMutex // Protect the following fields.
@@ -733,7 +733,11 @@ func (box *Mailbox) NewMessage() mailstore.Message {
 }
 
 // NewMailbox returns a new mailbox.
-func NewMailbox(mbox *store.Mailbox) (*Mailbox, error) {
+func NewMailbox(mbox *store.Folder) (*Mailbox, error) {
+	if mbox == nil {
+		return nil, errors.New("Nil mailbox.");
+	}
+	
 	m := &Mailbox{
 		mbox: mbox,
 	}
@@ -746,7 +750,11 @@ func NewMailbox(mbox *store.Mailbox) (*Mailbox, error) {
 }
 
 // NewDrafts returns a new Drafts folder.
-func NewDrafts(mbox *store.Mailbox) (*Mailbox, error) {
+func NewDrafts(mbox *store.Folder) (*Mailbox, error) {
+	if mbox == nil {
+		return nil, errors.New("Nil mailbox.")
+	}
+	
 	m := &Mailbox{
 		mbox: mbox,
 		drafts: true,

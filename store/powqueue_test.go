@@ -25,9 +25,8 @@ func TestPowQueue(t *testing.T) {
 	f.Close()
 
 	pass := []byte("password")
-	uname := "daniel"
 	l, err := store.Open(fName)
-	s, q, _, err := l.Construct(uname, pass)
+	s, q, _, err := l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +81,7 @@ func TestPowQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	l, err = store.Open(fName)
-	_, q, _, err = l.Construct(uname, pass)
+	_, q, _, err = l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}

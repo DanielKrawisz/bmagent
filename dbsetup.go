@@ -289,20 +289,29 @@ func createDatabases(cfg *config) error {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
 	
-	s, _, _, err := load.Construct(cfg.Username, storePass)
+	fmt.Println("The key file and data store have successfully been created.")
+	
+	s, _, _, err := load.Construct(storePass)
 	if err != nil {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
-	fmt.Println("The key file and data store have successfully been created.")
-
+	
+	
 	// Create default mailboxes and associated data.
-	err = email.InitializeStore(s)
-	if err != nil {
-		return err
+	if (cfg.Username != "") {
+		user, err := s.NewUser(cfg.Username)
+		if err != nil {
+			return err
+		}
+		
+		err = email.InitializeUser(user)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Successfully created default mailboxes.")
 	}
-	fmt.Println("Successfully created default mailboxes.")
 
-	err = s.Close()
+	err = load.Close()
 	if err != nil {
 		return err
 	}
@@ -359,7 +368,7 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 	var pk *store.PKRequests
 	
 	if cfg.PlaintextDB && !load.IsEncrypted() {
-		dstore, q, pk, err = load.Construct(cfg.Username, nil)
+		dstore, q, pk, err = load.Construct(nil)
 	} else {
 		
 		// Read store passphrase from console.
@@ -369,7 +378,7 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 		}
 	
 		// Open store.
-		dstore, q, pk, err = load.Construct(cfg.Username, storePass)
+		dstore, q, pk, err = load.Construct(storePass)
 		if err != nil {
 			return nil, nil, nil, nil, fmt.Errorf("Failed to open data store: %v", err)
 		}

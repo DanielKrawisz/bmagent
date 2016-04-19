@@ -23,16 +23,16 @@ type BroadcastAddresses struct {
 
 // newBroadcastsStore creates a new BroadcastAddresses object after doing the
 // necessary initialization.
-func newBroadcastsStore(db *bolt.DB, username []byte) (*BroadcastAddresses, error) {
+func newBroadcastsStore(db *bolt.DB, username string) (*BroadcastAddresses, error) {
 	
 	b := &BroadcastAddresses{
 		db : db,
-		username : username, 
+		username : []byte(username), 
 		addrs: make([]bmutil.Address, 0),
 	}
 
 	err := db.Update(func(tx *bolt.Tx) error {
-		userbucket, err := tx.CreateBucketIfNotExists(username)
+		userbucket, err := tx.CreateBucketIfNotExists([]byte(username))
 		if err != nil {
 			return err
 		}

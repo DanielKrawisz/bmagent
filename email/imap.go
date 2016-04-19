@@ -43,9 +43,10 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 
 // InitializeStore initializes the store by creating the default mailboxes and
 // inserting the welcome message.
-func InitializeStore(s *store.Store) error {
+func InitializeUser(u *store.UserData) error {
+	
 	// Create Inbox.
-	mbox, err := s.NewMailbox(InboxFolderName)
+	mbox, err := u.NewFolder(InboxFolderName)
 	if err != nil {
 		return err
 	}
@@ -57,7 +58,7 @@ func InitializeStore(s *store.Store) error {
 	// Add the introductory message.
 	from := BmagentAddress
 	to := from
-	subject := "Welcome to bmclient!"
+	subject := "Welcome to bmagent!"
 
 	err = inbox.AddNew(&Bitmessage{
 		From: from,
@@ -71,27 +72,27 @@ func InitializeStore(s *store.Store) error {
 		return err
 	}
 
-	_, err = s.NewMailbox(OutboxFolderName)
+	_, err = u.NewFolder(OutboxFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = s.NewMailbox(SentFolderName)
+	_, err = u.NewFolder(SentFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = s.NewMailbox(LimboFolderName)
+	_, err = u.NewFolder(LimboFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = s.NewMailbox(TrashFolderName)
+	_, err = u.NewFolder(TrashFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = s.NewMailbox(CommandsFolderName)
+	_, err = u.NewFolder(CommandsFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = s.NewMailbox(DraftsFolderName)
+	_, err = u.NewFolder(DraftsFolderName)
 	if err != nil {
 		return err
 	}

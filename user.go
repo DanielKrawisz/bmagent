@@ -15,6 +15,7 @@ import (
 type User struct {
 	Keys     *keymgr.Manager
 	Path     string
+	Username string
 	Pass     []byte
 }
 

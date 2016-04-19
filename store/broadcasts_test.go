@@ -25,7 +25,12 @@ func TestBroadcastAddresses(t *testing.T) {
 	pass := []byte("password")
 	uname := "daniel"
 	l, err := store.Open(fName)
-	s, _, _, err := l.Construct(uname, pass)
+	s, _, _, err := l.Construct(pass)
+	if err != nil {
+		t.Fatal(err)
+	}
+	
+	u, err := s.NewUser(uname)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,14 +40,14 @@ func TestBroadcastAddresses(t *testing.T) {
 	addr2 := "BM-BcJfZ82sHqW75YYBydFb868yAp1WGh3v"
 
 	// Remove non-existing address.
-	err = s.BroadcastAddresses.Remove(addr1)
+	err = u.BroadcastAddresses.Remove(addr1)
 	if err != store.ErrNotFound {
 		t.Error("Expected ErrNotFound got ", err)
 	}
 
 	// Check if ForEach works correctly with no addresses in store.
 	counter := 0
-	s.BroadcastAddresses.ForEach(func(*bmutil.Address) error {
+	u.BroadcastAddresses.ForEach(func(*bmutil.Address) error {
 		counter++
 		return nil
 	})
@@ -51,18 +56,18 @@ func TestBroadcastAddresses(t *testing.T) {
 	}
 
 	// Add 2 address.
-	err = s.BroadcastAddresses.Add(addr1)
+	err = u.BroadcastAddresses.Add(addr1)
 	if err != nil {
 		t.Error(err)
 	}
-	err = s.BroadcastAddresses.Add(addr2)
+	err = u.BroadcastAddresses.Add(addr2)
 	if err != nil {
 		t.Error(err)
 	}
 
 	// Check if both addresses have been correctly added.
 	counter = 0
-	s.BroadcastAddresses.ForEach(func(*bmutil.Address) error {
+	u.BroadcastAddresses.ForEach(func(*bmutil.Address) error {
 		counter++
 		return nil
 	})

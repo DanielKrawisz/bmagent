@@ -17,43 +17,59 @@ import (
 
 // Data keys of a mailbox.
 var (
-	// mailboxCreatedOnKey contains the time of creation of mailbox.
-	mailboxCreatedOnKey = []byte("createdOn")
+	// folderCreatedOnKey contains the time of creation of mailbox.
+	folderCreatedOnKey = []byte("createdOn")
 
 	// ErrDuplicateID is returned by InsertMessage when the a message with the
-	// specified ID already exists in the mailbox.
+	// specified ID already exists in the folder.
 	ErrDuplicateID = errors.New("duplicate ID")
 )
 
-// Mailbox is a mailbox corresponding to a private identity or broadcast. It's
-// designed such that any kind of message (not just text based) can be stored
-// in the data store.
-type Mailbox struct {
-	store *Store
-	uname []byte
-	name  string
+// Folder is a folder of messages corresponding to a private identity or
+// broadcast. It's designed such that any kind of message (not just text
+// based) can be stored in the data store.
+type Folder struct {
+	masterKey   *[keySize]byte      // can be nil.
+	db          *bolt.DB
+	username    string
+	bucketId    []byte
+	name        string
 }
 
-// initializeMailbox initializes a mailbox.
-func initializeMailbox(store *Store, uname []byte, name string) error {
+func newFolder(masterKey *[keySize]byte, db *bolt.DB, username string, name string) (*Folder, error) {
+	if db == nil {
+		return nil, errors.New("Nil database given.")
+	}
+	
+	return &Folder {
+		masterKey : masterKey,
+		db        : db,
+		bucketId  : append(userPrefix, []byte(username)...),  
+		username  : username, 
+		name      : name, 
+	}, nil
+}
 
-	err := store.db.Update(func(tx *bolt.Tx) error {
+// initializes a folder.
+func (f *Folder) initialize() error {
+
+	err := f.db.Update(func(tx *bolt.Tx) error {
 		// Get bucket for mailbox.
-		bucket := tx.Bucket(uname).Bucket(mailboxesBucket).Bucket([]byte(name))
+		bucket := tx.Bucket(f.bucketId).Bucket(mailboxesBucket).Bucket([]byte(f.name))
 
 		if bucket == nil {
 			// New mailbox so initialize it with all the data.
-			bucket, err := tx.Bucket(uname).CreateBucketIfNotExists(mailboxesBucket)
+			mailboxes, err := tx.Bucket(f.bucketId).CreateBucketIfNotExists(mailboxesBucket)
 			if err != nil {
 				return err
 			}
 			
-			bucket, err = tx.Bucket(uname).Bucket(mailboxesBucket).CreateBucket([]byte(name))
+			newMailbox, err := mailboxes.CreateBucket([]byte(f.name))
 			if err != nil {
 				return err
 			}
 
-			data, err := bucket.CreateBucket(mailboxDataBucket)
+			data, err := newMailbox.CreateBucket(mailboxDataBucket)
 			if err != nil {
 				return err
 			}
@@ -63,7 +79,7 @@ func initializeMailbox(store *Store, uname []byte, name string) error {
 				return err
 			}
 
-			err = data.Put(mailboxCreatedOnKey, now)
+			err = data.Put(folderCreatedOnKey, now)
 			if err != nil {
 				return err
 			}
@@ -72,29 +88,29 @@ func initializeMailbox(store *Store, uname []byte, name string) error {
 	})
 	if err != nil {
 		return fmt.Errorf("Failed to create/load mailbox %s: %v",
-			name, err)
+			f.name, err)
 	}
 
 	return nil
 }
 
 // InsertMessage inserts a new message with the specified suffix and id into the
-// mailbox and returns the ID. If input id is 0, then the store automatically
-// generates a unique index value. For normal mailboxes, suffix could be the
+// folder and returns the ID. If input id is 0, then the store automatically
+// generates a unique index value. For normal folders, suffix could be the
 // encoding type. For special use mailboxes like "Pending", suffix could be
 // used as a 'key', like a reason code (why the message is marked as Pending).
-func (mbox *Mailbox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error) {
-	enc, err := mbox.store.encrypt(msg)
+func (f *Folder) InsertMessage(msg []byte, id, suffix uint64) (uint64, error) {
+	enc, err := encrypt(f.masterKey, f.db, msg)
 	if err != nil {
 		return 0, err
 	}
 
-	err = mbox.store.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(mbox.uname)
+	err = f.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(f.bucketId)
 		if bucket == nil {
 			return ErrNotFound
 		}
-		m := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
+		m := bucket.Bucket(mailboxesBucket).Bucket([]byte(f.name))
 
 		// Generate a new ID if we asked for it.
 		if id == 0 {
@@ -132,10 +148,10 @@ func (mbox *Mailbox) InsertMessage(msg []byte, id, suffix uint64) (uint64, error
 	return id, nil
 }
 
-// GetMessage retrieves a message from the mailbox by its index. It returns the
+// GetMessage retrieves a message from the folder by its index. It returns the
 // suffix and the message. An error is returned if the message with the given
 // index doesn't exist in the database.
-func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
+func (f *Folder) GetMessage(id uint64) (uint64, []byte, error) {
 	var suffix uint64
 	var msg []byte
 
@@ -144,8 +160,8 @@ func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, id)
 
-	err := mbox.store.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(mbox.uname)
+	err := f.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(f.bucketId)
 		if bucket == nil {
 			return ErrNotFound
 		}
@@ -155,7 +171,7 @@ func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 			return ErrNotFound
 		}
 		
-		cursor := bucket.Bucket([]byte(mbox.name)).Cursor()
+		cursor := bucket.Bucket([]byte(f.name)).Cursor()
 		k, v := cursor.Seek(idBytes)
 
 		// Check if the first 8 bytes match the index.
@@ -164,7 +180,7 @@ func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 		}
 
 		suffix = binary.BigEndian.Uint64(k[8:])
-		msg, success = mbox.store.decrypt(v)
+		msg, success = decrypt(f.masterKey, f.db, v)
 		if !success {
 			return ErrDecryptionFailed
 		}
@@ -192,8 +208,8 @@ func (mbox *Mailbox) GetMessage(id uint64) (uint64, []byte, error) {
 // The function terminates early if an error occurs and iterates in the
 // increasing order of index. Make sure it doesn't take long to execute. DO NOT
 // execute any other database operations in it.
-func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
-	f func(id, suffix uint64, msg []byte) error) error {
+func (f *Folder) ForEachMessage(lowID, highID, suffix uint64,
+	fn func(id, suffix uint64, msg []byte) error) error {
 	if highID != 0 && lowID > highID {
 		return errors.New("Nice try, son. But lowID cannot be greater than highID.")
 	}
@@ -201,12 +217,12 @@ func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 	bLowID := make([]byte, 8)
 	binary.BigEndian.PutUint64(bLowID, lowID)
 
-	return mbox.store.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(mbox.uname)
+	return f.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(f.bucketId)
 		if (bucket == nil) {
 			return ErrNotFound
 		}
-		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
+		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(f.name)).Cursor()
 
 		for k, v := cursor.Seek(bLowID); k != nil; k, v = cursor.Next() {
 			// We need this safeguard because BoltDB also loops over buckets. We
@@ -228,12 +244,12 @@ func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 				continue
 			}
 
-			msg, success := mbox.store.decrypt(v)
+			msg, success := decrypt(f.masterKey, f.db, v)
 			if !success {
 				return ErrDecryptionFailed
 			}
 
-			if err := f(id, sfx, msg); err != nil {
+			if err := fn(id, sfx, msg); err != nil {
 				return err
 			}
 		}
@@ -244,16 +260,16 @@ func (mbox *Mailbox) ForEachMessage(lowID, highID, suffix uint64,
 
 // DeleteMessage deletes a message with the given index from the store. An error
 // is returned if the message doesn't exist in the store.
-func (mbox *Mailbox) DeleteMessage(id uint64) error {
+func (f *Folder) DeleteMessage(id uint64) error {
 	idxBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idxBytes, id)
 
-	return mbox.store.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(mbox.uname)
+	return f.db.Update(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(f.bucketId)
 		if bucket == nil {
 			return ErrNotFound
 		}
-		bucket = bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
+		bucket = bucket.Bucket(mailboxesBucket).Bucket([]byte(f.name))
 		k, v := bucket.Cursor().Seek(idxBytes)
 
 		// Check if the first 8 bytes match the index.
@@ -266,19 +282,19 @@ func (mbox *Mailbox) DeleteMessage(id uint64) error {
 }
 
 // Name returns the user-friendly name of the mailbox.
-func (mbox *Mailbox) Name() string {
-	return mbox.name
+func (f *Folder) Name() string {
+	return f.name
 }
 
 // SetName changes the name of the mailbox.
-func (mbox *Mailbox) SetName(name string) error {
+func (f *Folder) SetName(name string) error {
 	if name == "" {
 		return errors.New("Name cannot be empty.")
 	}
 
-	err := mbox.store.db.Update(func(tx *bolt.Tx) error {
+	err := f.db.Update(func(tx *bolt.Tx) error {
 		// Check if some other mailbox has the same name.
-		err := tx.Bucket(mbox.uname).Bucket(mailboxesBucket).ForEach(func(k, _ []byte) error {
+		err := tx.Bucket(f.bucketId).Bucket(mailboxesBucket).ForEach(func(k, _ []byte) error {
 			if string(k) == name {
 				return ErrDuplicateMailbox
 			}
@@ -289,13 +305,13 @@ func (mbox *Mailbox) SetName(name string) error {
 		}
 
 		// Create the new mailbox.
-		b, err := tx.Bucket(mbox.uname).Bucket(mailboxesBucket).CreateBucket([]byte(name))
+		b, err := tx.Bucket(f.bucketId).Bucket(mailboxesBucket).CreateBucket([]byte(name))
 		if err != nil {
 			return err
 		}
 
 		// Copy everything.
-		oldB := tx.Bucket(mbox.uname).Bucket(mailboxesBucket).Bucket([]byte(mbox.name))
+		oldB := tx.Bucket(f.bucketId).Bucket(mailboxesBucket).Bucket([]byte(f.name))
 		oldB.ForEach(func(k, v []byte) error {
 			if v == nil { // It's a bucket.
 				b1, err := b.CreateBucket(k)
@@ -312,42 +328,23 @@ func (mbox *Mailbox) SetName(name string) error {
 		})
 
 		// Delete old mailbox.
-		return tx.Bucket(mbox.uname).Bucket(mailboxesBucket).DeleteBucket([]byte(mbox.name))
+		return tx.Bucket(f.bucketId).Bucket(mailboxesBucket).DeleteBucket([]byte(f.name))
 	})
 	if err != nil {
 		return err
 	}
 
-	mbox.name = name
+	f.name = name
 	return nil
 }
 
-// Delete deletes the mailbox. Any operations after a Delete are invalid.
-func (mbox *Mailbox) Delete() error {
-	return mbox.store.db.Update(func(tx *bolt.Tx) error {
-		// Delete the mailbox and associated data.
-		bucket := tx.Bucket(mbox.uname)
-		if bucket == nil {
-			return ErrNotFound
-		}
-		err := bucket.Bucket(mailboxesBucket).DeleteBucket([]byte(mbox.name))
-		if err != nil {
-			return err
-		}
-
-		// Delete mailbox from store.
-		delete(mbox.store.mailboxes, mbox.name)
-		return nil
-	})
-}
-
 // NextID returns the next index value that will be assigned in the mailbox..
-func (mbox *Mailbox) NextID() (uint64, error) {
+func (f *Folder) NextID() (uint64, error) {
 	var id uint64
 
-	err := mbox.store.db.View(func(tx *bolt.Tx) error {
+	err := f.db.View(func(tx *bolt.Tx) error {
 		// Only one id is used for the entire set of mailboxes for a given user.
-		id = binary.BigEndian.Uint64(tx.Bucket(mbox.uname).Bucket(miscBucket).Get(mailboxLatestIDKey)) + 1
+		id = binary.BigEndian.Uint64(tx.Bucket(f.bucketId).Bucket(miscBucket).Get(mailboxLatestIDKey)) + 1
 		return nil
 	})
 	if err != nil {
@@ -357,15 +354,15 @@ func (mbox *Mailbox) NextID() (uint64, error) {
 }
 
 // LastID returns the highest index value in the mailbox.
-func (mbox *Mailbox) LastID() (uint64, error) {
+func (f *Folder) LastID() (uint64, error) {
 	var id uint64
 
-	err := mbox.store.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(mbox.uname)
+	err := f.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(f.bucketId)
 		if bucket == nil {
 			return ErrNotFound
 		}
-		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
+		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(f.name)).Cursor()
 
 		// Read from the end until we have a non-nil value.
 		for k, _ := cursor.Last(); ; k, _ = cursor.Prev() {
@@ -387,15 +384,15 @@ func (mbox *Mailbox) LastID() (uint64, error) {
 
 // LastIDBySuffix returns the highest index value from messages with the
 // specified suffix in the mailbox.
-func (mbox *Mailbox) LastIDBySuffix(suffix uint64) (uint64, error) {
+func (f *Folder) LastIDBySuffix(suffix uint64) (uint64, error) {
 	var id uint64
-	err := mbox.store.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(mbox.uname)
+	err := f.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(f.bucketId)
 		if bucket == nil {
 			return ErrNotFound
 		}
 		
-		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(mbox.name)).Cursor()
+		cursor := bucket.Bucket(mailboxesBucket).Bucket([]byte(f.name)).Cursor()
 
 		// Loop from the end, returning the first found match.
 		for k, _ := cursor.Last(); k != nil; k, _ = cursor.Prev() {

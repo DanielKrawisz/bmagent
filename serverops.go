@@ -19,6 +19,7 @@ type serverOps struct {
 	pubIDs map[string]*identity.Public // a cache
 	id uint32
 	user *User
+	data *store.UserData
 	server *server
 }
 
@@ -86,7 +87,7 @@ func (s *serverOps) RunPow(target uint64, obj []byte) (uint64, error) {
 	return s.server.powManager.RunPow(target, s.id, obj)
 }
 
-// Store returns the store.Store associated with the server.
-func (s *serverOps) Mailboxes() []*store.Mailbox {
-	return s.server.store.Mailboxes()
+// Folders returns the set of folders for a given user.
+func (s *serverOps) Folders() []*store.Folder {
+	return s.data.Folders(s.user.Username)
 }

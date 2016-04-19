@@ -506,7 +506,7 @@ func loadConfig() (*config, []string, error) {
 
 		importKeyfile(keymgr, store, file)
 		
-		u := &User{keymgr, cfg.keyfilePath, cfg.keyfilePass}
+		u := &User{keymgr, cfg.keyfilePath, cfg.Username, cfg.keyfilePass}
 		u.SaveKeyfile()
 
 		store.Close()
