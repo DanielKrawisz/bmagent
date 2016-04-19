@@ -89,5 +89,5 @@ func (s *serverOps) RunPow(target uint64, obj []byte) (uint64, error) {
 
 // Folders returns the set of folders for a given user.
 func (s *serverOps) Folders() []*store.Folder {
-	return s.data.Folders(s.user.Username)
+	return s.data.Folders()
 }

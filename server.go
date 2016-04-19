@@ -83,12 +83,17 @@ func newServer(bmd *rpc.Client, user *User, s *store.Store,
 	
 	// TODO allow for more than one user. Right now there is just 1 user.
 	srvr.users[1] = user
+	userData, err := s.GetUser(user.Username)
+	if err != nil {
+		return nil, err
+	}
 	
 	so := &serverOps{
 		pubIDs: make(map[string]*identity.Public),
 		id: 1, 
 		user: user, 
 		server: srvr,
+		data: userData, 
 	}
 		
 	// Create an email.User from the store.

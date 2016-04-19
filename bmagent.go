@@ -85,7 +85,7 @@ func bmagentMain() error {
 	}
 
 	// Initialize all servers.
-	user := &User{Keys:keys, Pass:cfg.keyfilePass, Path:cfg.keyfilePath}
+	user := &User{Keys:keys, Username: cfg.Username, Pass:cfg.keyfilePass, Path:cfg.keyfilePath}
 	server, err := newServer(rpcc, user, store, q, pkr)
 	if err != nil {
 		log.Errorf("Unable to create servers: %v", err)

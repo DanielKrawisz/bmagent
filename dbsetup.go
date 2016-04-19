@@ -17,6 +17,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"regexp"
 
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/DanielKrawisz/bmagent/email"
@@ -79,7 +80,7 @@ func promptConsoleListBool(prefix string, defaultEntry string) (bool, error) {
 	return response == "yes" || response == "y", nil
 }
 
-// promptConsolePass prompts the user for a passphrase with the given prefix.
+// promptConsolePass uses the given prefix to ask the user for a password.
 // The function will ask the user to confirm the passphrase and will repeat
 // the prompts until they enter a matching response.
 func promptConsolePass(prefix string, confirm bool) ([]byte, error) {
@@ -131,6 +132,28 @@ func promptKeyfilePassPhrase() ([]byte, error) {
 		if (pass != nil) {
 			return pass, err
 		}
+	}
+}
+
+func promptUsername(prefix string) (string, error) {
+	// Prompt the user until they enter a passphrase.
+	prompt := fmt.Sprintf("%s: ", prefix)
+	match := "^[a-zA-Z][a-zA-Z0-9]*$"
+	r, _ := regexp.Compile(match)
+	for {
+		fmt.Print(prompt)
+		uname, err := consoleReader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		fmt.Print("\n")
+		uname = strings.TrimSpace(uname)
+		if r.MatchString(uname) {
+			fmt.Printf("Username is \"%s\"\n", uname)
+			return uname, nil
+		}
+		
+		fmt.Println("Username must match ", match)
 	}
 }
 
@@ -296,20 +319,30 @@ func createDatabases(cfg *config) error {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
 	
-	
 	// Create default mailboxes and associated data.
+	var username string
 	if (cfg.Username != "") {
-		user, err := s.NewUser(cfg.Username)
-		if err != nil {
-			return err
-		}
+		username = cfg.Username
+	} else {
+		// Prompt user for username. 
+		prompt = "\nEnter your username"
 		
-		err = email.InitializeUser(user)
+		username, err = promptUsername(prompt)
 		if err != nil {
 			return err
 		}
-		fmt.Println("Successfully created default mailboxes.")
 	}
+	
+	user, err := s.NewUser(username)
+	if err != nil {
+		return err
+	}
+		
+	err = email.InitializeUser(user)
+	if err != nil {
+		return err
+	}
+	fmt.Println("Successfully created default mailboxes.")
 
 	err = load.Close()
 	if err != nil {

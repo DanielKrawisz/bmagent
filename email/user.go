@@ -43,7 +43,6 @@ func NewUser(username string, server ServerOps) (*User, error) {
 	// The user is allowed to save in some mailboxes but not others.
 	for _, mbox := range mboxes {
 		var name = mbox.Name()
-		fmt.Println("   creating mailbox ", name)
 		var mb *Mailbox
 		var err error
 		switch name {
