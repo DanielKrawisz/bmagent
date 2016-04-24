@@ -17,7 +17,7 @@ import (
 func TestOperation(t *testing.T) {
 	// Initialize a new key manager.
 	seed := []byte("a secure psuedorandom seed (clearly not)")
-	mgr, err := keymgr.New(seed, "daniel")
+	mgr, err := keymgr.New(seed)
 	if err != nil {
 		t.Fatal(err)
 	}

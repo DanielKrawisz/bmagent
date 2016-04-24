@@ -33,6 +33,9 @@ type PrivateID struct {
 	// we don't want to receive messages for anymore) or we want to store the
 	// private keys for an imported identity but not actively listen on it.
 	Disabled bool
+	
+	// IsImported says whether the identity is imported or derived. 
+	Imported bool
 }
 
 // MarshalJSON marshals the object into JSON. Part of json.Marshaller interface.
@@ -72,6 +75,7 @@ func (id *PrivateID) MarshalJSON() ([]byte, error) {
 		"encryptionKey":      bmutil.EncodeWIF(id.EncryptionKey),
 		"isChan":             id.IsChan,
 		"disabled":           id.Disabled,
+		"imported":           id.Imported,
 	})
 }
 
@@ -84,6 +88,7 @@ type privateIDStore struct {
 	EncryptionKey      string `json:"encryptionKey"`
 	IsChan             bool   `json:"isChan"`
 	Disabled           bool   `json:"disabled"`
+	Imported           bool   `json:"imported"`
 }
 
 // UnmarshalJSON unmarshals the object from JSON. Part of json.Unmarshaller
@@ -120,6 +125,7 @@ func (id *PrivateID) UnmarshalJSON(in []byte) error {
 	id.ExtraBytes = stored.ExtraBytes
 	id.IsChan = stored.IsChan
 	id.Disabled = stored.Disabled
+	id.Imported = stored.Imported
 
 	return nil
 }

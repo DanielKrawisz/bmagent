@@ -33,6 +33,12 @@ type db struct {
 	// DerivedIDs contains all IDs derived from the master key.
 	DerivedIDs []*PrivateID `json:"derivedIDs"`
 
+	// Tagg contains the tags of the identities. 
+	Tags map[string]string
+	
+	// Addresses maps addresses to 
+	Addresses map[string]*PrivateID
+
 	// NewIDIndex contains the index of the next identity that will be derived
 	// according to BIP-BM01.
 	NewIDIndex uint32 `json:"newIDIndex"`

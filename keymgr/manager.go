@@ -16,7 +16,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/golangcrypto/nacl/secretbox"
-	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -66,7 +65,7 @@ type Manager struct {
 // cryptographically secure random generation source. Refer to docs for
 // hdkeychain.NewMaster and hdkeychain.GenerateSeed for more info.
 func New(seed []byte) (*Manager, error) {
-	mgr := &Manager{db: &db{}}
+	mgr := &Manager{db: &db{Addresses:make(map[string]*PrivateID), Tags:make(map[string]string)}}
 
 	// Generate master key.
 	mKey, err := hdkeychain.NewMaster(seed, &chaincfg.MainNetParams)
@@ -147,7 +146,7 @@ func FromPlaintext(contents []byte) (*Manager, error, error) {
 	return mgr, nil, nil
 }
 
-// SaveEncrypted encrypts the current state of the key manager with the
+// ExportEncrypted encrypts the current state of the key manager with the
 // specified password and returns it. The salt used as input to PBKDF2 as well
 // as nonce for input to secretbox are randomly generated. The actual key used
 // for encryption is derived from the salt and the passphrase using PBKDF2.
@@ -202,10 +201,20 @@ func (mgr *Manager) ImportIdentity(privID *PrivateID) error {
 	if err != nil {
 		return err
 	}
+	
+	// Encode as string. 
+	str, err := privID.Private.Address.Encode()
+	if err != nil {
+		return err
+	}
 
 	// Insert a copy into database.
 	copyID := *privID
+	copyID.Imported = true // Make sure it is marked as imported. 
 	mgr.db.ImportedIDs = append(mgr.db.ImportedIDs, &copyID)
+
+	// Insert in addresses.
+	mgr.db.Addresses[str] = privID
 
 	return nil
 }
@@ -226,6 +235,10 @@ func (mgr *Manager) RemoveImported(privID *PrivateID) error {
 			copy(a[i:], a[i+1:])
 			a[len(a)-1] = nil // or the zero value of T
 			mgr.db.ImportedIDs = a[:len(a)-1]
+			
+			// Remove from addresses. 
+			str, _ := privID.Private.Address.Encode()
+			delete(mgr.db.Addresses, str)
 
 			return nil
 		}
@@ -259,8 +272,17 @@ func (mgr *Manager) NewHDIdentity(stream uint32) *PrivateID {
 		Private: *privID,
 		IsChan:  false,
 	}
+	
+	// Encode address as string. 
+	str, err := privID.Address.Encode()
+	if err != nil {
+		return nil
+	}
 
 	mgr.db.DerivedIDs = append(mgr.db.DerivedIDs, id)
+
+	// Insert in addresses.
+	mgr.db.Addresses[str] = id
 
 	ret := *id // copy
 	return &ret
@@ -301,25 +323,14 @@ func (mgr *Manager) ForEach(f func(*PrivateID) error) error {
 // address. If no matching identity can be found, ErrNonexistentIdentity is
 // returned.
 func (mgr *Manager) LookupByAddress(address string) (*PrivateID, error) {
-	addr, err := bmutil.DecodeAddress(address)
-	if err != nil {
-		return nil, err
-	}
 
-	var res PrivateID
-	err = mgr.ForEach(func(id *PrivateID) error {
-		if bytes.Equal(addr.Ripe[:], id.Address.Ripe[:]) &&
-			addr.Stream == id.Address.Stream &&
-			addr.Version == id.Address.Version {
-			res = *id
-			return errors.New("Found a match, so break.")
-		}
-		return nil
-	})
-	if err == nil { // No match.
+	privID, ok := mgr.db.Addresses[address]
+	
+	if !ok {
 		return nil, ErrNonexistentIdentity
 	}
-	return &res, nil
+	
+	return privID, nil
 
 }
 
@@ -339,4 +350,59 @@ func (mgr *Manager) NumDeterministic() int {
 	defer mgr.mutex.RUnlock()
 
 	return len(mgr.db.DerivedIDs)
+}
+
+func (mgr *Manager) Size() int {
+	mgr.mutex.RLock()
+	defer mgr.mutex.RUnlock()
+	
+	return len(mgr.db.DerivedIDs) + len(mgr.db.ImportedIDs)
+}
+
+// GetAddresses returns the set of addresses in the key manager. 
+func (mgr *Manager) Addresses() map[string]*PrivateID {
+	addresses := make(map[string]*PrivateID, 0)
+	
+	for address, pid := range mgr.db.Addresses {
+		addresses[address] = pid
+	}
+	return addresses
+}
+
+// NameAddress names an address.
+func (mgr *Manager) NameAddress(address, name string) error {
+	// Does the address exist in the database? 
+	if _, ok := mgr.db.Addresses[address]; !ok {
+		return ErrNonexistentIdentity
+	}
+	
+	mgr.db.Tags[address] = name
+	return nil
+} 
+
+// UnnameAddress removes a name from the address.
+func (mgr *Manager) UnnameAddress(address, name string) error {
+	// Does the address exist in the database? 
+	if _, ok := mgr.db.Addresses[address]; !ok {
+		return ErrNonexistentIdentity
+	}
+	
+	delete(mgr.db.Tags, address)
+	return nil
+}
+
+// Get the map of addresses to names. 
+func (mgr *Manager) Tags() map[string]*string {
+	
+	tags := make(map[string]*string)
+	
+	for address, _ := range mgr.db.Addresses {
+		if tag, ok := mgr.db.Tags[address]; ok {
+			tags[address] = &tag
+		} else {
+			tags[address] = nil
+		}
+	}
+	
+	return tags
 }
