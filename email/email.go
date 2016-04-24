@@ -23,7 +23,7 @@ type IMAPEmail struct {
 	ImapUID            uint64
 	ImapFlags          types.Flags
 	Date               time.Time
-	Mailbox            *Mailbox
+	Mailbox            Mailbox
 	Content            *data.Content
 }
 

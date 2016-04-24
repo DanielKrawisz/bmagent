@@ -12,6 +12,7 @@ import (
 	"github.com/jordwest/imap-server/types"
 	"github.com/DanielKrawisz/bmagent/message/format"
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/keymgr"
 )
 
 // IMAPConfig contains configuration options for the IMAP server.
@@ -43,31 +44,14 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 
 // InitializeStore initializes the store by creating the default mailboxes and
 // inserting the welcome message.
-func InitializeUser(u *store.UserData) error {
+func InitializeUser(u *store.UserData, keys *keymgr.Manager) error {
 	
 	// Create Inbox.
 	mbox, err := u.NewFolder(InboxFolderName)
 	if err != nil {
 		return err
 	}
-	inbox, err := NewMailbox(mbox)
-	if err != nil {
-		return err
-	}
-
-	// Add the introductory message.
-	from := BmagentAddress
-	to := from
-	subject := "Welcome to bmagent!"
-
-	err = inbox.AddNew(&Bitmessage{
-		From: from,
-		To:   to,
-		Message: &format.Encoding2{
-			Subject: subject,
-			Body:    welcomeMsg,
-		},
-	}, types.FlagRecent)
+	inbox, err := NewMailbox(mbox, keys.Tags())
 	if err != nil {
 		return err
 	}
@@ -93,6 +77,34 @@ func InitializeUser(u *store.UserData) error {
 		return err
 	}
 	_, err = u.NewFolder(DraftsFolderName)
+	if err != nil {
+		return err
+	}
+	
+	// TODO 
+	// Is the key manager empty? 
+	
+	// If not, generate a key. 
+	
+	// Get all keys from key manager. 
+	
+	// Do any of these keys have names? 
+	
+	// For each key, create a mailbox. 
+
+	// Add the introductory message.
+	from := BmagentAddress
+	to := from
+	subject := "Welcome to bmagent!"
+	
+	err = inbox.AddNew(&Bitmessage{
+		From: from,
+		To:   to,
+		Message: &format.Encoding2{
+			Subject: subject,
+			Body:    welcomeMsg,
+		},
+	}, types.FlagRecent)
 	if err != nil {
 		return err
 	}

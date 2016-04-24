@@ -97,7 +97,7 @@ func newServer(bmd *rpc.Client, user *User, s *store.Store,
 	}
 		
 	// Create an email.User from the store.
-	imapUser, err := email.NewUser(user.Username, so)
+	imapUser, err := email.NewUser(user.Username, so, user.Keys)
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +266,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		return
 	}
 
-	err = mbox.(*email.Mailbox).AddNew(bmsg, types.FlagRecent)
+	err = mbox.(email.Mailbox).AddNew(bmsg, types.FlagRecent)
 	if err != nil {
 		log.Errorf("Failed to save message #%d: %v", counter, err)
 		return

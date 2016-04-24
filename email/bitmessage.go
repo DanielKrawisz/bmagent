@@ -69,14 +69,14 @@ func emailToBM(emailAddr string) (string, error) {
 	return matches[1], nil
 }
 
-// IMAPData provides a Bitmessage with extra information to make it
+// ImapData provides a Bitmessage with extra information to make it
 // compatible with imap.
-type IMAPData struct {
+type ImapData struct {
 	UID            uint64
 	SequenceNumber uint32
 	Flags          types.Flags
 	TimeReceived   time.Time
-	Mailbox        *Mailbox
+	Mailbox        Mailbox
 }
 
 // MessageState contains the state of the message as maintained by bmclient.
@@ -108,7 +108,7 @@ type Bitmessage struct {
 	Expiration time.Time
 	Ack        []byte
 	Message    format.Encoding
-	ImapData   *IMAPData
+	ImapData   *ImapData
 	// The encoded form of the message as a bitmessage object. Required
 	// for messages that are waiting to be sent or have pow done on them.
 	object *wire.MsgObject
@@ -445,7 +445,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 			return nil, err
 		}
 
-		l.ImapData = &IMAPData{
+		l.ImapData = &ImapData{
 			Flags:        types.Flags(msg.ImapData.Flags),
 			TimeReceived: timeReceived,
 		}
@@ -477,6 +477,7 @@ func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 	var payload *format.Encoding2
 	switch m := m.Message.(type) {
 	// Only encoding 2 is considered to be compatible with email.
+	// In the future, there may be more encodings also compatible with email.
 	case *format.Encoding2:
 		payload = m
 	default:

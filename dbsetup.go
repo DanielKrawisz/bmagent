@@ -338,7 +338,7 @@ func createDatabases(cfg *config) error {
 		return err
 	}
 		
-	err = email.InitializeUser(user)
+	err = email.InitializeUser(user, kmgr)
 	if err != nil {
 		return err
 	}
