@@ -218,7 +218,7 @@ func (box *Mailbox) bitmessageBySequenceNumber(seqno uint32) *Bitmessage {
 	if seqno < 1 || seqno > box.messages() {
 		return nil
 	}
-	uid := box.uids[seqno-1]
+	uid := box.uids[seqno - 1]
 	return box.bmsgByUID(uid)
 }
 
@@ -346,8 +346,8 @@ func (box *Mailbox) bitmessagesBySequenceRange(start, end uint32) []*Bitmessage 
 		end < 1 || end > box.messages() || end < start {
 		return nil
 	}
-	startUID := box.uids[start]
-	endUID := box.uids[end]
+	startUID := box.uids[start - 1]
+	endUID := box.uids[end - 1]
 	return box.getRange(startUID, endUID, start, end)
 }
 
@@ -357,7 +357,7 @@ func (box *Mailbox) bitmessagesSinceSequenceNumber(start uint32) []*Bitmessage {
 	if start < 1 || start > box.Messages() {
 		return nil
 	}
-	startUID := box.uids[start]
+	startUID := box.uids[start - 1]
 	return box.getSince(startUID, start)
 }
 
