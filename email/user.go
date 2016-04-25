@@ -102,15 +102,22 @@ func (u *User) DeliverFromBMNet(bm *Bitmessage) error {
 // and the outbox.
 func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
 	smtpLog.Trace("Bitmessage received from SMTP")
+	
+	// Check for command. 
+	if commandRegex.Match([]byte(bm.To)) {
+		return errors.New("Commands not yet supported.")
+	} else {
 
-	// Attempt to run pow on the message and send it off on the network.
-	// This will only happen if the pubkey can be found. An error is only
-	// returned if the message could not be generated and the pubkey request
-	// could not be sent.
-	_, err := bm.SubmitPow(u.server)
-	if err != nil {
-		smtpLog.Error("Unable to submit for proof-of-work: ", err)
-		return err
+		// Attempt to run pow on the message and send it off on the network.
+		// This will only happen if the pubkey can be found. An error is only
+		// returned if the message could not be generated and the pubkey request
+		// could not be sent.
+		_, err := bm.SubmitPow(u.server)
+		if err != nil {
+			smtpLog.Error("Unable to submit for proof-of-work: ", err)
+			return err
+		}
+	
 	}
 
 	// Put message in the right folder.

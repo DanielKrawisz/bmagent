@@ -9,7 +9,11 @@ const welcomeMsg = `
 Welcome to bmagent and to the anonymous, encrypted world of Bitmessage! You are
 using version 0.1 alpha.
 
-If you wish to send a bitmessage, just write an email with an address of the
+You have the following addresses available: 
+
+%s
+
+To send a bitmessage, write an email with an address of the
 form <destination bitmessage address>@bm.addr. For sending out a broadcast,
 shoot an e-mail to broadcast@bm.addr. Don't forget to add valid From addresses
 in your e-mail client! From addresses are considered valid if bmagent holds
@@ -17,17 +21,7 @@ private keys for them. You can also send commands to bmagent via the address
 <command>@bm.agent.
 
 Have a bug to report? Care to help out? Please see our github repo:
-https://github.com/DanielKrawisz/bmagent/
-
-Here are some things to think about when we're reviewing bmagent. 
-
-  * it should be possible to make commands and get information by sending emails to
-    <command>@bm.agent. What kinds of things should we have it do? 
-  * Look in defaults.go to learn about the kinds of mailboxes a bmagent user has. 
-    These mailboxes can be anything really.
-  * rpc interface. 
-
-Really just anything that will make bmagent a good user experience.`
+https://github.com/DanielKrawisz/bmagent/`
 
 const commandWelcomeMsg = `
 (put a list of commands here.)`
@@ -59,12 +53,4 @@ const (
 	// CommandsFolderName is the default name for the folder containing
 	// responses to sent commands.
 	CommandsFolderName = "Commands"
-
-	// BroadcastAddress is the address where all broadcasts must be sent.
-	BroadcastAddress = "broadcast@bm.addr"
-	
-    // BmagentAddress is the address for controlling bmclient. This could
-    // include creating a new identity, importing a pre-existing identity,
-    // subscribing to a broadcast address etc.
-    BmagentAddress = "command@bm.agent"
 )

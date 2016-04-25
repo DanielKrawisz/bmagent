@@ -84,7 +84,7 @@ func (serv *SMTPServer) Serve(l net.Listener) error {
 		// smtp.RequireTLS = serv.cfg.RequireTLS
 		smtp.LogHandler = smtpLogHandler
 		smtp.ValidateSenderHandler = serv.validateSender
-		smtp.ValidateRecipientHandler = serv.validateRecipient
+		smtp.ValidateRecipientHandler = validateEmail
 		smtp.ValidateAuthenticationHandler = serv.validateAuth
 		smtp.GetAuthenticationMechanismsHandler = func() []string { return []string{"PLAIN"} }
 
@@ -118,24 +118,22 @@ func (serv *SMTPServer) validateAuth(mechanism string, args ...string) (*smtp.Re
 	return smtp.ReplyAuthOk(), true
 }
 
-// validateRecipient validates whether the recipient is a valid recipient.
-func (s *SMTPServer) validateRecipient(to string) bool {
+// validateEmail validates whether the recipient is a valid recipient.
+func validateEmail(to string) bool {
 	addr, err := mail.ParseAddress(to)
 	if err != nil {
 		return false
 	}
-	switch addr.Address {
-	case BroadcastAddress:
-		return true
-	case BmagentAddress:
-		return true
-	default:
-		to, err = emailToBM(to)
-		if err != nil {
-			return false
-		}
+	
+	if emailRegex.Match([]byte(addr.Address)) {
 		return true
 	}
+	
+	if commandRegex.Match([]byte(addr.Address)) {
+		return true
+	}
+	
+	return false
 }
 
 // validateSender validates whether the recipient is a valid sender. For a
@@ -170,10 +168,6 @@ func (s *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, err
 	
 	// TODO is this a good host name? 
 	message := smtpMessage.Parse("bmagent")
-	
-	// Check for command.
-	//smtpLog.Info("And its from ", message.Content.Headers["From"][0]);
-	//message.Content.Headers["From"][0]
 
 	// Convert to bitmessage.
 	bm, err := NewBitmessageFromSMTP(message.Content)

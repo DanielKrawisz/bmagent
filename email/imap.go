@@ -6,6 +6,7 @@
 package email
 
 import (
+	"fmt"
 	"errors"
 
 	"github.com/jordwest/imap-server/mailstore"
@@ -83,26 +84,40 @@ func InitializeUser(u *store.UserData, keys *keymgr.Manager) error {
 	
 	// TODO 
 	// Is the key manager empty? 
-	
 	// If not, generate a key. 
+	if keys.Size() == 0 {
+		keys.NewHDIdentity(1)
+	}
 	
 	// Get all keys from key manager. 
-	
-	// Do any of these keys have names? 
+	addresses := keys.Addresses()
+	tags := keys.Tags()
 	
 	// For each key, create a mailbox. 
+	var toAddr string
+	keyList := ""
+	
+	for addr, _ := range addresses {
+		toAddr = addr
+		var tag string
+		if t, ok := tags[addr]; ok && t != nil {
+			tag = *t
+		} 
+		keyList = fmt.Sprint(keyList, fmt.Sprintf("\t%s@bm.addr %s\n", addr, tag))
+	}
+	
+	welcome := fmt.Sprintf(welcomeMsg, keyList)
 
 	// Add the introductory message.
-	from := BmagentAddress
-	to := from
+	from := "welcome@bm.agent"
 	subject := "Welcome to bmagent!"
 	
 	err = inbox.AddNew(&Bitmessage{
 		From: from,
-		To:   to,
+		To:   fmt.Sprintf("%s@bm.addr", toAddr),
 		Message: &format.Encoding2{
 			Subject: subject,
-			Body:    welcomeMsg,
+			Body:    welcome,
 		},
 	}, types.FlagRecent)
 	if err != nil {

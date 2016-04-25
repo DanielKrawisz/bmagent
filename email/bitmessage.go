@@ -31,19 +31,29 @@ const (
 
 	// Pattern used for matching Bitmessage addresses.
 	bmAddrPattern = "BM-[123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ]+"
+	
+	commandPattern = "[a-z]+"
 )
 
 var (
 	// ErrInvalidEmail is the error returned by EmailToBM when the e-mail
 	// address is invalid and a valid Bitmessage address cannot be extracted
 	// from it.
-	ErrInvalidEmail = errors.New("Invalid Bitmessage address")
+	ErrInvalidEmail = errors.New(
+			fmt.Sprintf("From address must be of the form %s.", 
+				emailRegexString))
 	
-	emailRegexString = fmt.Sprintf("%s@bm\\.addr", bmAddrPattern)
+	emailRegexString = fmt.Sprintf("^%s@bm\\.addr$", bmAddrPattern)
 
 	// emailRegex is used for extracting Bitmessage address from an e-mail
 	// address.
 	emailRegex = regexp.MustCompile(emailRegexString)
+	
+	commandRegexString = fmt.Sprintf("^%s@bm\\.agent$", commandPattern)
+
+	// commandRegex is used for detecting an email intended as a 
+	// command to bmagent. 
+	commandRegex = regexp.MustCompile(commandRegexString)
 )
 
 // bmToEmail converts a Bitmessage address to an e-mail address.
@@ -58,15 +68,16 @@ func emailToBM(emailAddr string) (string, error) {
 		return "", err
 	}
 
-	matches := emailRegex.FindStringSubmatch(addr.Address)
-	if len(matches) < 2 {
+	if !emailRegex.Match([]byte(addr.Address)) {
 		return "", ErrInvalidEmail
 	}
+	
+	bm := strings.Split(addr.Address, "@")[0]
 
-	if _, err := bmutil.DecodeAddress(matches[1]); err != nil {
+	if _, err := bmutil.DecodeAddress(bm); err != nil {
 		return "", ErrInvalidEmail
 	}
-	return matches[1], nil
+	return bm, nil
 }
 
 // ImapData provides a Bitmessage with extra information to make it
@@ -272,10 +283,14 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 		return nil, 0, 0, err
 	}
 
-	if m.To == "" {
+	if m.To == "broadcast@bm.agent" {
 		object, nonceTrials, extraBytes, genErr = m.generateBroadcast(&(from.Private), s.GetObjectExpiry(wire.ObjectTypeBroadcast))
 	} else {
-		to, err := s.GetOrRequestPublicID(m.To)
+		bmTo, err := emailToBM(m.To)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		to, err := s.GetOrRequestPublicID(bmTo)
 		if err != nil {
 			smtpLog.Error("GenerateObject: results of lookup public identity: ", to, ", ", err)
 			return nil, 0, 0, err
@@ -286,7 +301,7 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 			return nil, 0, 0, nil
 		}
 
-		id, err := s.GetPrivateID(m.To)
+		id, err := s.GetPrivateID(bmTo)
 		if err == nil {
 			m.OfChannel = id.IsChan
 			// We're sending to ourselves/chan so don't bother with ack.
@@ -349,8 +364,8 @@ func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, erro
 	}
 
 	return &Bitmessage{
-		From:       fromAddress,
-		To:         toAddress,
+		From:       bmToEmail(fromAddress),
+		To:         bmToEmail(toAddress),
 		Expiration: msg.ExpiresTime,
 		Ack:        msg.Ack,
 		OfChannel:  ofChan,
@@ -376,7 +391,8 @@ func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
 	}
 
 	return &Bitmessage{
-		From:       fromAddress,
+		From:       "broadcast@bm.agent",
+		To:         bmToEmail(fromAddress),
 		Expiration: msg.ExpiresTime,
 		Message:    message,
 	}, nil
@@ -406,9 +422,10 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 		r := &format.Encoding2{}
 
 		if msg.Encoding.Subject == nil {
-			return nil, errors.New("Subject required in encoding format 2")
+			r.Subject = ""
+		} else {
+			r.Subject = string(msg.Encoding.Subject)
 		}
-		r.Subject = string(msg.Encoding.Subject)
 
 		if msg.Encoding.Body == nil {
 			return nil, errors.New("Body required in encoding format 2")
@@ -492,18 +509,18 @@ func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 
 	headers["Subject"] = []string{payload.Subject}
 
-	headers["From"] = []string{bmToEmail(m.From)}
+	headers["From"] = []string{m.From}
 
 	if m.To == "" {
-		headers["To"] = []string{BroadcastAddress}
+		headers["To"] = []string{"broadcast@bm.agent"}
 	} else {
-		headers["To"] = []string{bmToEmail(m.To)}
+		headers["To"] = []string{m.To}
 	}
 
 	headers["Date"] = []string{m.ImapData.TimeReceived.Format(dateFormat)}
 	headers["Expires"] = []string{m.Expiration.Format(dateFormat)}
 	if m.OfChannel {
-		headers["Reply-To"] = []string{bmToEmail(m.To)}
+		headers["Reply-To"] = []string{m.To}
 	}
 	headers["Content-Type"] = []string{`text/plain; charset="UTF-8"`}
 	headers["Content-Transfer-Encoding"] = []string{"8bit"}
@@ -533,7 +550,6 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	header := smtp.Headers
 
 	// Check that To and From are set.
-	var to, from string
 	toList, ok := header["To"]
 	if !ok {
 		return nil, errors.New("Invalid headers: To field is required")
@@ -542,7 +558,6 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	if len(toList) != 1 {
 		return nil, errors.New("Invalid headers: only one To field is allowed.")
 	}
-	to = toList[0]
 
 	fromList, ok := header["From"]
 	if !ok {
@@ -552,39 +567,12 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	if len(fromList) != 1 {
 		return nil, errors.New("Invalid headers: only one From field is allowed.")
 	}
-	from = fromList[0]
 
-	// Check that the from and to addresses are formatted correctly.
-	addr, err := mail.ParseAddress(from)
-	if err != nil {
-		return nil, fmt.Errorf("Invalid From address %v.", from)
-	}
-	switch addr.Address {
-	case BmagentAddress:
-		from = strings.Split(BmagentAddress, "@")[0]
-	default:
-		from, err = emailToBM(addr.Address)
-		if err != nil {
-			return nil, errors.New(
-				fmt.Sprintf("From address must be of the form %s.", emailRegexString))
-		}
-	}
-
-	addr, err = mail.ParseAddress(to)
-	if err != nil {
-		return nil, fmt.Errorf("Invalid To address %v.", to)
-	}
-	switch addr.Address {
-	case BroadcastAddress:
-		to = ""
-	case BmagentAddress:
-		to = strings.Split(BmagentAddress, "@")[0]
-	default:
-		to, err = emailToBM(to)
-		if err != nil {
-			return nil, errors.New(fmt.Sprintf(
-			"To address must be of the form %s, %s, or %s.", BroadcastAddress, BmagentAddress))
-		}
+	from := fromList[0]
+	to := toList[0]
+	
+	if !(validateEmail(from) || validateEmail(to)) {
+		return nil, ErrInvalidEmail
 	}
 
 	// If CC or BCC are set, give an error because these headers cannot

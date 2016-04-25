@@ -51,7 +51,7 @@ func TestEmailAddressConversion(t *testing.T) {
 			continue
 		}
 		if err != nil {
-			t.Error("Test ", i, " failed; email should have been accepted:", test.email)
+			t.Error("Test ", i, " failed; email should have been accepted:", test.email, "; err = ", err)
 			continue
 		}
 		address := bmToEmail(bm)

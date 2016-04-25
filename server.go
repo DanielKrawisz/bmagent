@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/jordwest/imap-server"
-	"github.com/jordwest/imap-server/types"
 	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/powmgr"
@@ -251,13 +250,8 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	}
 
 	// Decryption was successful. Add message to store.
-	mbox, err := s.imapUser[id].MailboxByName(email.InboxFolderName)
-	if err != nil {
-		log.Critical("MailboxByName(%s) failed: %v", email.InboxFolderName, err)
-		return
-	}
 
-	// TODO Store public key of the sender in bmd
+	// TODO Store public key of the sender in bmagent
 
 	// Read message.
 	bmsg, err := email.MsgRead(msg, address, ofChan)
@@ -266,7 +260,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		return
 	}
 
-	err = mbox.(email.Mailbox).AddNew(bmsg, types.FlagRecent)
+	err = s.imapUser[id].DeliverFromBMNet(bmsg)
 	if err != nil {
 		log.Errorf("Failed to save message #%d: %v", counter, err)
 		return
@@ -327,8 +321,19 @@ func (s *server) newBroadcast(counter uint64, obj []byte) {
 		}
 		
 	} 
+	
+	// Read message.
+	bmsg, err := email.BroadcastRead(msg)
+	if err != nil {
+		log.Errorf("Failed to decode message #%d: %v", counter, err)
+		return
+	}
 
-	//mbox.InsertMessage(msg.Message, msg.Encoding)
+	err = s.imapUser[1].DeliverFromBMNet(bmsg)
+	if err != nil {
+		log.Errorf("Failed to save message #%d: %v", counter, err)
+		return
+	}
 	serverLog.Infof("Got new broadcast from %s:\n%s", fromAddress, msg.Message)
 }
 
