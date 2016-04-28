@@ -30,12 +30,12 @@ func TestFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	uname := "daniel"
+	uname := "cosmos"
 	u, err := s.NewUser(uname)
 	if err != nil {
 		t.Error(" could not create user: ", err)
 	}
-
+	
 	// Start.
 	name := "INBOX/Test Mailbox"
 
@@ -64,20 +64,20 @@ func TestFolder(t *testing.T) {
 	}
 
 	// Try getting last IDs when mailbox is empty.
-	_, err = mbox.LastID()
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	last := mbox.LastID()
+	if last != 0 {
+		t.Error("Expected 0 got", last)
 	}
 
-	_, err = mbox.LastIDBySuffix(1)
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	last = mbox.LastIDBySuffix(1)
+	if last != 0 {
+		t.Error("Expected 0 got", last)
 	}
 
 	// Try deleting non-existant message.
 	err = mbox.DeleteMessage(1)
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	if err != store.ErrInvalidID {
+		t.Error("Expected ErrInvalidID got", err)
 	}
 
 	// Try inserting a message.
@@ -104,6 +104,8 @@ func TestFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	
+	tc := &boltFolderTestContext{t:t, u:u, name:name}
 
 	// Test ForEachMessage.
 
@@ -138,43 +140,40 @@ func TestFolder(t *testing.T) {
 	testForEachMessage(mbox, 0, 0, 3, 0, t)
 
 	// Test LastID. Should be 2.
-	id, err := mbox.LastID()
-	if err != nil {
-		t.Error(err)
-	}
+	id := mbox.LastID()
 	if id != 2 {
 		t.Errorf("Expected %d got %d", 2, id)
 	}
 
 	// Verify that the last ID for message with suffix 1 is 1.
-	testLastIDBySuffix(mbox, 1, 1, t)
+	testLastIDBySuffix(tc, mbox, 1, 1, "A")
 
 	// Verify that the last ID for message with suffix 2 is 2.
-	testLastIDBySuffix(mbox, 2, 2, t)
+	testLastIDBySuffix(tc, mbox, 2, 2, "B")
 
 	// Try deleting messages.
-	testDeleteMessage(mbox, 1, t)
+	testDeleteMessage(tc, mbox, 1, "C")
 
 	// Check the last ID now. Should still be 2.
-	testLastIDBySuffix(mbox, 2, 2, t)
+	testLastIDBySuffix(tc, mbox, 2, 2, "D")
 
 	// Verify that the last ID for message with suffix 1 that was just deleted
 	// is gone too.
-	_, err = mbox.LastIDBySuffix(1)
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	last = mbox.LastIDBySuffix(1)
+	if last != 0 {
+		t.Error("Expected 0 got", last)
 	}
 
 	// Verify that the last ID for message with suffix 2 is 2, as expected.
-	testLastIDBySuffix(mbox, 2, 2, t)
+	testLastIDBySuffix(tc, mbox, 2, 2, "E")
 
 	// Delete the last message.
-	testDeleteMessage(mbox, 2, t)
+	testDeleteMessage(tc, mbox, 2, "F")
 
 	// LastID should error out.
-	_, err = mbox.LastID()
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	last = mbox.LastID()
+	if last != 0 {
+		t.Error("Expected 0 got", last)
 	}
 
 	// Try adding mailbox with a duplicate name.
@@ -201,19 +200,52 @@ func TestFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	os.Remove(fName)
-
 }
 
-func testInsertMessage(mbox *store.Folder, msg []byte, suffix uint64,
+func NewUserData(t *testing.T) *store.UserData {
+	// Open store.
+	f, err := ioutil.TempFile("", "tempstore")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fName := f.Name()
+	f.Close()
+
+	pass := []byte("password")
+	l, err := store.Open(fName)
+	s, _, _, err := l.Construct(pass)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	uname := "cosmos"
+	u, err := s.NewUser(uname)
+	if err != nil {
+		t.Error(" could not create user: ", err)
+	}
+
+	return u
+}
+
+func testInsertMessage(mbox store.Folder, msg []byte, suffix uint64,
 	expectedID uint64, t *testing.T) {
 	// Try inserting a new message.
-	id, err := mbox.InsertMessage(msg, 0, suffix)
+	id, err := mbox.InsertNewMessage(msg, suffix)
 	if err != nil {
 		t.Errorf("For message #%d got error %v", expectedID, err)
 	}
 	if expectedID != id {
 		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", expectedID,
 			id)
+	}
+	
+	last := mbox.LastID()
+	next := mbox.NextID()
+	if last != id {
+		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", id, last)
+	}
+	if next != id + 1 {
+		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", id + 1, next)
 	}
 
 	// Try retrieving the same message.
@@ -231,13 +263,13 @@ func testInsertMessage(mbox *store.Folder, msg []byte, suffix uint64,
 	}
 
 	// Try inserting message with the same ID but different suffix.
-	_, err = mbox.InsertMessage(msg, id, suffix+1)
+	err = mbox.InsertMessage(id, msg, suffix+1)
 	if err != store.ErrDuplicateID {
 		t.Errorf("For message #%d expected ErrDuplicateID got %v", expectedID, err)
 	}
 }
 
-func testForEachMessage(mbox *store.Folder, lowID, highID, suffix,
+func testForEachMessage(mbox store.Folder, lowID, highID, suffix,
 	expectedCount uint64, t *testing.T) {
 
 	counter := uint64(0)
@@ -256,24 +288,25 @@ func testForEachMessage(mbox *store.Folder, lowID, highID, suffix,
 	}
 }
 
-func testDeleteMessage(mbox *store.Folder, id uint64, t *testing.T) {
+func testDeleteMessage(tc testContext, mbox store.Folder, id uint64, note string) {
 	err := mbox.DeleteMessage(id)
-	if err != nil {
-		t.Errorf("For id %d got error %v", id, err)
+	if err != nil {		
+		tc.T().Errorf("%s, %s: For id %d got error %v", tc.Context(), note, id, err)
 	}
 	_, _, err = mbox.GetMessage(id)
-	if err != store.ErrNotFound {
-		t.Errorf("For id %d got error %v", id, err)
+	if err == nil {
+		tc.T().Errorf("%s, %s: for id %d expected ErrNotFound got nil", tc.Context(), note, id)
+	} else if err != store.ErrNotFound {
+		tc.T().Errorf("%s, %s: For id %d got error %v", tc.Context(), note, id, err)
 	}
 }
 
-func testLastIDBySuffix(mbox *store.Folder, suffix, expectedID uint64,
-	t *testing.T) {
-	id, err := mbox.LastIDBySuffix(suffix)
-	if err != nil {
-		t.Errorf("For suffix %d, got error %v", suffix, err)
-	}
+func testLastIDBySuffix(
+	tc testContext, mbox store.Folder, suffix, expectedID uint64, note string) {
+		
+	id  := mbox.LastIDBySuffix(suffix)
 	if expectedID != id {
-		t.Errorf("For suffix %d, expected ID %d got %d", suffix, expectedID, id)
+		tc.T().Errorf("%s, %s: For suffix %d, expected ID %d got %d", 
+			tc.Context(), note, suffix, expectedID, id)
 	}
 }

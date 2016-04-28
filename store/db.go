@@ -48,11 +48,11 @@ var (
 	miscBucket               = []byte("misc")
 	countersBucket           = []byte("counters")
 	broadcastAddressesBucket = []byte("broadcastAddresses")
-	mailboxesBucket          = []byte("mailboxes")
+	foldersBucket            = []byte("folders")
 	usersBucket              = []byte("users")
 
-	// Bucket is a sub-bucket of "mailboxes"
-	mailboxDataBucket = []byte("data")
+	// Bucket is a sub-bucket of "folders"
+	folderDataBucket = []byte("data")
 	
 	userPrefix = []byte("user:")
 
@@ -65,10 +65,10 @@ var (
 	// Version of the data store.
 	versionKey = []byte("version")
 
-	// mailboxLatestIDKey contains the index of the last element. Exists because
+	// folderNextIDKey contains the index of the next element. Exists because
 	// IMAP requires existence of unique message IDs that do not change over
 	// sessions.
-	mailboxLatestIDKey = []byte("mailboxLatestID")
+	folderNextIDKey = []byte("folderNextID")
 
 	// powQueueLatestIDKey contains the index of the last element in the POW
 	// queue.
@@ -333,14 +333,13 @@ func (s *Store) addUser(username string) (*UserData, error) {
 		return nil, err
 	}
 	
-	user := &UserData{
-		masterKey : s.masterKey, 
-		db : s.db, 
-		bucketId : uname, 
-		username : username, 
-		BroadcastAddresses: broadcast, 
-		folders : folders, 
-	}
+	user := newUserData(
+		s.masterKey, 
+		s.db, 
+		uname, 
+		username, 
+		broadcast, 
+		folders)
 	
 	s.Users[username] = user
 	
@@ -386,7 +385,7 @@ func (s *Store) initializeFolders(username string, uname []byte) (map[string]str
 		if err != nil {
 			return err
 		}
-		_, err = userBucket.CreateBucketIfNotExists(mailboxesBucket)
+		_, err = userBucket.CreateBucketIfNotExists(foldersBucket)
 		if err != nil {
 			return err
 		}
@@ -394,7 +393,7 @@ func (s *Store) initializeFolders(username string, uname []byte) (map[string]str
 		if newUser { // This is a new user.
 			// Set ID for messages to 0.
 			// Only one id is used for the entire set of mailboxes for a given user.
-			err = misc.Put(mailboxLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
+			err = misc.Put(folderNextIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
 			if err != nil {
 				return err
 			}
@@ -412,7 +411,7 @@ func (s *Store) initializeFolders(username string, uname []byte) (map[string]str
 	folders := make(map[string]struct{})
 	err = s.db.View(func(tx *bolt.Tx) error {
 		
-		return tx.Bucket(uname).Bucket(mailboxesBucket).ForEach(func(name, _ []byte) error {
+		return tx.Bucket(uname).Bucket(foldersBucket).ForEach(func(name, _ []byte) error {
 			folders[string(name)] = struct{}{}
 			return nil
 		})
@@ -427,7 +426,7 @@ func (s *Store) initializeFolders(username string, uname []byte) (map[string]str
 
 func (s *Store) GetUser(name string) (*UserData, error) {
 	u, ok := s.Users[name]
-	if !ok {
+	if !ok || u == nil {
 		return nil, errors.New("No such user.")
 	}
 	return u, nil

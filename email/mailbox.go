@@ -87,7 +87,7 @@ type Mailbox interface {
 // mailstore.Mailbox interface. Only public functions take care of
 // locking/unlocking the embedded RWMutex.
 type mailbox struct {
-	mbox         *store.Folder
+	mbox         store.Folder
 	
 	// The set of addresses associated with this folder and their names.
 	addresses    map[string]*string
@@ -136,11 +136,7 @@ func (box *mailbox) updateMailboxStats(entry *Bitmessage, id uint64) {
 func (box *mailbox) refresh() error {
 
 	// Set NextUID
-	nextUID, err := box.mbox.NextID()
-	if err != nil {
-		return err
-	}
-	box.nextUID = uint32(nextUID)
+	box.nextUID = uint32(box.mbox.NextID())
 
 	box.numRecent = 0
 	box.numUnseen = 0
@@ -148,7 +144,7 @@ func (box *mailbox) refresh() error {
 
 	// Run through every message to get the uids, count the recent and
 	// unseen messages, and to update pkrequests and powqueue.
-	err = box.mbox.ForEachMessage(0, 0, 2, func(id, suffix uint64, msg []byte) error {
+	err := box.mbox.ForEachMessage(0, 0, 2, func(id, suffix uint64, msg []byte) error {
 		entry, err := DecodeBitmessage(msg)
 		if err != nil {
 			return imapLog.Errorf("Failed to decode message #%d: %v", id, err)
@@ -598,14 +594,16 @@ func (box *mailbox) SaveBitmessage(msg *Bitmessage) error {
 	}
 
 	// Insert the new version of the message.
-	newUID, err := box.mbox.InsertMessage(encode, msg.ImapData.UID, msg.Message.Encoding())
+	if (msg.ImapData.UID == 0) {
+		msg.ImapData.UID, err = box.mbox.InsertNewMessage(encode, msg.Message.Encoding())
+	} else {
+		err = box.mbox.InsertMessage(msg.ImapData.UID, encode, msg.Message.Encoding())
+	}
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).InsertMessage(id=%d, suffix=%d) gave error %v",
 			box.Name(), msg.ImapData.UID, msg.Message.Encoding(), err)
 		return err
 	}
-
-	msg.ImapData.UID = newUID
 
 	err = box.refresh()
 	if err != nil {
@@ -746,7 +744,7 @@ func (box *mailbox) NewMessage() mailstore.Message {
 }
 
 // NewMailbox returns a new mailbox.
-func NewMailbox(mbox *store.Folder, addresses map[string]*string) (*mailbox, error) {
+func NewMailbox(mbox store.Folder, addresses map[string]*string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.");
 	}
@@ -764,7 +762,7 @@ func NewMailbox(mbox *store.Folder, addresses map[string]*string) (*mailbox, err
 }
 
 // NewDrafts returns a new Drafts folder.
-func NewDrafts(mbox *store.Folder, addresses map[string]*string) (*mailbox, error) {
+func NewDrafts(mbox store.Folder, addresses map[string]*string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}

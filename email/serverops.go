@@ -35,5 +35,5 @@ type ServerOps interface {
 	RunPow(uint64, []byte) (uint64, error)
 
 	// Mailboxes returns the set of mailboxes in the store.
-	Folders() []*store.Folder
+	Folders() []store.Folder
 }

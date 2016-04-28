@@ -40,3 +40,7 @@ func TestGetSequenceNumber(t *testing.T) {
 		}
 	}
 }
+
+func TestBitmessageSetByUID(t *testing.T) {
+	
+}
