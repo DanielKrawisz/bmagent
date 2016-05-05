@@ -92,6 +92,10 @@ type Mailbox interface {
 type mailbox struct {
 	mbox         store.Folder
 	
+	// Used to define a subfolder, in which only those messages
+	// which return true belong to the mailbox. Can be nil. 
+	sub func (*Bitmessage) bool
+	
 	// The set of addresses associated with this folder and their names.
 	addresses    map[string]*string
 	drafts       bool // Whether this is a drafts folder. 
@@ -151,6 +155,11 @@ func (box *mailbox) refresh() error {
 		entry, err := DecodeBitmessage(msg)
 		if err != nil {
 			return imapLog.Errorf("Failed to decode message #%d: %v", id, err)
+		}
+		
+		// Only include messages that belong in this mailbox. 
+		if box.sub != nil && !box.sub(entry) {
+			return nil
 		}
 
 		box.updateMailboxStats(entry, id)
@@ -255,6 +264,12 @@ func (box *mailbox) MessageBySequenceNumber(seqno uint32) mailstore.Message {
 
 // bmsgByUID returns a Bitmessage by its uid. This function not protected with locks.
 func (box *mailbox) bmsgByUID(uid uint64) *Bitmessage {
+	seqno := GetSequenceNumber(box.uids, uint64(uid))
+	if box.uids[seqno] != uid {
+		// This message does not exist in this mailbox. 
+		return nil
+	}
+	
 	suffix, msg, err := box.mbox.GetMessage(uid)
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).GetMessage gave error: %v", box.Name(), err)
@@ -264,8 +279,6 @@ func (box *mailbox) bmsgByUID(uid uint64) *Bitmessage {
 		imapLog.Errorf("For message #%d expected suffix %d got %d", uid, 2, suffix)
 		return nil
 	}
-
-	seqno := GetSequenceNumber(box.uids, uint64(uid))
 
 	return box.decodeBitmessageForImap(uid, seqno, msg)
 }
@@ -317,7 +330,12 @@ func (box *mailbox) getRange(startUID, endUID uint64, startSequence, endSequence
 		if bm == nil {
 			return nil // Skip this message, error has already been logged.
 		}
+		
+		if box.sub != nil && !box.sub(bm) {
+			return nil
+		}
 		bitmessages = append(bitmessages, bm)
+		
 		i++
 		return nil
 	})
@@ -580,16 +598,6 @@ func (box *mailbox) DeleteBitmessageByUID(id uint64) error {
 
 // SaveBitmessage saves the given Bitmessage in the folder.
 func (box *mailbox) SaveBitmessage(msg *Bitmessage) error {
-	if msg.ImapData.UID != 0 { // The message already exists and needs to be replaced.
-		// Delete the old message from the database.
-		err := box.mbox.DeleteMessage(uint64(msg.ImapData.UID))
-		if err != nil {
-			imapLog.Errorf("Mailbox(%s).DeleteMessage(%d) gave error %v",
-				box.Name(), msg.ImapData.UID, err)
-			return err
-		}
-	}
-
 	// Generate the new version of the message.
 	encode, err := msg.Serialize()
 	if err != nil {
@@ -600,14 +608,33 @@ func (box *mailbox) SaveBitmessage(msg *Bitmessage) error {
 	if (msg.ImapData.UID == 0) {
 		msg.ImapData.UID, err = box.mbox.InsertNewMessage(encode, msg.Message.Encoding())
 	} else {
+		// Delete the old message from the database.
+		err := box.mbox.DeleteMessage(uint64(msg.ImapData.UID))
+		if err != nil {
+			imapLog.Errorf("Mailbox(%s).DeleteMessage(%d) gave error %v",
+				box.Name(), msg.ImapData.UID, err)
+			return err
+		}
+		
+		_, _, err = box.mbox.GetMessage(msg.ImapData.UID) 
+		if err == nil {
+			// There is still a message there despite our attempts to delete it. 
+			// That indicates that an entry exists in the folder which does not 
+			// belong to this mailbox. 
+			return errors.New("Unable to save.")
+		}
+		
 		err = box.mbox.InsertMessage(msg.ImapData.UID, encode, msg.Message.Encoding())
 	}
+	
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).InsertMessage(id=%d, suffix=%d) gave error %v",
 			box.Name(), msg.ImapData.UID, msg.Message.Encoding(), err)
 		return err
 	}
 
+	// TODO: don't refresh the whole thing every time we save. Jeez that's 
+	// a lot of extra work! 
 	err = box.refresh()
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).Refresh gave error %v", box.Name(), err)
@@ -712,6 +739,10 @@ func (box *mailbox) ReceiveAck(ack []byte) *Bitmessage {
 		entry, err := DecodeBitmessage(msg)
 		if err != nil {
 			return err
+		}
+		
+		if box.sub != nil && !box.sub(entry) {
+			return nil
 		}
 
 		if bytes.Equal(entry.Ack, ack) {
