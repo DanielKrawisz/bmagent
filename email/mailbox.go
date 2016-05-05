@@ -81,6 +81,9 @@ type Mailbox interface {
 	
 	// AddNew adds a new Bitmessage to the Mailbox.
 	AddNew(bmsg *Bitmessage, flags types.Flags) error
+	
+	// DeleteBitmessageByUID deletes a bitmessage by uid. 
+	DeleteBitmessageByUID(id uint64) error
 }
 
 // Mailbox implements a mailbox that is compatible with IMAP. It implements the
