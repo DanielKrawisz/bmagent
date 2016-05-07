@@ -76,12 +76,9 @@ type Folder interface {
 	// NextID returns the next index value that will be assigned in the mailbox..
 	NextID() uint64
 
-	// LastID returns the highest index value in the mailbox.
-	LastID() uint64
-
-	// LastIDBySuffix returns the highest index value from messages with the
-	// specified suffix in the mailbox.
-	LastIDBySuffix(suffix uint64) uint64 
+	// LastID returns the highest index value in the mailbox, followed by a
+	// map containing the last indices for each suffix. 
+	LastID() (uint64, map[uint64]uint64)
 }
 
 // folder is a folder of messages corresponding to a private identity or
@@ -94,8 +91,6 @@ type folder struct {
 	userId         []byte
 	name           string
 	nextId         uint64
-	lastId         uint64
-	lastIdBySuffix map[uint64]uint64
 }
 
 func newFolder(masterKey *[keySize]byte, db *bolt.DB, username string, name string) (*folder, error) {
@@ -114,9 +109,6 @@ func newFolder(masterKey *[keySize]byte, db *bolt.DB, username string, name stri
 		username       : username, 
 		name           : name, 
 		nextId         : 1, 
-		// TODO go through the folder and populate these values properly.
-		lastId         : 0, 
-		lastIdBySuffix : make(map[uint64]uint64), 
 	}
 	
 	err := f.initialize()
@@ -169,14 +161,10 @@ func (f *folder) initialize() error {
 			data := bucket.Bucket(folderDataBucket)
 			f.nextId = binary.BigEndian.Uint64(data.Get(folderNextIDKey))
 			
-			cursor := bucket.Cursor()
+			/*cursor := bucket.Cursor()
 	
 			// Loop from the end, returning the first found match.
-			for k, _ := cursor.Last(); k != nil; k, _ = cursor.Prev() {
-				if k == nil {
-					return ErrNotFound
-				}
-				
+			for k, _ := cursor.Last(); k != nil; k, _ = cursor.Prev() {				
 				if len(k) != 16 { // Don't want to loop over buckets.
 					continue
 				}
@@ -189,7 +177,7 @@ func (f *folder) initialize() error {
 				if _, ok := f.lastIdBySuffix[sfx]; !ok {
 					f.lastIdBySuffix[sfx] = binary.BigEndian.Uint64(k[:8])
 				}
-			}
+			}*/
 			
 		}
 		return nil
@@ -208,19 +196,40 @@ func (f *folder) NextID() uint64 {
 }
 
 // LastID returns the highest index value in the mailbox.
-func (f *folder) LastID() uint64 {
-	return f.lastId
-}
-
-// LastIDBySuffix returns the highest index value from messages with the
-// specified suffix in the mailbox.
-func (f *folder) LastIDBySuffix(suffix uint64) uint64 {
-	if last, ok := f.lastIdBySuffix[suffix]; ok {
-		return last
-	}
+func (f *folder) LastID() (uint64, map[uint64]uint64) {
+	var lastId uint64 = 0
+	lastIdBySuffix := make(map[uint64]uint64)
 	
-	return 0
+	f.db.Update(func(tx *bolt.Tx) error {
+		// Get bucket for mailbox.
+		bucket := tx.Bucket(f.userId).Bucket(foldersBucket).Bucket([]byte(f.name))
+			
+		cursor := bucket.Cursor()
+	
+		for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {				
+			if len(k) != 16 { // Don't want to loop over buckets.
+				continue
+			}
+			suffix := binary.BigEndian.Uint64(k[8:])
+				
+			if v, ok := lastIdBySuffix[suffix]; ok && v > suffix {
+				continue
+			}
+				
+			var id uint64 = binary.BigEndian.Uint64(k[:8])
+			lastIdBySuffix[suffix] = id
+				
+			if id < lastId {
+				continue
+			}
+				
+			lastId = id
+		}
+			
+		return nil
+	})
 
+	return lastId, lastIdBySuffix
 }
 
 // InsertNewMessage inserts a new message with the specified suffix into a
@@ -272,9 +281,6 @@ func (f *folder) InsertNewMessage(msg []byte, suffix uint64) (uint64, error) {
 	defer func() {
 		f.nextId ++
 	} ()
-	
-	f.lastId = f.nextId
-	f.lastIdBySuffix[suffix] = f.nextId
 	
 	return f.nextId, nil
 }
@@ -457,50 +463,10 @@ func (f *folder) DeleteMessage(id uint64) error {
 			return ErrNotFound
 		}
 
-		// Get suffix of entry. 
-		suffix := binary.BigEndian.Uint64(k[8:])
-
 		err := bucket.Delete(k)
 		
 		if err != nil {
 			return err
-		}
-		
-		if f.lastIdBySuffix[suffix] != id {
-			return nil
-		}
-	
-		for {
-			k, _ = cursor.Prev()
-			
-			// We got to the front of the bucket without finding anything.
-			if k == nil {
-				delete(f.lastIdBySuffix, suffix)
-				
-				if id == f.lastId {
-					f.lastId = 0
-				}
-				
-				break
-			}
-			
-			if len(k) != 16 { // Don't want to loop over buckets.
-				continue
-			}
-			lastId := binary.BigEndian.Uint64(k[:8])
-			
-			if f.lastId == id {
-				f.lastId = lastId
-			}
-			
-			sfx := binary.BigEndian.Uint64(k[8:])
-			
-			if sfx == suffix {
-					
-				f.lastIdBySuffix[suffix] = lastId
-						
-				break
-			}
 		}
 		
 		return nil

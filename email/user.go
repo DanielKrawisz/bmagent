@@ -151,7 +151,11 @@ func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
 	for _, id := range ids {
 		bmsg := outbox.BitmessageByUID(id)
 		bmsg.state.PubkeyRequested = false
-		err = outbox.SaveBitmessage(bmsg)
+		
+		outbox.Lock()
+		err = outbox.saveBitmessage(bmsg)
+		outbox.Unlock()
+		
 		if err != nil {
 			return err
 		}
@@ -167,7 +171,9 @@ func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
 		}
 
 		// Save Bitmessage with pow index.
-		err = outbox.SaveBitmessage(bmsg)
+		outbox.Lock()
+		err = outbox.saveBitmessage(bmsg)
+		outbox.Unlock()
 		if err != nil {
 			return err
 		}

@@ -64,14 +64,13 @@ func TestFolder(t *testing.T) {
 	}
 
 	// Try getting last IDs when mailbox is empty.
-	last := mbox.LastID()
+	last, lastIdBySfx := mbox.LastID()
 	if last != 0 {
 		t.Error("Expected 0 got", last)
 	}
 
-	last = mbox.LastIDBySuffix(1)
-	if last != 0 {
-		t.Error("Expected 0 got", last)
+	if lastIdBySfx[1] != 0 {
+		t.Error("Expected 0 got", lastIdBySfx[1])
 	}
 
 	// Try deleting non-existant message.
@@ -140,7 +139,7 @@ func TestFolder(t *testing.T) {
 	testForEachMessage(mbox, 0, 0, 3, 0, t)
 
 	// Test LastID. Should be 2.
-	id := mbox.LastID()
+	id, _ := mbox.LastID()
 	if id != 2 {
 		t.Errorf("Expected %d got %d", 2, id)
 	}
@@ -159,9 +158,9 @@ func TestFolder(t *testing.T) {
 
 	// Verify that the last ID for message with suffix 1 that was just deleted
 	// is gone too.
-	last = mbox.LastIDBySuffix(1)
-	if last != 0 {
-		t.Error("Expected 0 got", last)
+	_, lastIdBySfx = mbox.LastID()
+	if lastIdBySfx[1] != 0 {
+		t.Error("Expected 0 got", lastIdBySfx[1])
 	}
 
 	// Verify that the last ID for message with suffix 2 is 2, as expected.
@@ -171,7 +170,7 @@ func TestFolder(t *testing.T) {
 	testDeleteMessage(tc, mbox, 2, "F")
 
 	// LastID should error out.
-	last = mbox.LastID()
+	last, _ = mbox.LastID()
 	if last != 0 {
 		t.Error("Expected 0 got", last)
 	}
@@ -239,7 +238,7 @@ func testInsertMessage(mbox store.Folder, msg []byte, suffix uint64,
 			id)
 	}
 	
-	last := mbox.LastID()
+	last, _ := mbox.LastID()
 	next := mbox.NextID()
 	if last != id {
 		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", id, last)
@@ -304,7 +303,8 @@ func testDeleteMessage(tc testContext, mbox store.Folder, id uint64, note string
 func testLastIDBySuffix(
 	tc testContext, mbox store.Folder, suffix, expectedID uint64, note string) {
 		
-	id  := mbox.LastIDBySuffix(suffix)
+	_, lastIdBySfx := mbox.LastID()
+	id  := lastIdBySfx[suffix]
 	if expectedID != id {
 		tc.T().Errorf("%s, %s: For suffix %d, expected ID %d got %d", 
 			tc.Context(), note, suffix, expectedID, id)

@@ -44,17 +44,8 @@ func (f *memFolder) NextID() uint64 {
 	return f.nextIndex
 }
 
-func (f *memFolder) LastID() uint64 {
-	return f.lastIndex
-}
-
-func (f *memFolder) LastIDBySuffix(suffix uint64) uint64 {
-
-	if last, ok := f.lastIndexBySuffix[suffix]; ok {
-		return last
-	}
-	
-	return 0
+func (f *memFolder) LastID() (uint64, map[uint64]uint64) {
+	return f.lastIndex, f.lastIndexBySuffix
 }
 
 func (f *memFolder) updateLast(id, suffix uint64) {
@@ -66,7 +57,7 @@ func (f *memFolder) updateLast(id, suffix uint64) {
 		return
 	}
 	
-	if f.LastIDBySuffix(suffix) < id {
+	if f.lastIndexBySuffix[suffix] < id {
 		f.lastIndexBySuffix[suffix] = id
 	}
 }

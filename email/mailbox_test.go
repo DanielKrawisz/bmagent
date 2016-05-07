@@ -24,7 +24,7 @@ const (
 
 func TestGetSequenceNumber(t *testing.T) {
 	tests := []struct {
-		list     []uint64
+		list     email.MessageSequence
 		uid      uint64
 		sequence uint32
 	}{
@@ -44,7 +44,7 @@ func TestGetSequenceNumber(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		got := email.GetSequenceNumber(test.list, test.uid)
+		got := test.list.GetSequenceNumber(test.uid)
 
 		if got != test.sequence {
 			t.Errorf("GetSequenceNumber test case %d; got %d, expected %d.", i, got, test.sequence)
@@ -87,8 +87,8 @@ func PrepareTestMailbox(mb email.Mailbox, emails []uint64, nextId uint64) email.
 		return nil
 	}
 	
-	addNew := func(next uint64) {
-		mb.AddNew(MakeTestBitmessage(
+	addNew := func(next uint64) error {
+		return mb.AddNew(MakeTestBitmessage(
 				"BM-From",
 				"BM-To",
 				"top secret",
@@ -127,6 +127,8 @@ func PrepareTestMailbox(mb email.Mailbox, emails []uint64, nextId uint64) email.
 }
 
 type MessageSetByUIDTestCase struct {
+	// The test case number. 
+	c uint32
 	// The set of uids which are filled in this mailbox. 
 	// Should be sorted. 
 	emails []uint64
@@ -165,11 +167,13 @@ func (x *MessageSetByUIDTestCase) Check(set []mailstore.Message, t *testing.T) b
 	m := make(map[uint64]struct{})
 	
 	// None may be nil. 
-	for id, msg := range set {
+	for _, msg := range set {
 		if msg == nil {
 			t.Error("Nil message found.")
 			return false
 		}
+		
+		id := msg.UID()
 		
 		m[uint64(id)] = struct{}{}
 	}
@@ -177,7 +181,7 @@ func (x *MessageSetByUIDTestCase) Check(set []mailstore.Message, t *testing.T) b
 	// check that the correct set is included. 
 	for _, id := range x.expected {
 		if _, ok := m[id]; !ok {
-			t.Error("Missing message ", id)
+			t.Error(x.c, "Missing message ", id)
 			return false
 		}
 		
@@ -186,7 +190,7 @@ func (x *MessageSetByUIDTestCase) Check(set []mailstore.Message, t *testing.T) b
 	
 	// There should be none leftover. 
 	if len(m) != 0 {
-		t.Error(len(m), "extra messages were returned.")
+		t.Error(len(m), "extra messages were returned: ", m)
 		return false
 	}
 	
@@ -195,9 +199,15 @@ func (x *MessageSetByUIDTestCase) Check(set []mailstore.Message, t *testing.T) b
 
 func testMessageSetByUID(tc TestContext) {
 	tests := []MessageSetByUIDTestCase {
-		// Just one simple degenerate case here. Many more are needed! 
+		// A simple degenerate test case. 
 		MessageSetByUIDTestCase {
-			[]uint64{}, 1, "1:*", []uint64{}, 
+			0, []uint64{}, 1, "1:*", []uint64{}, 
+		}, 
+		MessageSetByUIDTestCase {
+			1, []uint64{1}, 1, "1:*", []uint64{1}, 
+		}, 
+		MessageSetByUIDTestCase {
+			2, []uint64{2}, 1, "1:*", []uint64{2}, 
 		}, 
 	}
 	
