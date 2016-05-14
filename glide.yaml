@@ -1,0 +1,48 @@
+package: github.com/DanielKrawisz/bmagent
+import:
+- package: github.com/DanielKrawisz/bmd
+  subpackages:
+  - rpcproto
+- package: github.com/DanielKrawisz/bmutil
+  subpackages:
+  - cipher
+  - identity
+  - pow
+  - wire
+- package: github.com/DanielKrawisz/runner
+- package: github.com/boltdb/bolt
+- package: github.com/btcsuite/btcd
+  subpackages:
+  - btcec
+  - chaincfg
+- package: github.com/btcsuite/btclog
+- package: github.com/btcsuite/btcutil
+  subpackages:
+  - hdkeychain
+- package: github.com/btcsuite/golangcrypto
+  subpackages:
+  - nacl/secretbox
+- package: github.com/btcsuite/seelog
+- package: github.com/golang/protobuf
+  subpackages:
+  - proto
+- package: github.com/jessevdk/go-flags
+- package: github.com/jordwest/imap-server
+  subpackages:
+  - mailstore
+  - types
+- package: github.com/mailhog/data
+- package: github.com/mailhog/smtp
+- package: github.com/vaughan0/go-ini
+- package: golang.org/x/crypto
+  subpackages:
+  - nacl/secretbox
+  - pbkdf2
+  - ssh/terminal
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: google.golang.org/grpc
+  subpackages:
+  - codes
+  - credentials
