@@ -34,12 +34,9 @@ func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) 
 	}
 
 	// Check the private identities, just in case.
-	private, err := s.GetPrivateID(addr)
-	if err == nil {
+	private := s.GetPrivateID(addr)
+	if private != nil {
 		return private.ToPublic(), nil
-	}
-	if err != keymgr.ErrNonexistentIdentity {
-		return nil, err
 	}
 
 	pubID, err := s.server.getOrRequestPublicIdentity(s.id, addr)
@@ -56,13 +53,8 @@ func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) 
 
 // GetPrivateID queries the key manager for the right private key for the given
 // address.
-func (s *serverOps) GetPrivateID(addr string) (*keymgr.PrivateID, error) {
-	identity, err := s.user.Keys.LookupByAddress(addr)
-	if err != nil {
-		return nil, err
-	}
-
-	return identity, nil
+func (s *serverOps) GetPrivateID(addr string) *keymgr.PrivateID {
+	return s.user.Keys.LookupByAddress(addr)
 }
 
 // GetObjectExpiry returns the time duration after which an object of the

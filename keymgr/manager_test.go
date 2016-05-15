@@ -91,9 +91,9 @@ func TestOperation(t *testing.T) {
 
 	// Try to retrieve private identity from address.
 	privacyAddr, _ := privacyChan.Address.Encode()
-	privacyRetrieved, err := mgr.LookupByAddress(privacyAddr)
-	if err != nil {
-		t.Errorf("LookupByAddress, got error %v", privacyRetrieved)
+	privacyRetrieved := mgr.LookupByAddress(privacyAddr)
+	if privacyRetrieved == nil {
+		t.Errorf("LookupByAddress returned nil address")
 	}
 	if !bytes.Equal(privacyRetrieved.Address.Ripe[:], privacyChan.Address.Ripe[:]) {
 		t.Errorf("got different ripe, expected %v got %v",
@@ -149,9 +149,9 @@ func TestOperation(t *testing.T) {
 	}
 
 	// Try to retrieve non-existant private identity from address.
-	_, err = mgr1.LookupByAddress(privacyAddr)
-	if err != keymgr.ErrNonexistentIdentity {
-		t.Errorf("expected ErrNonexistentIdentity got %v", err)
+	privacyRetrieved = mgr1.LookupByAddress(privacyAddr)
+	if privacyRetrieved != nil {
+		t.Errorf("expected nil id")
 	}
 }
 

@@ -148,8 +148,7 @@ func (s *SMTPServer) validateSender(from string) bool {
 		return false
 	}
 
-	_, err = s.user.server.GetPrivateID(bmAddr)
-	if err != nil {
+	if s.user.server.GetPrivateID(bmAddr) == nil {
 		return false
 	}
 	return true

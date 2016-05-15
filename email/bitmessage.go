@@ -159,6 +159,8 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 			Received:        m.state.Received,
 		}
 	}
+	
+	smtpLog.Trace("Serializing Bitmessage from " + m.From + " to " + m.To )
 
 	encode := &serialize.Message{
 		From:       m.From,
@@ -277,10 +279,12 @@ func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, ex
 // GenerateObject generates the wire.MsgObject form of the message.
 func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 	nonceTrials, extraBytes uint64, genErr error) {
-	from, err := s.GetPrivateID(m.From)
-	if err != nil {
-		smtpLog.Error("GenerateObject: Error returned private identity: ", err)
-		return nil, 0, 0, err
+		
+	smtpLog.Trace("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
+	from := s.GetPrivateID(m.From)
+	if from == nil {
+		smtpLog.Error("GenerateObject: no private id known ")
+		return nil, 0, 0, errors.New("Private id not found")
 	}
 
 	if m.To == "broadcast@bm.agent" {
@@ -301,8 +305,8 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 			return nil, 0, 0, nil
 		}
 
-		id, err := s.GetPrivateID(bmTo)
-		if err == nil {
+		id := s.GetPrivateID(bmTo)
+		if id != nil {
 			m.OfChannel = id.IsChan
 			// We're sending to ourselves/chan so don't bother with ack.
 			m.state.AckExpected = false
@@ -312,7 +316,7 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 	}
 
 	if genErr != nil {
-		smtpLog.Error("GenerateObject: ", err)
+		smtpLog.Error("GenerateObject: ", genErr)
 		return nil, 0, 0, genErr
 	}
 	m.object = object
@@ -321,6 +325,8 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 
 // SubmitPow attempts to submit a message for pow.
 func (m *Bitmessage) SubmitPow(s ServerOps) (uint64, error) {
+	smtpLog.Trace("SubmitPow: message from " + m.From + " to " + m.To + "submitted for pow.")
+	
 	// Attempt to generate the wire.Object form of the message.
 	obj, nonceTrials, extraBytes, err := m.GenerateObject(s)
 	if obj == nil {

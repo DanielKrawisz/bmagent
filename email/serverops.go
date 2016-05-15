@@ -25,7 +25,7 @@ type ServerOps interface {
 
 	// GetPrivateID queries the key manager for the right private key for the
 	// given address.
-	GetPrivateID(string) (*keymgr.PrivateID, error)
+	GetPrivateID(string) *keymgr.PrivateID
 
 	// GetObjectExpiry returns the time duration after which an object of the
 	// given type will expire on the network. It's used for POW calculations.

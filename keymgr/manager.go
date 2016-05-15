@@ -214,7 +214,7 @@ func (mgr *Manager) ImportIdentity(privID *PrivateID) error {
 	mgr.db.ImportedIDs = append(mgr.db.ImportedIDs, &copyID)
 
 	// Insert in addresses.
-	mgr.db.Addresses[str] = privID
+	mgr.db.Addresses[str] = &copyID
 
 	return nil
 }
@@ -322,16 +322,8 @@ func (mgr *Manager) ForEach(f func(*PrivateID) error) error {
 // LookupByAddress looks up a private identity in the key manager by its
 // address. If no matching identity can be found, ErrNonexistentIdentity is
 // returned.
-func (mgr *Manager) LookupByAddress(address string) (*PrivateID, error) {
-
-	privID, ok := mgr.db.Addresses[address]
-	
-	if !ok {
-		return nil, ErrNonexistentIdentity
-	}
-	
-	return privID, nil
-
+func (mgr *Manager) LookupByAddress(address string) *PrivateID {
+	return mgr.db.Addresses[address]
 }
 
 // NumImported returns the number of imported identities that the key manager
