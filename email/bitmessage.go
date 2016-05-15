@@ -568,11 +568,17 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		return nil, errors.New("Invalid headers: only one From field is allowed.")
 	}
 
-	from := fromList[0]
-	to := toList[0]
+	var from, to string
 	
-	if !(validateEmail(from) || validateEmail(to)) {
+	if !(validateEmail(fromList[0]) || validateEmail(toList[0])) {
 		return nil, ErrInvalidEmail
+	} else {
+		// No errors because this must have succeeded when the
+		// address was validated above.
+		fromAddr, _ := mail.ParseAddress(fromList[0])
+		toAddr, _ := mail.ParseAddress(toList[0])
+		from = fromAddr.Address
+		to = toAddr.Address
 	}
 
 	// If CC or BCC are set, give an error because these headers cannot

@@ -118,7 +118,7 @@ func (serv *SMTPServer) validateAuth(mechanism string, args ...string) (*smtp.Re
 	return smtp.ReplyAuthOk(), true
 }
 
-// validateEmail validates whether the recipient is a valid recipient.
+// validateEmail validates an email TO header entry.
 func validateEmail(to string) bool {
 	addr, err := mail.ParseAddress(to)
 	if err != nil {
@@ -136,9 +136,7 @@ func validateEmail(to string) bool {
 	return false
 }
 
-// validateSender validates whether the recipient is a valid sender. For a
-// sender to be valid, we must hold the private keys of the sender's Bitmessage
-// address.
+// validateSender validates an email FROM header entry
 func (s *SMTPServer) validateSender(from string) bool {
 	addr, err := mail.ParseAddress(from)
 	if err != nil {
