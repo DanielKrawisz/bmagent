@@ -20,17 +20,21 @@ type User struct {
 }
 
 func (u *User) SaveKeyfile() {
+	if (u.Pass == nil && !cfg.PlaintextDB) {
+		log.Warn("No password supplied for keyfile.")
+	}
+	
+	saveKeyfile(u.Keys, u.Path, u.Pass)
+}
+
+func saveKeyfile(keys *keymgr.Manager, path string, pass []byte) {
 	var serialized []byte
 	var err error
 	
-	if u.Pass == nil {
-		if !cfg.PlaintextDB {
-			log.Warn("No password supplied for keyfile.")
-		}
-		
-		serialized, err = u.Keys.ExportPlaintext()
+	if pass == nil {		
+		serialized, err = keys.ExportPlaintext()
 	} else {	
-		serialized, err = u.Keys.ExportEncrypted(u.Pass)
+		serialized, err = keys.ExportEncrypted(pass)
 	}
 	
 	if err != nil {
@@ -38,7 +42,7 @@ func (u *User) SaveKeyfile() {
 		return
 	}
 
-	err = ioutil.WriteFile(u.Path, serialized, 0600)
+	err = ioutil.WriteFile(path, serialized, 0600)
 	if err != nil {
 		log.Criticalf("Failed to write key file: %v", err)
 	}

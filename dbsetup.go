@@ -245,17 +245,19 @@ func promptConsoleSeed() ([]byte, error) {
 func createDatabases(cfg *config) error {
 	var keyfilePass, storePass []byte
 	var err error
+	var prompt string
 	
-	// Start by prompting for the private passphrase for the key file.
-	prompt := "Enter passphrase for the key file"
-	for {
-		keyfilePass, err = promptConsolePass(prompt, true)
+	// Create default mailboxes and associated data.
+	var username string
+	if (cfg.Username != "") {
+		username = cfg.Username
+	} else {
+		// Prompt user for username. 
+		prompt = "\nEnter your username"
+		
+		username, err = promptUsername(prompt)
 		if err != nil {
 			return err
-		}
-		
-		if cfg.PlaintextDB || keyfilePass != nil {
-			break
 		}
 	}
 
@@ -280,27 +282,8 @@ func createDatabases(cfg *config) error {
 		}
 	}
 
-	// Create the key file.
-	fmt.Println("\nCreating the key file...")
-
 	// Intialize key manager with seed.
 	kmgr, err := keymgr.New(seed)
-	if err != nil {
-		return err
-	}
-
-	// Save key file to disk with the specified passphrase, if one was given.
-	var out []byte
-	if (keyfilePass == nil) {
-		out, err = kmgr.ExportPlaintext()
-	} else {
-		out, err = kmgr.ExportEncrypted(keyfilePass)
-	}
-	if err != nil {
-		return err
-	}
-	
-	err = ioutil.WriteFile(cfg.keyfilePath, out, 0600)
 	if err != nil {
 		return err
 	}
@@ -312,25 +295,9 @@ func createDatabases(cfg *config) error {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
 	
-	fmt.Println("The key file and data store have successfully been created.")
-	
 	s, _, _, err := load.Construct(storePass)
 	if err != nil {
 		return fmt.Errorf("Failed to create data store: %v", err)
-	}
-	
-	// Create default mailboxes and associated data.
-	var username string
-	if (cfg.Username != "") {
-		username = cfg.Username
-	} else {
-		// Prompt user for username. 
-		prompt = "\nEnter your username"
-		
-		username, err = promptUsername(prompt)
-		if err != nil {
-			return err
-		}
 	}
 	
 	user, err := s.NewUser(username)
@@ -342,12 +309,31 @@ func createDatabases(cfg *config) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Successfully created default mailboxes.")
+	fmt.Println("The data store has successfully been created with default mailboxes.")
 
 	err = load.Close()
 	if err != nil {
 		return err
 	}
+	
+	// Start by prompting for the private passphrase for the key file.
+	prompt = "Enter passphrase for the key file"
+	for {
+		keyfilePass, err = promptConsolePass(prompt, true)
+		if err != nil {
+			return err
+		}
+		
+		if cfg.PlaintextDB || keyfilePass != nil {
+			break
+		}
+	}
+
+	// Create the key file.
+	fmt.Println("\nCreating the key file...")
+	// Save key file to disk with the specified passphrase, if one was given.
+	saveKeyfile(kmgr, cfg.keyfilePath, keyfilePass)
+	fmt.Println("Keyfile saved.")
 
 	return nil
 }
