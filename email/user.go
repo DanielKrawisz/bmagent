@@ -187,18 +187,25 @@ func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
 func (u *User) DeliverPow(index uint64, obj *wire.MsgObject) error {
 	outbox := u.boxes[OutboxFolderName]
 
+	var bmsg *Bitmessage
 	var idMsg uint64
+	
+	// The error returned by the inner func which signifies that 
+	// a message was found successfully. This error is used to represent
+	// a success case for the query. 
+	var errMessageFound = errors.New("Message found.")
 
 	// Go through all messages in the Outbox and get IDs of all the matches.
 	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
-		bmsg, err := DecodeBitmessage(msg)
-		if err != nil { // (Almost) impossible error.
-			return err
+		var dbErr error
+		bmsg, dbErr = DecodeBitmessage(msg)
+		if dbErr != nil { // (Almost) impossible error.
+			return dbErr
 		}
 		// We have a match!
 		if bmsg.state.PowIndex == index {
 			idMsg = id
-			return errors.New("Message found.")
+			return errMessageFound
 		}
 		return nil
 	})
@@ -206,8 +213,11 @@ func (u *User) DeliverPow(index uint64, obj *wire.MsgObject) error {
 		return fmt.Errorf("Unable to find message in outbox with POW index %d",
 			index)
 	}
+	if err != errMessageFound {
+		return err
+	}
 
-	bmsg := outbox.BitmessageByUID(idMsg)
+	smtpLog.Trace("pow delivered for messege from " + bmsg.From + " to " + bmsg.To)
 
 	// Select new box for the message.
 	var newBoxName string
