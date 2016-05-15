@@ -523,7 +523,7 @@ func (box *mailbox) AddNew(bmsg *Bitmessage, flags types.Flags) error {
 	box.Lock()
 	defer box.Unlock()
 
-	smtpLog.Trace("AddNew: Bitmessage received in folder ", box.Name())
+	smtpLog.Trace("AddNew: Bitmessage received in folder ", box.Name(), " from ", bmsg.From, " to ", bmsg.To)
 
 	if bmsg.state == nil {
 		bmsg.state = &MessageState{}
@@ -552,6 +552,9 @@ func (box *mailbox) MessageSetByUID(set types.SequenceSet) []mailstore.Message {
 	msgs := box.bitmessageSetByUID(set)
 	email := make([]mailstore.Message, len(msgs))
 	for i, msg := range msgs {
+		if msg == nil {
+			panic("nil bitmessage returned!")
+		}
 		email[i], err = msg.ToEmail()
 		if err != nil {
 			imapLog.Errorf("Failed to convert message #%d to e-mail: %v",

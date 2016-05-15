@@ -190,7 +190,7 @@ func (x *MessageSetByUIDTestCase) Check(set []mailstore.Message, t *testing.T) b
 	
 	// There should be none leftover. 
 	if len(m) != 0 {
-		t.Error(len(m), "extra messages were returned: ", m)
+		t.Error("test case ", x.c, ": ", len(m), "extra messages were returned: ", m)
 		return false
 	}
 	
@@ -201,13 +201,43 @@ func testMessageSetByUID(tc TestContext) {
 	tests := []MessageSetByUIDTestCase {
 		// A simple degenerate test case. 
 		MessageSetByUIDTestCase {
-			0, []uint64{}, 1, "1:*", []uint64{}, 
+			0,  []uint64{}, 1, "1:*", []uint64{}, 
 		}, 
 		MessageSetByUIDTestCase {
-			1, []uint64{1}, 1, "1:*", []uint64{1}, 
+			1,  []uint64{}, 6, "1:*", []uint64{1, 2, 3, 4, 5}, 
 		}, 
 		MessageSetByUIDTestCase {
-			2, []uint64{2}, 1, "1:*", []uint64{2}, 
+			2,  []uint64{}, 6, "2:4", []uint64{2, 3, 4}, 
+		}, 
+		MessageSetByUIDTestCase {
+			3,  []uint64{1}, 1, "1:*", []uint64{1}, 
+		}, 
+		MessageSetByUIDTestCase {
+			4,  []uint64{2}, 1, "1:*", []uint64{2}, 
+		}, 
+		MessageSetByUIDTestCase {
+			5,  []uint64{2}, 1, "3:*", []uint64{}, 
+		}, 
+		MessageSetByUIDTestCase {
+			6,  []uint64{1, 3}, 1, "1:*", []uint64{1, 3}, 
+		}, 
+		MessageSetByUIDTestCase {
+			7,  []uint64{1, 3}, 1, "1:1", []uint64{1}, 
+		}, 
+		MessageSetByUIDTestCase {
+			8,  []uint64{1, 3}, 1, "1:2", []uint64{1}, 
+		}, 
+		MessageSetByUIDTestCase {
+			9,  []uint64{1, 3}, 1, "1:3", []uint64{1, 3}, 
+		}, 
+		MessageSetByUIDTestCase {
+			10, []uint64{1, 3}, 1, "1", []uint64{1}, 
+		}, 
+		MessageSetByUIDTestCase {
+			11, []uint64{1, 3}, 1, "3", []uint64{3}, 
+		}, 
+		MessageSetByUIDTestCase {
+			12, []uint64{1, 3}, 1, "*", []uint64{3}, 
 		}, 
 	}
 	

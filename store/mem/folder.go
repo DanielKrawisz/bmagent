@@ -155,6 +155,10 @@ func (f *memFolder) ForEachMessage(lowID, highID, suffix uint64,
 	fn func(id, suffix uint64, msg []byte) error) error {
 	
 	for id, m :=  range f.messages {
+		if (id > highID && highID != 0) || id < lowID {
+			continue	
+		}
+		
 		err := fn(id, m.suffix, m.payload) 
 		
 		if err != nil {
