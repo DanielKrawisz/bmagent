@@ -281,7 +281,11 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 	nonceTrials, extraBytes uint64, genErr error) {
 		
 	smtpLog.Trace("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
-	from := s.GetPrivateID(m.From)
+	fromAddr, err := emailToBM(m.From)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	from := s.GetPrivateID(fromAddr)
 	if from == nil {
 		smtpLog.Error("GenerateObject: no private id known ")
 		return nil, 0, 0, errors.New("Private id not found")
