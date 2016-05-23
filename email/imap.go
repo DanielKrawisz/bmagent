@@ -45,7 +45,7 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 
 // InitializeStore initializes the store by creating the default mailboxes and
 // inserting the welcome message.
-func InitializeUser(u *store.UserData, keys *keymgr.Manager) error {
+func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) error {
 	
 	// Create Inbox.
 	mbox, err := u.NewFolder(InboxFolderName)
@@ -82,10 +82,18 @@ func InitializeUser(u *store.UserData, keys *keymgr.Manager) error {
 		return err
 	}
 	
-	// TODO 
-	// Is the key manager empty? 
-	// If not, generate a key. 
-	if keys.Size() == 0 {
+	// Determine how many new keys to produce. Default is 0, unless
+	// the keymanager is empty, in which case it is 1. 
+	var genkeys uint16
+	
+	if (GenKeys < 0 || keys.Size() == 0) {
+		genkeys = 1
+	} else {
+		genkeys = uint16(GenKeys)
+	}
+	
+	var i uint16
+	for i = 0; i < genkeys; i ++ {
 		keys.NewHDIdentity(1)
 	}
 	

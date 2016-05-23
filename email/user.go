@@ -16,6 +16,7 @@ import (
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/wire"
 	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/message/format"
 )
 
 // User implements the mailstore.User interface and represents
@@ -40,6 +41,7 @@ func NewUser(username string, server ServerOps, keys *keymgr.Manager) (*User, er
 		username : username,
 		boxes:  make(map[string]*mailbox),
 		server: server,
+		keys: keys, 
 	}
 	
 	// The user is allowed to save in some mailboxes but not others.
@@ -101,26 +103,24 @@ func (u *User) DeliverFromBMNet(bm *Bitmessage) error {
 // DeliverFromSMTP adds a message received via SMTP to the POW queue, if needed,
 // and the outbox.
 func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
-	smtpLog.Trace("Bitmessage received from SMTP")
+	smtpLog.Debug("Bitmessage received by SMTP from " + bm.From + " to " + bm.To)
 	
 	// Check for command. 
 	if commandRegex.Match([]byte(bm.To)) {
 		return errors.New("Commands not yet supported.")
-	} else {
+	} 
 
-		// Attempt to run pow on the message and send it off on the network.
-		// This will only happen if the pubkey can be found. An error is only
-		// returned if the message could not be generated and the pubkey request
-		// could not be sent.
-		_, err := bm.SubmitPow(u.server)
-		if err != nil {
-			smtpLog.Error("Unable to submit for proof-of-work: ", err)
-			return err
-		}
-	
+	// Attempt to run pow on the message and send it off on the network.
+	// This will only happen if the pubkey can be found. An error is only
+	// returned if the message could not be generated and the pubkey request
+	// could not be sent.
+	_, err := bm.SubmitPow(u.server)
+	if err != nil {
+		smtpLog.Error("Unable to submit for proof-of-work: ", err)
+		return err
 	}
 
-	// Put message in the right folder.
+	// Put message in outbox.
 	return u.boxes[OutboxFolderName].AddNew(bm, types.FlagSeen)
 }
 
@@ -251,4 +251,45 @@ func (u *User) DeliverPowAck() {
 // received by the recipient.
 func (u *User) DeliverAckReply() {
 	// TODO
+}
+
+// Generate keys creates n new keys for the user and sends him a message
+// about them. 
+func (u *User) GenerateKeys(n uint16) error {
+	if n == 0 {
+		return nil
+	}
+	
+	inbox := u.boxes[InboxFolderName];
+	if inbox == nil {
+		return errors.New("Could not find inbox.");
+	}
+	
+	// first generate the new keys. 
+	var i uint16;
+	keyList := ""
+	for i = 0; i < n; i ++ {
+		addr, err := u.keys.NewHDIdentity(1).Address.Encode()
+		if err != nil {
+			continue
+		}
+		
+		keyList = fmt.Sprint(keyList, fmt.Sprintf("\t%s@bm.addr\n", addr))
+	}
+	
+	message := fmt.Sprintf(newAddressesMsg, keyList)
+	
+	err := inbox.AddNew(&Bitmessage{
+		From: "addresses@bm.agent", 
+		To: "" /*send to all new addresses*/,
+		Message: &format.Encoding2{
+			Subject: "New addresses generated.",
+			Body: message, 
+		}, 
+	}, types.FlagRecent)
+	if err != nil {
+		return err
+	}
+	
+	return nil
 }

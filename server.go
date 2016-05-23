@@ -97,6 +97,9 @@ func newServer(bmd *rpc.Client, user *User, s *store.Store,
 		
 	// Create an email.User from the store.
 	imapUser, err := email.NewUser(user.Username, so, user.Keys)
+	if cfg.GenKeys > 0 {
+		imapUser.GenerateKeys(uint16(cfg.GenKeys));
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -259,6 +262,8 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		log.Errorf("Failed to decode message #%d: %v", counter, err)
 		return
 	}
+	
+	rpccLog.Trace("Bitmessage received from " + bmsg.From + " to " + bmsg.To)
 
 	err = s.imapUser[id].DeliverFromBMNet(bmsg)
 	if err != nil {
@@ -328,6 +333,8 @@ func (s *server) newBroadcast(counter uint64, obj []byte) {
 		log.Errorf("Failed to decode message #%d: %v", counter, err)
 		return
 	}
+	
+	rpccLog.Trace("Bitmessage broadcast received from " + bmsg.From + " to " + bmsg.To)
 
 	err = s.imapUser[1].DeliverFromBMNet(bmsg)
 	if err != nil {
@@ -485,6 +492,7 @@ func (s *server) pkRequestHandler() {
 	}
 }
 
+// Receive a bitmessage object in binary after proof-of-work has been done on it. 
 func (s *server) receiveDonePow(index uint64, user uint32, obj []byte) {
 	// Create MsgObject.
 	msg := &wire.MsgObject{}
@@ -494,14 +502,13 @@ func (s *server) receiveDonePow(index uint64, user uint32, obj []byte) {
 		return
 	}
 
-	// TODO don't do following if object is an ack message
 	// Send the object out on the network.
 	_, err = s.bmd.SendObject(obj)
 	if err != nil {
 		serverLog.Error("Failed to send object:", err)
 		return
 	}
-	serverLog.Trace("powHandler: Object sent to the network.")
+	serverLog.Trace("receiveDonePow: Object sent to the network.")
 
 	if msg.ObjectType == wire.ObjectTypeMsg ||
 		msg.ObjectType == wire.ObjectTypeBroadcast {
@@ -560,7 +567,7 @@ func (s *server) saveData() {
 // or sends a getpubkey request if it doesn't exist in its database. If both
 // return types are nil, it means a getpubkey request has been queued.
 func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*identity.Public, error) {
-	serverLog.Trace("getOrRequestPublicIdentity called for ", address)
+	serverLog.Debug("getOrRequestPublicIdentity called for ", address)
 	id, err := s.bmd.GetIdentity(address)
 	if err == nil {
 		return id, nil
@@ -573,7 +580,7 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 		return nil, fmt.Errorf("Failed to decode address: %v", err)
 	}
 
-	serverLog.Trace("getOrRequestPublicIdentity: address not found, so sent to pow queue.")
+	serverLog.Debug("getOrRequestPublicIdentity: address not found, so send to pow queue.")
 	// We don't have the identity so craft a getpubkey request.
 	var tag wire.ShaHash
 	copy(tag[:], addr.Tag())

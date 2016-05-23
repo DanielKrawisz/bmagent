@@ -23,6 +23,13 @@ private keys for them. You can also send commands to bmagent via the address
 Have a bug to report? Care to help out? Please see our github repo:
 https://github.com/DanielKrawisz/bmagent/`
 
+const newAddressesMsg = `
+You have generated the following new addresses:
+
+%s
+
+You can now receive and send messages with these addresses.`
+
 const commandWelcomeMsg = `
 (put a list of commands here.)`
 

@@ -27,9 +27,12 @@ type serverOps struct {
 // address. If the function returns nil with no error, that means that a pubkey
 // request was successfully queued for proof-of-work.
 func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) {
+	serverLog.Debug("GetOrRequestPublicID for ", addr)
+	
 	// Check the map of cached identities.
 	identity, ok := s.pubIDs[addr]
 	if ok {
+		serverLog.Debug("GetOrRequestPublicID for ", addr)
 		return identity, nil
 	}
 

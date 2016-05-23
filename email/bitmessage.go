@@ -280,7 +280,7 @@ func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, ex
 func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 	nonceTrials, extraBytes uint64, genErr error) {
 		
-	smtpLog.Trace("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
+	smtpLog.Debug("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
 	fromAddr, err := emailToBM(m.From)
 	if err != nil {
 		return nil, 0, 0, err
@@ -334,7 +334,7 @@ func (m *Bitmessage) SubmitPow(s ServerOps) (uint64, error) {
 	// Attempt to generate the wire.Object form of the message.
 	obj, nonceTrials, extraBytes, err := m.GenerateObject(s)
 	if obj == nil {
-		smtpLog.Error("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
+		smtpLog.Debug("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
 		if err == nil {
 			return 0, nil
 		}

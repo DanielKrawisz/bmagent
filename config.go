@@ -54,6 +54,8 @@ const (
 	
 	defaultPlaintextDB = true // TODO change to false for production version.
 	defaultLogConsole = false
+	
+	defaultGenKeys = -1
 )
 
 var (
@@ -103,6 +105,8 @@ type config struct {
 
 	PlaintextDB bool `long:"plaintextdb" description:"Allow plaintext database (useful for testing purposes)."`
 	LogConsole  bool `long:"logconsole" description:"display logs to console."`
+
+	GenKeys int16 `long:"genkeys" description:"number of new keys to generate."`
 
 	powHandler  func(target uint64, hash []byte) uint64
 	storePath   string
@@ -333,6 +337,7 @@ func loadConfig() (*config, []string, error) {
 		BroadcastExpiry: defaultBroadcastExpiry,
 		PlaintextDB:     defaultPlaintextDB,
 		LogConsole:      defaultLogConsole,
+		GenKeys:         defaultGenKeys, 
 	}
 
 	// A config file in the current directory takes precedence.
@@ -485,7 +490,7 @@ func loadConfig() (*config, []string, error) {
 
 		fmt.Fprintln(os.Stderr, err)
 		return nil, nil, err
-	}
+	} 
 
 	// Import private keys from PyBitmessage's keys.dat file.
 	if cfg.ImportKeyFile != "" {

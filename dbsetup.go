@@ -259,6 +259,7 @@ func createDatabases(cfg *config) error {
 		if err != nil {
 			return err
 		}
+		cfg.Username = username
 	}
 
 	// Ascertain the address generation seed. This will either be an
@@ -305,7 +306,7 @@ func createDatabases(cfg *config) error {
 		return err
 	}
 		
-	err = email.InitializeUser(user, kmgr)
+	err = email.InitializeUser(user, kmgr, cfg.GenKeys)
 	if err != nil {
 		return err
 	}
@@ -316,7 +317,7 @@ func createDatabases(cfg *config) error {
 		return err
 	}
 	
-	// Start by prompting for the private passphrase for the key file.
+	// Prompt for the private passphrase for the key file.
 	prompt = "Enter passphrase for the key file"
 	for {
 		keyfilePass, err = promptConsolePass(prompt, true)
