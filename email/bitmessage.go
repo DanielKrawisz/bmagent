@@ -42,6 +42,8 @@ var (
 	ErrInvalidEmail = errors.New(
 			fmt.Sprintf("From address must be of the form %s.", 
 				emailRegexString))
+				
+	bitmessageRegex = regexp.MustCompile(fmt.Sprintf("^%s$", bmAddrPattern))
 	
 	emailRegexString = fmt.Sprintf("^%s@bm\\.addr$", bmAddrPattern)
 
@@ -93,7 +95,7 @@ type ImapData struct {
 // MessageState contains the state of the message as maintained by bmclient.
 type MessageState struct {
 	// Whether a pubkey request is pending for this message.
-	PubkeyRequested bool
+	PubkeyRequestOutstanding bool
 	// The index of a pow computation for this message.
 	PowIndex uint64
 	// The index of a pow computation for the message ack.
@@ -152,7 +154,7 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 			SendTries:       m.state.SendTries,
 			AckExpected:     m.state.AckExpected,
 			AckReceived:     m.state.AckReceived,
-			PubkeyRequested: m.state.PubkeyRequested,
+			PubkeyRequested: m.state.PubkeyRequestOutstanding,
 			PowIndex:        m.state.PowIndex,
 			AckPowIndex:     m.state.AckPowIndex,
 			LastSend:        lastsend,
@@ -305,7 +307,7 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 		}
 		// Indicates that a pubkey request was sent.
 		if to == nil {
-			m.state.PubkeyRequested = true
+			m.state.PubkeyRequestOutstanding = true
 			return nil, 0, 0, nil
 		}
 
@@ -328,7 +330,7 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 }
 
 // SubmitPow attempts to submit a message for pow.
-func (m *Bitmessage) SubmitPow(s ServerOps) (uint64, error) {
+func (m *Bitmessage) SubmitPow(s ServerOps) error {
 	smtpLog.Trace("SubmitPow: message from " + m.From + " to " + m.To + "submitted for pow.")
 	
 	// Attempt to generate the wire.Object form of the message.
@@ -336,9 +338,10 @@ func (m *Bitmessage) SubmitPow(s ServerOps) (uint64, error) {
 	if obj == nil {
 		smtpLog.Debug("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
 		if err == nil {
-			return 0, nil
+			m.state.PubkeyRequestOutstanding = true;
+			return nil
 		}
-		return 0, err
+		return err
 	}
 
 	// If we were able to generate the object, put it in the pow queue.
@@ -349,12 +352,12 @@ func (m *Bitmessage) SubmitPow(s ServerOps) (uint64, error) {
 		uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
 	index, err := s.RunPow(target, q)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	m.state.PowIndex = index
 
-	return index, nil
+	return nil
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
@@ -485,14 +488,14 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 		}
 
 		l.state = &MessageState{
-			PubkeyRequested: msg.State.PubkeyRequested,
-			PowIndex:        msg.State.PowIndex,
-			AckPowIndex:     msg.State.AckPowIndex,
-			SendTries:       msg.State.SendTries,
-			LastSend:        lastSend,
-			AckExpected:     msg.State.AckExpected,
-			AckReceived:     msg.State.AckReceived,
-			Received:        msg.State.Received,
+			PubkeyRequestOutstanding: msg.State.PubkeyRequested,
+			PowIndex:                 msg.State.PowIndex,
+			AckPowIndex:              msg.State.AckPowIndex,
+			SendTries:                msg.State.SendTries,
+			LastSend:                 lastSend,
+			AckExpected:              msg.State.AckExpected,
+			AckReceived:              msg.State.AckReceived,
+			Received:                 msg.State.Received,
 		}
 	}
 

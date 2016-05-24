@@ -114,7 +114,7 @@ func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
 	// This will only happen if the pubkey can be found. An error is only
 	// returned if the message could not be generated and the pubkey request
 	// could not be sent.
-	_, err := bm.SubmitPow(u.server)
+	err := bm.SubmitPow(u.server)
 	if err != nil {
 		smtpLog.Error("Unable to submit for proof-of-work: ", err)
 		return err
@@ -127,7 +127,14 @@ func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
 // DeliverPublicKey takes a public key and attempts to match it with a message.
 // If a matching message is found, the message is encoded to the wire format
 // and sent to the pow queue.
-func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
+func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
+	smtpLog.Debug("Deliver Public Key for address ", bmaddr)
+	
+	// Ensure that the address given is in the form of a bitmessage address.
+	if !bitmessageRegex.Match([]byte(bmaddr)) {
+		return errors.New("Bitmessage address required.")
+	}
+	
 	outbox := u.boxes[OutboxFolderName]
 	var ids []uint64
 
@@ -137,8 +144,9 @@ func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
 		if err != nil { // (Almost) impossible error.
 			return err
 		}
+		
 		// We have a match!
-		if bmsg.state.PubkeyRequested == true && bmsg.To == address {
+		if bmsg.state.PubkeyRequestOutstanding && strings.Contains(bmsg.To, bmaddr) {
 			ids = append(ids, id)
 		}
 		return nil
@@ -148,37 +156,28 @@ func (u *User) DeliverPublicKey(address string, public *identity.Public) error {
 	}
 
 	outbox.Lock()
+	defer outbox.Unlock()
+	
 	for _, id := range ids {
 		bmsg := outbox.BitmessageByUID(id)
-		bmsg.state.PubkeyRequested = false
-		
-		outbox.Lock()
-		err = outbox.saveBitmessage(bmsg)
-		outbox.Unlock()
-		
-		if err != nil {
-			return err
-		}
+		bmsg.state.PubkeyRequestOutstanding = false
 
 		if bmsg.state.AckExpected {
 			// TODO generate the ack and send it to the pow queue.
 		}
 
 		// Add the message to the pow queue.
-		_, err := bmsg.SubmitPow(u.server)
+		err := bmsg.SubmitPow(u.server)
 		if err != nil {
 			return errors.New("Unable to add message to pow queue.")
 		}
 
 		// Save Bitmessage with pow index.
-		outbox.Lock()
 		err = outbox.saveBitmessage(bmsg)
-		outbox.Unlock()
 		if err != nil {
 			return err
 		}
 	}
-	outbox.Unlock()
 
 	return nil
 }

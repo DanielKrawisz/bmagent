@@ -66,11 +66,10 @@ type server struct {
 }
 
 // newServer initializes a new instance of server.
-func newServer(bmd *rpc.Client, user *User, s *store.Store, 
+func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, 
 	q *store.PowQueue, pk *store.PKRequests) (*server, error) {
 
 	srvr := &server{
-		bmd:           bmd,
 		users:         make(map[uint32]*User),
 		store:         s,
 		pk:            pk, 
@@ -78,6 +77,13 @@ func newServer(bmd *rpc.Client, user *User, s *store.Store,
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
 		imapUser:      make(map[uint32]*email.User), 
+	}
+	
+	var err error
+	srvr.bmd, err = rpc.NewClient(rpcc, srvr.newMessage, srvr.newBroadcast, srvr.newGetpubkey)
+	if err != nil {
+		log.Errorf("Cannot create bmd server RPC client: %v", err)
+		return nil, err
 	}
 	
 	// TODO allow for more than one user. Right now there is just 1 user.
@@ -119,9 +125,6 @@ func newServer(bmd *rpc.Client, user *User, s *store.Store,
 
 	// Setup tracer for IMAP.
 	// srvr.imap.Transcript = os.Stderr
-
-	// Set RPC client handlers.
-	bmd.SetHandlers(srvr.newMessage, srvr.newBroadcast, srvr.newGetpubkey)
 
 	// Setup IMAP listeners.
 	for _, laddr := range cfg.IMAPListeners {
@@ -436,7 +439,7 @@ func (s *server) pkRequestHandler() {
 			s.pk.ForEach(func(address string, reqCount uint32,
 				lastReqTime time.Time) error {
 
-				serverLog.Tracef("Checking whether we have public key for %s.",
+				serverLog.Debugf("Checking whether we have public key for %s.",
 					address)
 				wg.Add(1)
 
@@ -446,6 +449,7 @@ func (s *server) pkRequestHandler() {
 
 					public, err := s.bmd.GetIdentity(addr)
 					if err == rpc.ErrIdentityNotFound {
+						serverLog.Debug("identity not found for ", addr)
 						// TODO Check whether lastReqTime has exceeded a set
 						// constant. If it has, send a new request.
 
@@ -468,7 +472,7 @@ func (s *server) pkRequestHandler() {
 			wg.Wait()
 
 			for address, public := range addresses {
-				serverLog.Tracef("Received pubkey for %s. Processing pending messages.",
+				serverLog.Debugf("Received pubkey for %s. Processing pending messages.",
 					address)
 
 				// Process pending messages with this public identity and add
@@ -580,7 +584,7 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 		return nil, fmt.Errorf("Failed to decode address: %v", err)
 	}
 
-	serverLog.Debug("getOrRequestPublicIdentity: address not found, so send to pow queue.")
+	serverLog.Debug("getOrRequestPublicIdentity: address not found, send pubkey request.")
 	// We don't have the identity so craft a getpubkey request.
 	var tag wire.ShaHash
 	copy(tag[:], addr.Tag())

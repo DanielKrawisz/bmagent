@@ -65,7 +65,8 @@ type Client struct {
 }
 
 // NewClient creates a new RPC connection to bmd.
-func NewClient(cfg *ClientConfig) (*Client, error) {
+func NewClient(cfg *ClientConfig, msg, broadcast, getpubkey func(counter uint64, msg []byte)) (*Client, error) {
+		
 	opts := []grpc.DialOption{
 		grpc.WithPerRPCCredentials(
 			pb.NewBasicAuthCredentials(cfg.Username, cfg.Password)),
@@ -98,20 +99,14 @@ func NewClient(cfg *ClientConfig) (*Client, error) {
 	}
 
 	return &Client{
-		bmd:     bmd,
-		conn:    conn,
-		quit:    make(chan struct{}),
-		started: false,
+		bmd:           bmd,
+		conn:          conn,
+		quit:          make(chan struct{}),
+		started:       false,
+		msgFunc:       msg,
+		broadcastFunc: broadcast,
+		getpubkeyFunc: getpubkey,  
 	}, nil
-}
-
-// SetHandlers sets functions to be called on receiving each message and
-// broadcast.
-func (c *Client) SetHandlers(msg, broadcast, getpubkey func(counter uint64,
-	msg []byte)) {
-	c.msgFunc = msg
-	c.broadcastFunc = broadcast
-	c.getpubkeyFunc = getpubkey
 }
 
 // GetIdentity returns the public identity corresponding to the given address
@@ -219,6 +214,12 @@ func (c *Client) Stop() {
 		close(c.quit)
 		c.conn.Close()
 	}
+	
+	// This may eliminate a possible memory leak, since the server struct
+	// from which these functions arose also has a pointer to this rpc client.
+	c.msgFunc = nil
+	c.broadcastFunc = nil
+	c.getpubkeyFunc = nil
 }
 
 // WaitForShutdown blocks until both the client has finished disconnecting

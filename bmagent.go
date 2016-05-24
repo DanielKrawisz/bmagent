@@ -70,18 +70,14 @@ func bmagentMain() error {
 		}()
 	}
 
-	// Connect to bmd.
-	rpcc, err := rpc.NewClient(&rpc.ClientConfig{
+	// Client config for rpc connection to bmd. 
+	rpcc := &rpc.ClientConfig{
 		DisableTLS: cfg.DisableClientTLS,
 		CAFile:     cfg.CAFile,
 		ConnectTo:  cfg.RPCConnect,
 		Username:   cfg.BmdUsername,
 		Password:   cfg.BmdPassword,
 		Timeout:    time.Millisecond * 500, // TODO move to config
-	})
-	if err != nil {
-		log.Errorf("Cannot create bmd server RPC client: %v", err)
-		return err
 	}
 
 	// Initialize all servers.
