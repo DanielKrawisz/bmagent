@@ -94,10 +94,6 @@ func bmagentMain() error {
 	// Shutdown the servers if an interrupt signal is received.
 	addInterruptHandler(server.Stop)
 
-	// Wait for the servers to shutdown either due to a stop RPC request
-	// or an interrupt.
-	server.WaitForShutdown()
-
 	// Monitor for graceful server shutdown and signal the main goroutine
 	// when done. This is done in a separate goroutine rather than waiting
 	// directly so the main goroutine can be signaled for shutdown by either

@@ -102,26 +102,38 @@ func (u *User) DeliverFromBMNet(bm *Bitmessage) error {
 
 // DeliverFromSMTP adds a message received via SMTP to the POW queue, if needed,
 // and the outbox.
-func (u *User) DeliverFromSMTP(bm *Bitmessage) error {
-	smtpLog.Debug("Bitmessage received by SMTP from " + bm.From + " to " + bm.To)
+func (u *User) DeliverFromSMTP(bmsg *Bitmessage) error {
+	smtpLog.Debug("Bitmessage received by SMTP from " + bmsg.From + " to " + bmsg.To)
 	
 	// Check for command. 
-	if commandRegex.Match([]byte(bm.To)) {
+	if commandRegex.Match([]byte(bmsg.To)) {
 		return errors.New("Commands not yet supported.")
 	} 
+	
+	outbox := u.boxes[OutboxFolderName]
+
+	// Put message in outbox.
+	err := outbox.AddNew(bmsg, types.FlagSeen)
+	if err != nil {
+		return nil
+	}
 
 	// Attempt to run pow on the message and send it off on the network.
 	// This will only happen if the pubkey can be found. An error is only
 	// returned if the message could not be generated and the pubkey request
 	// could not be sent.
-	err := bm.SubmitPow(u.server)
+	err = bmsg.SubmitPow(u.server)
 	if err != nil {
 		smtpLog.Error("Unable to submit for proof-of-work: ", err)
 		return err
 	}
-
-	// Put message in outbox.
-	return u.boxes[OutboxFolderName].AddNew(bm, types.FlagSeen)
+	
+	// Save Bitmessage with pow index.
+	err = outbox.saveBitmessage(bmsg)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // DeliverPublicKey takes a public key and attempts to match it with a message.
