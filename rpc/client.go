@@ -154,7 +154,7 @@ func (c *Client) SendObject(obj []byte) (uint64, error) {
 func (c *Client) Start(msgCounter, broadcastCounter, getpubkeyCounter uint64) {
 	c.quitMtx.Lock()
 	c.started = true
-	c.quitMtx.Unlock()
+	defer c.quitMtx.Unlock()
 
 	// Start messages processor.
 	c.wg.Add(1)
@@ -173,6 +173,7 @@ func (c *Client) Start(msgCounter, broadcastCounter, getpubkeyCounter uint64) {
 // each object.
 func (c *Client) processObjects(objType pb.ObjectType, fromCounter uint64,
 	f func(counter uint64, msg []byte)) {
+		
 	defer c.wg.Done()
 
 	stream, err := c.bmd.GetObjects(context.Background(), &pb.GetObjectsRequest{
@@ -192,9 +193,11 @@ func (c *Client) processObjects(objType pb.ObjectType, fromCounter uint64,
 			return
 		default:
 			obj, err := stream.Recv()
+			// We shouldn't show an error if the system is just shutting down. 
 			if err != nil {
-				clientLog.Criticalf("Failed to receive object of type %s: %v",
-					objType, err)
+				if err.Error() != "rpc error: code = 13 desc = transport is closing" {
+					clientLog.Criticalf("Failed to receive object of type %s: %v", objType, err)
+				}
 				return
 			}
 			f(obj.Counter, obj.Contents)
@@ -208,12 +211,8 @@ func (c *Client) Stop() {
 	c.quitMtx.Lock()
 	defer c.quitMtx.Unlock()
 
-	select {
-	case <-c.quit:
-	default:
-		close(c.quit)
-		c.conn.Close()
-	}
+	close(c.quit)
+	c.conn.Close()
 	
 	// This may eliminate a possible memory leak, since the server struct
 	// from which these functions arose also has a pointer to this rpc client.
