@@ -523,7 +523,7 @@ func (box *mailbox) AddNew(bmsg *Bitmessage, flags types.Flags) error {
 	box.Lock()
 	defer box.Unlock()
 
-	smtpLog.Trace("AddNew: Bitmessage received in folder ", box.Name(), " from ", bmsg.From, " to ", bmsg.To)
+	smtpLog.Debug("AddNew: Bitmessage received in folder ", box.Name(), " from ", bmsg.From, " to ", bmsg.To)
 
 	if bmsg.state == nil {
 		bmsg.state = &MessageState{}

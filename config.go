@@ -310,6 +310,17 @@ func checkCreateDir(path string) error {
 	return nil
 }
 
+// newConfigParser returns a new command line flags parser.
+func newConfigParser(cfg *config, appName string, options flags.Options) *flags.Parser {
+	p := flags.NewNamedParser(appName, options)
+
+	if cfg != nil {
+		p.AddGroup("Application Options", "", cfg)
+	}
+
+	return p
+}
+
 // loadConfig initializes and parses the config using a config file and command
 // line options.
 //
@@ -323,6 +334,14 @@ func checkCreateDir(path string) error {
 // settings while still allowing the user to override settings with config files
 // and command line options.  Command line options always take precedence.
 func loadConfig() (*config, []string, error) {
+	
+	appName := filepath.Base(os.Args[0])
+	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
+	
+	return LoadConfig(appName, os.Args[1:])
+}
+
+func LoadConfig(appName string, args []string) (*config, []string, error) {
 	// Default config.
 	cfg := config{
 		DebugLevel:      defaultLogLevel,
@@ -348,8 +367,8 @@ func loadConfig() (*config, []string, error) {
 	// Pre-parse the command line options to see if an alternative config
 	// file or the version flag was specified.
 	preCfg := cfg
-	preParser := flags.NewParser(&preCfg, flags.Default)
-	_, err := preParser.Parse()
+	preParser := newConfigParser(&preCfg, appName, flags.HelpFlag)
+	_, err := preParser.ParseArgs(args)
 	if err != nil {
 		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
 			preParser.WriteHelp(os.Stderr)
@@ -359,8 +378,6 @@ func loadConfig() (*config, []string, error) {
 
 	// Show the version and exit if the version flag was specified.
 	funcName := "loadConfig"
-	appName := filepath.Base(os.Args[0])
-	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
 	usageMessage := fmt.Sprintf("Use %s -h to show usage", appName)
 	if preCfg.ShowVersion {
 		fmt.Println(appName, "version", version())
@@ -369,19 +386,22 @@ func loadConfig() (*config, []string, error) {
 
 	// Load additional config from file.
 	var configFileError error
-	parser := flags.NewParser(&cfg, flags.Default)
-	err = flags.NewIniParser(parser).ParseFile(preCfg.ConfigFile)
-	if err != nil {
-		if _, ok := err.(*os.PathError); !ok {
-			fmt.Fprintln(os.Stderr, err)
-			parser.WriteHelp(os.Stderr)
-			return nil, nil, err
+	parser := newConfigParser(&cfg, appName, flags.Default)
+	if preCfg.ConfigFile != defaultConfigFile || fileExists(preCfg.ConfigFile) {
+		
+		err = flags.NewIniParser(parser).ParseFile(preCfg.ConfigFile)
+		if err != nil {
+			if _, ok := err.(*os.PathError); !ok {
+				fmt.Fprintln(os.Stderr, err)
+				parser.WriteHelp(os.Stderr)
+				return nil, nil, err
+			}
+			configFileError = err
 		}
-		configFileError = err
 	}
 
 	// Parse command line options again to ensure they take precedence.
-	remainingArgs, err := parser.Parse()
+	remainingArgs, err := parser.ParseArgs(args)
 	if err != nil {
 		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
 			parser.WriteHelp(os.Stderr)
