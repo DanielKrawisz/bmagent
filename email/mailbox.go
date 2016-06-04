@@ -116,7 +116,7 @@ type mailbox struct {
 	sub func (*Bitmessage) bool
 	
 	// The set of addresses associated with this folder and their names.
-	addresses    map[string]*string
+	addresses    map[string]string
 	drafts       bool // Whether this is a drafts folder. 
 	
 	sync.RWMutex // Protect the following fields.
@@ -804,7 +804,7 @@ func (box *mailbox) NewMessage() mailstore.Message {
 }
 
 // NewMailbox returns a new mailbox.
-func NewMailbox(mbox store.Folder, addresses map[string]*string) (*mailbox, error) {
+func NewMailbox(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.");
 	}
@@ -822,7 +822,7 @@ func NewMailbox(mbox store.Folder, addresses map[string]*string) (*mailbox, erro
 }
 
 // NewDrafts returns a new Drafts folder.
-func NewDrafts(mbox store.Folder, addresses map[string]*string) (*mailbox, error) {
+func NewDrafts(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}

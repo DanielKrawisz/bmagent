@@ -1,0 +1,82 @@
+[bitmessagesettings]
+settingsversion = 10
+port = 8444
+timeformat = %%a, %%d %%b %%Y  %%I:%%M %%p
+blackwhitelist = black
+startonlogon = false
+minimizetotray = false
+showtraynotifications = true
+startintray = false
+socksproxytype = none
+sockshostname = localhost
+socksport = 9050
+socksauthentication = false
+sockslisten = false
+socksusername = 
+sockspassword = 
+keysencrypted = false
+messagesencrypted = false
+defaultnoncetrialsperbyte = 1000
+defaultpayloadlengthextrabytes = 1000
+minimizeonclose = false
+maxacceptablenoncetrialsperbyte = 0
+maxacceptablepayloadlengthextrabytes = 0
+userlocale = system
+useidenticons = True
+replybelow = False
+maxdownloadrate = 0
+maxuploadrate = 0
+ttl = 367200
+stopresendingafterxdays = 
+stopresendingafterxmonths = 
+namecoinrpctype = namecoind
+namecoinrpchost = localhost
+namecoinrpcuser = 
+namecoinrpcpassword = 
+namecoinrpcport = 8336
+sendoutgoingconnections = True
+
+[BM-2cUfDTJXLeMxAVe7pWXBEneBjDuQ783VSq]
+label = unused deterministic address
+enabled = true
+decoy = false
+noncetrialsperbyte = 1000
+payloadlengthextrabytes = 1000
+privsigningkey = 5JVCLeKx3tNuVNSBmybjkTA8vXvkUsN8Fkt3o7Qmc5NpunmUVan
+privencryptionkey = 5KKbHGh7ZcwM6CqKRaFCqwx3qCyMSBVC56xgtcfrxnonYFNctbu
+
+[BM-2cVauKd3h2FK3dK1FVjahhAk3n95qnVWEU]
+label = unused deterministic address
+enabled = true
+decoy = false
+noncetrialsperbyte = 1000
+payloadlengthextrabytes = 1000
+privsigningkey = 5JoagibK1vNJPiZrRSGBCDi7JF1qmFpeeZDw6BQuKVBScF6v4TB
+privencryptionkey = 5JAzZ2MoQmUQurgLy4k9FxUx7unQ4oZPhXDwQHykKjTkoJskj8T
+
+[BM-2cUyqf27vaFmc723VWZhFwdqpQBqEfKtQ2]
+label = Green Jimmy
+enabled = true
+decoy = false
+noncetrialsperbyte = 1000
+payloadlengthextrabytes = 1000
+privsigningkey = 5JTpTMG8Pdb3iJtfd4pLG5WexAit5wRVh9rcDgum5xThaV4F4RA
+privencryptionkey = 5JFeRzQqBF3vhvUYqcrtXfTrP4bWNmhz8ujVFdGRGFi7d35BRis
+
+[BM-NB1QmZrQSEtJpqLPAMigQNdi5iMiuXQW]
+label = Copenhagen Sun Tsu
+enabled = true
+decoy = false
+noncetrialsperbyte = 1000
+payloadlengthextrabytes = 1000
+privsigningkey = 5KBBqNokT9aZYppihvfWeejim685YVYPSPjSaE5gwU8NUFGfR23
+privencryptionkey = 5J4mn6zYMME6qZgj3MpHCTwifyxoZo1du5VoJRtgU5B4ZdZdRw4
+
+[BM-2cX8ubaVMkrTuAkSNtPgUDYUERbG3gSmYh]
+label = Nothing could be more true. 
+enabled = true
+decoy = false
+noncetrialsperbyte = 1000
+payloadlengthextrabytes = 1000
+privsigningkey = 5K9QciESJPBmxFAnaaAmiGxZYMNr1z4WA1JkFuygp8UUtqLdzZu
+privencryptionkey = 5HrUJz3eqfmfriQmq28xae4wRtZHoyHG3uAkBVBEh1NZZy4BnuS

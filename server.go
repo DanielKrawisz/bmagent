@@ -236,7 +236,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	for uid, user := range s.users {
 		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
 			if cipher.TryDecryptAndVerifyMsg(msg, &id.Private) == nil {
-				address, _ = id.Address.Encode()
+				address = id.Address()
 				ofChan = id.IsChan
 				return errors.New("decryption successful")
 			}
@@ -376,9 +376,9 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 			var cond bool // condition to satisfy
 			switch msg.Version {
 			case wire.SimplePubKeyVersion, wire.ExtendedPubKeyVersion:
-				cond = bytes.Equal(id.Address.Ripe[:], msg.Ripe[:])
+				cond = bytes.Equal(id.Private.Address.Ripe[:], msg.Ripe[:])
 			case wire.TagGetPubKeyVersion:
-				cond = bytes.Equal(id.Address.Tag(), msg.Tag[:])
+				cond = bytes.Equal(id.Private.Address.Tag(), msg.Tag[:])
 			}
 			if cond {
 				privID = id
@@ -394,7 +394,7 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 		return
 	}
 
-	addr, _ := privID.Address.Encode()
+	addr := privID.Address()
 	serverLog.Infof("Received a getpubkey request for %s, sending out the pubkey.", addr)
 
 	// Generate a pubkey message.

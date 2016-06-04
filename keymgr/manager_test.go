@@ -7,8 +7,9 @@ package keymgr_test
 
 import (
 	"bytes"
-	"errors"
 	"testing"
+	"io/ioutil"
+	"fmt"
 
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmutil/identity"
@@ -33,7 +34,7 @@ func TestOperation(t *testing.T) {
 	}
 
 	// Generate first identity and check if everything works as expected.
-	gen1 := mgr.NewHDIdentity(1)
+	gen1 := mgr.NewHDIdentity(1, "Seven Anvil")
 	if gen1.IsChan != false {
 		t.Error("generated identity not a channel")
 	}
@@ -47,7 +48,7 @@ func TestOperation(t *testing.T) {
 	}
 
 	// Generate second identity and check if everything works as expected.
-	gen2 := mgr.NewHDIdentity(1)
+	gen2 := mgr.NewHDIdentity(1, "Intelligent Glue")
 	if gen2.IsChan != false {
 		t.Error("generated identity not a channel")
 	}
@@ -65,14 +66,12 @@ func TestOperation(t *testing.T) {
 	privacyChan := &keymgr.PrivateID{
 		Private: *ids[0],
 		IsChan:  true,
+		Name: "Hyperluminous", 
 	}
 	// Create an address (export fails without this).
 	privacyChan.CreateAddress(4, 1)
 
-	err = mgr.ImportIdentity(privacyChan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mgr.ImportIdentity(*privacyChan)
 	if n := mgr.NumDeterministic(); n != 2 {
 		t.Errorf("invalid latestIDIndex for no identity, expected %d got %d",
 			1, n)
@@ -82,22 +81,15 @@ func TestOperation(t *testing.T) {
 			1, n)
 	}
 
-	// Try to import the same private identity again. Should give error.
-	privacyCpy := *privacyChan
-	err = mgr.ImportIdentity(&privacyCpy)
-	if err == nil {
-		t.Error("did not get error importing duplicate identity")
-	}
-
 	// Try to retrieve private identity from address.
-	privacyAddr, _ := privacyChan.Address.Encode()
+	privacyAddr := privacyChan.Address()
 	privacyRetrieved := mgr.LookupByAddress(privacyAddr)
 	if privacyRetrieved == nil {
 		t.Errorf("LookupByAddress returned nil address")
 	}
-	if !bytes.Equal(privacyRetrieved.Address.Ripe[:], privacyChan.Address.Ripe[:]) {
+	if !bytes.Equal(privacyRetrieved.Private.Address.Ripe[:], privacyChan.Private.Address.Ripe[:]) {
 		t.Errorf("got different ripe, expected %v got %v",
-			privacyChan.Address.Ripe, privacyRetrieved.Address.Ripe)
+			privacyChan.Private.Address.Ripe, privacyRetrieved.Private.Address.Ripe)
 	}
 
 	// Save and encrypt the private keys held by the key manager.
@@ -118,20 +110,17 @@ func TestOperation(t *testing.T) {
 			mgr.NumImported(), mgr1.NumImported())
 	}
 	if mgr.NumDeterministic() != mgr1.NumDeterministic() {
-		t.Errorf("invalid latestIDIndex, expected %d got %d",
+		t.Errorf("invalid number of deterministic keys, expected %d got %d",
 			mgr.NumDeterministic(), mgr1.NumDeterministic())
 	}
 
 	// Remove an imported key and check if the operation is successful.
-	err = mgr1.RemoveImported(privacyChan)
-	if err != nil {
-		t.Fatal(err)
-	}
+	/*mgr1.RemoveImported(privacyChan.Address())
 	if n := mgr1.NumImported(); n != 0 {
 		t.Errorf("invalid numImported for no identity, expected %d got %d",
 			0, n)
 	}
-	err = mgr1.ForEach(func(id *keymgr.PrivateID) error {
+	err = mgr1.ForEach(func(id keymgr.PrivateID) error {
 		if bytes.Equal(id.Tag(), privacyChan.Tag()) {
 			return errors.New("should not happen")
 		}
@@ -139,17 +128,14 @@ func TestOperation(t *testing.T) {
 	})
 	if err != nil {
 		t.Error("imported key not removed from database")
-	}
+	}*/
 
-	// Try to remove a key that doesn't exist in the database. Should give an
-	// error.
-	err = mgr1.RemoveImported(privacyChan)
-	if err == nil {
-		t.Error("did not get error removing nonexistent identity")
-	}
+	// Try to remove a key that doesn't exist in the database. 
+	// Should not crash the program. (function removed)
+	//mgr1.RemoveImported(privacyChan.Address())
 
 	// Try to retrieve non-existant private identity from address.
-	privacyRetrieved = mgr1.LookupByAddress(privacyAddr)
+	privacyRetrieved = mgr1.LookupByAddress("BM-2cUfDTJXLeMxAVe7pWXBEneBjDuQ783VSq")
 	if privacyRetrieved != nil {
 		t.Errorf("expected nil id")
 	}
@@ -166,5 +152,70 @@ func TestErrors(t *testing.T) {
 	_, err = keymgr.FromEncrypted(bytes.Repeat([]byte{0x00}, 100), []byte("pass"))
 	if err == nil {
 		t.Error("decryption failure did not give error")
+	}
+}
+
+
+// Import a key file from pybitmessage or bmagent. 
+func testImportKeyFile(t *testing.T, testID int, file string, addresses map[string]string) {
+	// First load the test file. 
+	b, err := ioutil.ReadFile(file)
+	if err != nil {
+		t.Error(testID, err)
+		return
+	}
+
+	// Create new key manager. 
+	seed := []byte(fmt.Sprintf("Another secure seed: %s", testID))
+	mgr, err := keymgr.New(seed)
+	if err != nil {
+		t.Error(testID, err)
+		return
+	}
+	
+	// Finally import the test file. 
+	keys := mgr.ImportKeys(b)
+	if keys == nil {
+		t.Error(testID, "could not read keys!")
+		return
+	}
+	
+	// Test that the expected values are there. 
+	for addr, name := range addresses {
+		if n, ok := keys[addr]; !ok {
+			if n != name {
+				t.Error(testID, " for address ", addr, " found name ", n, " but expected ", name)
+			}
+		} else {
+			t.Error(testID, " could not find key ", addr)
+		}
+	}
+}
+
+func TestImportKeyFile(t *testing.T) {
+	expected := map[string]string{
+		"BM-2cUfDTJXLeMxAVe7pWXBEneBjDuQ783VSq" : "unused deterministic address", 
+		"BM-2cVauKd3h2FK3dK1FVjahhAk3n95qnVWEU" : "unused deterministic address", 
+		"BM-2cUyqf27vaFmc723VWZhFwdqpQBqEfKtQ2" : "Green Jimmy", 
+		"BM-NB1QmZrQSEtJpqLPAMigQNdi5iMiuXQW" : "Copenhagen Sun Tsu", 
+		"BM-2cX8ubaVMkrTuAkSNtPgUDYUERbG3gSmYh" : "Nothing could be more true.",
+	}
+	
+	testCases := []struct{
+		file string
+		expected map[string]string
+	}{
+		{
+			file: "test/keysPyBitmessage_test.dat",
+			expected: expected, 
+		},
+		{
+			file: "test/keysBmagent_test.dat",
+			expected: expected, 
+		},
+	}
+	
+	for i, test := range testCases {
+		testImportKeyFile(t, i, test.file, nil)
 	}
 }

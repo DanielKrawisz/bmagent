@@ -52,7 +52,7 @@ func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) erro
 	if err != nil {
 		return err
 	}
-	inbox, err := NewMailbox(mbox, keys.Tags())
+	inbox, err := NewMailbox(mbox, keys.Names())
 	if err != nil {
 		return err
 	}
@@ -94,22 +94,22 @@ func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) erro
 	
 	var i uint16
 	for i = 0; i < genkeys; i ++ {
-		keys.NewHDIdentity(1)
+		keys.NewHDIdentity(1, "")
 	}
 	
 	// Get all keys from key manager. 
 	addresses := keys.Addresses()
-	tags := keys.Tags()
+	tags := keys.Names()
 	
 	// For each key, create a mailbox. 
 	var toAddr string
 	keyList := ""
 	
-	for addr, _ := range addresses {
+	for _, addr := range addresses {
 		toAddr = addr
 		var tag string
-		if t, ok := tags[addr]; ok && t != nil {
-			tag = *t
+		if t, ok := tags[addr]; ok {
+			tag = t
 		} 
 		keyList = fmt.Sprint(keyList, fmt.Sprintf("\t%s@bm.addr %s\n", addr, tag))
 	}

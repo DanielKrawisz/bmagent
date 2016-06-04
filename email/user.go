@@ -51,9 +51,9 @@ func NewUser(username string, server ServerOps, keys *keymgr.Manager) (*User, er
 		var err error
 		switch name {
 			case DraftsFolderName:
-			mb, err = NewDrafts(mbox, keys.Tags())
+			mb, err = NewDrafts(mbox, keys.Names())
 			default:
-			mb, err = NewMailbox(mbox, keys.Tags())
+			mb, err = NewMailbox(mbox, keys.Names())
 		}
 		if err != nil {
 			return nil, err
@@ -280,10 +280,7 @@ func (u *User) GenerateKeys(n uint16) error {
 	var i uint16;
 	keyList := ""
 	for i = 0; i < n; i ++ {
-		addr, err := u.keys.NewHDIdentity(1).Address.Encode()
-		if err != nil {
-			continue
-		}
+		addr := u.keys.NewHDIdentity(1, "").Address()
 		
 		keyList = fmt.Sprint(keyList, fmt.Sprintf("\t%s@bm.addr\n", addr))
 	}

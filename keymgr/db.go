@@ -7,6 +7,8 @@ package keymgr
 
 import (
 	"errors"
+	"encoding/json"
+	"io"
 )
 
 // dbInitSize is the size of the ImportedIDs and DerivedIDs slices.
@@ -22,32 +24,41 @@ var (
 type db struct {	
 	// Version is the version of key manager file.
 	Version int `json:"version"`
-
+	
 	// MasterKey is used to derive all HD encryption and signing keys.
 	MasterKey *MasterKey `json:"masterKey"`
-
-	// ImportedIDs contains all IDs that weren't derived from the master key.
-	// This could include channels or addresses imported from PyBitmessage.
-	ImportedIDs []*PrivateID `json:"importedIDs"`
-
-	// DerivedIDs contains all IDs derived from the master key.
-	DerivedIDs []*PrivateID `json:"derivedIDs"`
-
-	// Tagg contains the tags of the identities. 
-	Tags map[string]string
-	
-	// Addresses maps addresses to 
-	Addresses map[string]*PrivateID
 
 	// NewIDIndex contains the index of the next identity that will be derived
 	// according to BIP-BM01.
 	NewIDIndex uint32 `json:"newIDIndex"`
+	
+	// IDs maps addresses to private ids. 
+	IDs map[string]*PrivateID `json:"addresses"`
 }
 
-// init initializes the database struct.
-func (db *db) init() {
-	db.ImportedIDs = make([]*PrivateID, 0, dbInitSize)
-	db.DerivedIDs = make([]*PrivateID, 0, dbInitSize)
+// newDb returns a new db.
+func newDb(key *MasterKey, v int) *db {
+	return &db{
+		MasterKey : key, 
+		Version : v, 
+		IDs : make(map[string]*PrivateID),
+	}
+}
+
+func openDb(r io.Reader) (*db, error) {
+	db := &db{
+		IDs : make(map[string]*PrivateID),
+	}
+	
+	err := json.NewDecoder(r).Decode(db)
+	if err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+func (db *db) Serialize() ([]byte, error) {
+	return json.Marshal(db)
 }
 
 // checkAndUpgrade checks the version of the database and upgrades it if it

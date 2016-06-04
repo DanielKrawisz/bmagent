@@ -19,11 +19,7 @@ type User struct {
 	Pass     []byte
 }
 
-func (u *User) SaveKeyfile() {
-	if (u.Pass == nil && !cfg.PlaintextDB) {
-		log.Warn("No password supplied for keyfile.")
-	}
-	
+func (u *User) SaveKeyfile() {	
 	saveKeyfile(u.Keys, u.Path, u.Pass)
 }
 

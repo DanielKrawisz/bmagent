@@ -23,7 +23,6 @@ import (
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
 	"github.com/DanielKrawisz/bmutil/pow"
-	ini "github.com/vaughan0/go-ini"
 )
 
 const (
@@ -53,7 +52,7 @@ const (
 	defaultUnknownObjExpiry = time.Hour * 24
 	
 	defaultPlaintextDB = true // TODO change to false for production version.
-	defaultLogConsole = false
+	defaultLogConsole = true
 	
 	defaultGenKeys = -1
 )
@@ -523,13 +522,11 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 			return nil, nil, err
 		}
 
-		file, err := ini.LoadFile(cfg.ImportKeyFile)
+		err = importKeyfile(keymgr, cfg.ImportKeyFile)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "Unable to open keyfile for import:", err)
+			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
 		}
-
-		importKeyfile(keymgr, store, file)
 		
 		u := &User{keymgr, cfg.keyfilePath, cfg.Username, cfg.keyfilePass}
 		u.SaveKeyfile()

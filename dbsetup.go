@@ -15,17 +15,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strconv"
 	"strings"
 	"regexp"
+	"errors"
 
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/store"
-	"github.com/DanielKrawisz/bmutil/identity"
-	"github.com/DanielKrawisz/bmutil/pow"
-	ini "github.com/vaughan0/go-ini"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -354,7 +351,7 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 	
 	if cfg.PlaintextDB { // If allowed, check for plaintext key file. 		
 		// Attempt to load unencrypted key file. 
-		kmgr, _, err = keymgr.FromPlaintext(keyFile)
+		kmgr, err = keymgr.FromPlaintext(bytes.NewBuffer(keyFile))
 		if err != nil { 
 			return nil, nil, nil, nil, err
 		}
@@ -408,75 +405,21 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 }
 
 // importKeyfile is used to import a keys.dat file from PyBitmessage. It adds
-// private keys to the key manager and creates mailboxes for them in the data
-// store.
-func importKeyfile(kmgr *keymgr.Manager, str *store.Store, f ini.File) {
-	i := 0
-	for k, v := range f {
-		if k == "bitmessagesettings" {
-			continue
-		}
-
-		signingKey, ok := v["privsigningkey"]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Failed to read signing key for %s.\n", k)
-			continue
-		}
-		encKey, ok := v["privencryptionkey"]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Failed to read encryption key for %s.\n", k)
-			continue
-		}
-
-		address := k
-		nonceTrials := readIniUint64(v, "noncetrialsperbyte", pow.DefaultNonceTrialsPerByte)
-		extraBytes := readIniUint64(v, "payloadlengthextrabytes", pow.DefaultExtraBytes)
-		enabled := readIniBool(v, "enabled", true)
-		isChan := readIniBool(v, "chan", false)
-
-		// Now that we have read everything related to the identity, create it.
-		id, err := identity.ImportWIF(address, signingKey, encKey, nonceTrials, extraBytes)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to create identity (%s) : %v\n",
-				address, err)
-			continue
-		}
-
-		err = kmgr.ImportIdentity(&keymgr.PrivateID{
-			Private:  *id,
-			IsChan:   isChan,
-			Disabled: !enabled,
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to import %s: %v\n", address, err)
-			continue
-		}
-		i++
+// private keys to the key manager.
+func importKeyfile(kmgr *keymgr.Manager, file string) error {
+	b, err := ioutil.ReadFile(file)
+	if err != nil {
+		return err
 	}
-	fmt.Printf("Imported %d private identities.\n", i)
-}
-
-func readIniBool(m map[string]string, key string, defaultValue bool) bool {
-	str, ok := m[key]
-	ret := defaultValue
-	if ok {
-		if strings.ToLower(str) == "false" {
-			ret = false
-		} else if strings.ToLower(str) == "true" {
-			ret = true
-		}
+	
+	keys := kmgr.ImportKeys(b)
+	if keys == nil {
+		return errors.New("Could not read file.")
 	}
-	return ret
-}
-
-func readIniUint64(m map[string]string, key string, defaultValue uint64) uint64 {
-	str, ok := m[key]
-	ret := defaultValue
-	if ok {
-		n, err := strconv.Atoi(str)
-		if err == nil {
-			ret = uint64(n)
-		}
+	
+	for addr, name := range keys {
+		fmt.Printf("Imported address %s %s\n", addr, name)
 	}
-	return ret
+	
+	return nil
 }

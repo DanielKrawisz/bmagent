@@ -36,6 +36,17 @@ type PrivateID struct {
 	
 	// IsImported says whether the identity is imported or derived. 
 	Imported bool
+	
+	// Name is a name for this id. 
+	Name string
+}
+
+func (p *PrivateID) Address() string {
+	str, err := p.Private.Address.Encode()
+	if err != nil {
+		panic(err)
+	}
+	return str
 }
 
 // MarshalJSON marshals the object into JSON. Part of json.Marshaller interface.
@@ -62,7 +73,7 @@ func (k *MasterKey) UnmarshalJSON(in []byte) error {
 
 // MarshalJSON marshals the object into JSON. Part of json.Marshaller interface.
 func (id *PrivateID) MarshalJSON() ([]byte, error) {
-	addr, err := id.Address.Encode()
+	addr, err := id.Private.Address.Encode()
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +87,7 @@ func (id *PrivateID) MarshalJSON() ([]byte, error) {
 		"isChan":             id.IsChan,
 		"disabled":           id.Disabled,
 		"imported":           id.Imported,
+		"name":               id.Name, 
 	})
 }
 
@@ -89,6 +101,7 @@ type privateIDStore struct {
 	IsChan             bool   `json:"isChan"`
 	Disabled           bool   `json:"disabled"`
 	Imported           bool   `json:"imported"`
+	Name               string `json:"name"`
 }
 
 // UnmarshalJSON unmarshals the object from JSON. Part of json.Unmarshaller
@@ -118,7 +131,7 @@ func (id *PrivateID) UnmarshalJSON(in []byte) error {
 		return err
 	}
 
-	id.Address = *addr
+	id.Private.Address = *addr
 	id.SigningKey = signKey
 	id.EncryptionKey = encKey
 	id.NonceTrialsPerByte = stored.NonceTrialsPerByte
@@ -126,6 +139,7 @@ func (id *PrivateID) UnmarshalJSON(in []byte) error {
 	id.IsChan = stored.IsChan
 	id.Disabled = stored.Disabled
 	id.Imported = stored.Imported
+	id.Name = stored.Name
 
 	return nil
 }
