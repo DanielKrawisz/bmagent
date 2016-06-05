@@ -358,19 +358,15 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 		GenKeys:         defaultGenKeys, 
 	}
 
-	// A config file in the current directory takes precedence.
-	if fileExists(defaultConfigFilename) {
-		cfg.ConfigFile = defaultConfigFile
-	}
-
 	// Pre-parse the command line options to see if an alternative config
 	// file or the version flag was specified.
 	preCfg := cfg
 	preParser := newConfigParser(&preCfg, appName, flags.HelpFlag)
 	_, err := preParser.ParseArgs(args)
 	if err != nil {
-		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
-			preParser.WriteHelp(os.Stderr)
+		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
+			fmt.Fprintln(os.Stderr, err)
+			return nil, nil, err
 		}
 		return nil, nil, err
 	}
