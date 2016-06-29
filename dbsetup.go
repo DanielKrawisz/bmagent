@@ -259,24 +259,31 @@ func createDatabases(cfg *config) error {
 		cfg.Username = username
 	}
 
-	// Ascertain the address generation seed. This will either be an
-	// automatically generated value the user has already confirmed or a value
-	// the user has entered which has already been validated.
-	seed, err := promptConsoleSeed()
+	// Ascertain the address generation seed. 
+	var seed []byte
+	if cfg.Seed != "" {
+		seed, err = hex.DecodeString(cfg.Seed)
+	} else {
+		seed, err = promptConsoleSeed()
+	}
 	if err != nil {
 		return err
 	}
 
-	// Prompt for the private passphrase for the data store.
-	prompt = "\nEnter passphrase for the data store"
-	for {
-		storePass, err = promptConsolePass(prompt, true)
-		if err != nil {
-			return err
-		}
-		
-		if cfg.PlaintextDB || storePass != nil {
-			break
+	if cfg.NoPass {
+		storePass = []byte{}
+	} else {	
+		// Prompt for the private passphrase for the data store.
+		prompt = "\nEnter passphrase for the data store"
+		for {
+			storePass, err = promptConsolePass(prompt, true)
+			if err != nil {
+				return err
+			}
+			
+			if storePass != nil {
+				break
+			}
 		}
 	}
 
@@ -314,16 +321,20 @@ func createDatabases(cfg *config) error {
 		return err
 	}
 	
-	// Prompt for the private passphrase for the key file.
-	prompt = "Enter passphrase for the key file"
-	for {
-		keyfilePass, err = promptConsolePass(prompt, true)
-		if err != nil {
-			return err
-		}
-		
-		if cfg.PlaintextDB || keyfilePass != nil {
-			break
+	if cfg.NoPass {
+		keyfilePass = []byte{}
+	} else {	
+		// Prompt for the private passphrase for the key file.
+		prompt = "Enter passphrase for the key file"
+		for {
+			keyfilePass, err = promptConsolePass(prompt, true)
+			if err != nil {
+				return err
+			}
+			
+			if keyfilePass != nil {
+				break
+			}
 		}
 	}
 
@@ -349,7 +360,7 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 	
 	var kmgr *keymgr.Manager
 	
-	if cfg.PlaintextDB { // If allowed, check for plaintext key file. 		
+	if cfg.NoPass { // If allowed, check for plaintext key file. 		
 		// Attempt to load unencrypted key file. 
 		kmgr, err = keymgr.FromPlaintext(bytes.NewBuffer(keyFile))
 		if err != nil { 
@@ -384,7 +395,7 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 	var q *store.PowQueue
 	var pk *store.PKRequests
 	
-	if cfg.PlaintextDB && !load.IsEncrypted() {
+	if cfg.NoPass && !load.IsEncrypted() {
 		dstore, q, pk, err = load.Construct(nil)
 	} else {
 		

@@ -51,7 +51,6 @@ const (
 	defaultGetpubkeyExpiry  = time.Hour * 24 * 14 // 14 days
 	defaultUnknownObjExpiry = time.Hour * 24
 	
-	defaultPlaintextDB = true // TODO change to false for production version.
 	defaultLogConsole = true
 	
 	defaultGenKeys = -1
@@ -77,6 +76,8 @@ type config struct {
 
 	Create        bool   `long:"create" description:"Create the identity and message databases if they don't exist"`
 	ImportKeyFile string `long:"importkeyfile" description:"Path to keys.db from PyBitmessage. If set, private keys from this file are imported into bmagent"`
+	NoPass        bool   `long:"nopass" description:"Keyfile and database are created unencrypted"`
+	Seed          string `long:"seed" description:"Used with --create. Used to specify the seed for a new keyset"`
 
 	EnableRPC     bool     `long:"rpc" description:"Enable built-in RPC server -- NOTE: The RPC server is disabled by default"`
 	RPCListeners  []string `long:"rpclisten" description:"Listen for RPC/websocket connections on this interface/port (default port: 8446)"`
@@ -102,7 +103,6 @@ type config struct {
 	MsgExpiry       time.Duration `long:"msgexpiry" description:"Time after which a message sent out should expire, more means more time for POW calculations"`
 	BroadcastExpiry time.Duration `long:"broadcastexpiry" description:"Time after which a broadcast sent out should expire, more means more time for POW calculations"`
 
-	PlaintextDB bool `long:"plaintextdb" description:"Allow plaintext database (useful for testing purposes)."`
 	LogConsole  bool `long:"logconsole" description:"display logs to console."`
 
 	GenKeys int16 `long:"genkeys" description:"number of new keys to generate."`
@@ -353,7 +353,6 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 		ProofOfWork:     defaultPowHandler,
 		MsgExpiry:       defaultMsgExpiry,
 		BroadcastExpiry: defaultBroadcastExpiry,
-		PlaintextDB:     defaultPlaintextDB,
 		LogConsole:      defaultLogConsole,
 		GenKeys:         defaultGenKeys, 
 	}
@@ -364,6 +363,7 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 	preParser := newConfigParser(&preCfg, appName, flags.HelpFlag)
 	_, err := preParser.ParseArgs(args)
 	if err != nil {
+		println("Got error ", err.Error())
 		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
