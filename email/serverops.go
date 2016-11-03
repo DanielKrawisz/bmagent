@@ -32,8 +32,11 @@ type ServerOps interface {
 	GetObjectExpiry(wire.ObjectType) time.Duration
 
 	// RunPow submits some data to have the pow calculated and submitted to the network.
-	RunPow(uint64, []byte) (uint64, error)
+	RunPow(uint64, []byte, func(obj []byte))
 
 	// Mailboxes returns the set of mailboxes in the store.
 	Folders() []store.Folder
+	
+	// Send sends a message out into the network. 
+	Send(obj []byte)
 }

@@ -257,7 +257,7 @@ func (tc *mailboxTestContext) T() *testing.T {
 
 func (tc *mailboxTestContext) MakeMailbox(name string, emails []uint64, nextId uint64) email.Mailbox {
 
-	mb, err := email.NewMailbox(mem.NewFolder(name), make(map[string]*string))
+	mb, err := email.NewMailbox(mem.NewFolder(name), make(map[string]string))
 	if err != nil {
 		fmt.Println("Err constructing mailbox: ", err)
 		return nil

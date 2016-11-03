@@ -677,7 +677,7 @@ func (box *mailbox) Save(email *IMAPEmail) error {
 	if box.drafts {
 		msg, err = NewBitmessageDraftFromSMTP(email.Content)
 	} else {
-		msg, err = NewBitmessageFromSMTP(email.Content)
+		msg, err = NewBitmessageFromSMTP(email.Content, nil)
 	}
 	if err != nil {
 		imapLog.Errorf("Error saving message #%d: %v", email.ImapUID, err)

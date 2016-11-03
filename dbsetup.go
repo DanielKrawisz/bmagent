@@ -300,7 +300,7 @@ func createDatabases(cfg *config) error {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
 	
-	s, _, _, err := load.Construct(storePass)
+	s, _, err := load.Construct(storePass)
 	if err != nil {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
@@ -349,13 +349,12 @@ func createDatabases(cfg *config) error {
 
 // openDatabases returns an instance of keymgr.Manager, and store.Store based on
 // the configuration.
-func openDatabases(cfg *config) (*keymgr.Manager, 
-	*store.Store, *store.PowQueue, *store.PKRequests, error) {
+func openDatabases(cfg *config) (*keymgr.Manager, *store.Store, *store.PKRequests, error) {
 		
 	// Read key file.
 	keyFile, err := ioutil.ReadFile(cfg.keyfilePath)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	
 	var kmgr *keymgr.Manager
@@ -364,7 +363,7 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 		// Attempt to load unencrypted key file. 
 		kmgr, err = keymgr.FromPlaintext(bytes.NewBuffer(keyFile))
 		if err != nil { 
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 	
@@ -373,13 +372,13 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 		// Read key file passphrase from console.
 		keyfilePass, err := promptKeyfilePassPhrase()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 	
 		// Create an instance of key manager.
 		kmgr, err = keymgr.FromEncrypted(keyFile, keyfilePass)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("Failed to create key manager: %v", err)
+			return nil, nil, nil, fmt.Errorf("Failed to create key manager: %v", err)
 		}
 	
 		cfg.keyfilePass = keyfilePass
@@ -388,31 +387,30 @@ func openDatabases(cfg *config) (*keymgr.Manager,
 	
 	load, err := store.Open(cfg.storePath)
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 	
 	var dstore *store.Store
-	var q *store.PowQueue
 	var pk *store.PKRequests
 	
 	if cfg.NoPass && !load.IsEncrypted() {
-		dstore, q, pk, err = load.Construct(nil)
+		dstore, pk, err = load.Construct(nil)
 	} else {
 		
 		// Read store passphrase from console.
 		storePass, err := promptStorePassPhrase()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			return nil, nil, nil, err
 		}
 	
 		// Open store.
-		dstore, q, pk, err = load.Construct(storePass)
+		dstore, pk, err = load.Construct(storePass)
 		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("Failed to open data store: %v", err)
+			return nil, nil, nil, fmt.Errorf("Failed to open data store: %v", err)
 		}
 	}
 
-	return kmgr, dstore, q, pk, nil
+	return kmgr, dstore, pk, nil
 }
 
 // importKeyfile is used to import a keys.dat file from PyBitmessage. It adds

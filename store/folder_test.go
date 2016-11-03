@@ -25,7 +25,7 @@ func TestFolder(t *testing.T) {
 
 	pass := []byte("password")
 	l, err := store.Open(fName)
-	s, _, _, err := l.Construct(pass)
+	s, _, err := l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	l, err = store.Open(fName)
-	s, _, _, err = l.Construct(pass)
+	s, _, err = l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func NewUserData(t *testing.T) *store.UserData {
 
 	pass := []byte("password")
 	l, err := store.Open(fName)
-	s, _, _, err := l.Construct(pass)
+	s, _, err := l.Construct(pass)
 	if err != nil {
 		t.Fatal(err)
 	}

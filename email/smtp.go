@@ -167,7 +167,7 @@ func (s *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, err
 	message := smtpMessage.Parse("bmagent")
 
 	// Convert to bitmessage.
-	bm, err := NewBitmessageFromSMTP(message.Content)
+	bm, err := NewBitmessageFromSMTP(message.Content, nil)
 	if err != nil {
 		smtpLog.Error("NewBitmessageFromSMTP gave error: ", err)
 		return "", err

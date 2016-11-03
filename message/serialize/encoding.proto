@@ -21,8 +21,6 @@ message Message {
 // MessageState is the state of the message. 
 message MessageState {
 	bool   pubkey_requested = 1;
-	uint64 pow_index         = 2;
-	uint64 ack_pow_index     = 3;
 	uint32 send_tries        = 4;
 	string last_send         = 5;
 	bool   ack_received      = 6;

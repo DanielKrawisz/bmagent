@@ -17,26 +17,37 @@ It has these top-level messages:
 package serialize
 
 import proto "github.com/golang/protobuf/proto"
+import fmt "fmt"
+import math "math"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
+var _ = fmt.Errorf
+var _ = math.Inf
+
+// This is a compile-time assertion to ensure that this generated file
+// is compatible with the proto package it is being compiled against.
+// A compilation error at this line likely means your copy of the
+// proto package needs to be updated.
+const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
 // Message is a bitmessage.
 type Message struct {
 	Encoding   *Encoding     `protobuf:"bytes,1,opt,name=encoding" json:"encoding,omitempty"`
 	From       string        `protobuf:"bytes,2,opt,name=from" json:"from,omitempty"`
 	To         string        `protobuf:"bytes,3,opt,name=to" json:"to,omitempty"`
-	OfChannel  bool          `protobuf:"varint,4,opt,name=of_channel" json:"of_channel,omitempty"`
+	OfChannel  bool          `protobuf:"varint,4,opt,name=of_channel,json=ofChannel" json:"of_channel,omitempty"`
 	Expiration string        `protobuf:"bytes,5,opt,name=expiration" json:"expiration,omitempty"`
 	Ack        []byte        `protobuf:"bytes,6,opt,name=ack,proto3" json:"ack,omitempty"`
-	ImapData   *ImapData     `protobuf:"bytes,7,opt,name=imap_data" json:"imap_data,omitempty"`
+	ImapData   *ImapData     `protobuf:"bytes,7,opt,name=imap_data,json=imapData" json:"imap_data,omitempty"`
 	Object     []byte        `protobuf:"bytes,8,opt,name=object,proto3" json:"object,omitempty"`
 	State      *MessageState `protobuf:"bytes,9,opt,name=state" json:"state,omitempty"`
 }
 
-func (m *Message) Reset()         { *m = Message{} }
-func (m *Message) String() string { return proto.CompactTextString(m) }
-func (*Message) ProtoMessage()    {}
+func (m *Message) Reset()                    { *m = Message{} }
+func (m *Message) String() string            { return proto.CompactTextString(m) }
+func (*Message) ProtoMessage()               {}
+func (*Message) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{0} }
 
 func (m *Message) GetEncoding() *Encoding {
 	if m != nil {
@@ -61,30 +72,30 @@ func (m *Message) GetState() *MessageState {
 
 // MessageState is the state of the message.
 type MessageState struct {
-	PubkeyRequested bool   `protobuf:"varint,1,opt,name=pubkey_requested" json:"pubkey_requested,omitempty"`
-	PowIndex        uint64 `protobuf:"varint,2,opt,name=pow_index" json:"pow_index,omitempty"`
-	AckPowIndex     uint64 `protobuf:"varint,3,opt,name=ack_pow_index" json:"ack_pow_index,omitempty"`
-	SendTries       uint32 `protobuf:"varint,4,opt,name=send_tries" json:"send_tries,omitempty"`
-	LastSend        string `protobuf:"bytes,5,opt,name=last_send" json:"last_send,omitempty"`
-	AckReceived     bool   `protobuf:"varint,6,opt,name=ack_received" json:"ack_received,omitempty"`
-	AckExpected     bool   `protobuf:"varint,7,opt,name=ack_expected" json:"ack_expected,omitempty"`
+	PubkeyRequested bool   `protobuf:"varint,1,opt,name=pubkey_requested,json=pubkeyRequested" json:"pubkey_requested,omitempty"`
+	SendTries       uint32 `protobuf:"varint,4,opt,name=send_tries,json=sendTries" json:"send_tries,omitempty"`
+	LastSend        string `protobuf:"bytes,5,opt,name=last_send,json=lastSend" json:"last_send,omitempty"`
+	AckReceived     bool   `protobuf:"varint,6,opt,name=ack_received,json=ackReceived" json:"ack_received,omitempty"`
+	AckExpected     bool   `protobuf:"varint,7,opt,name=ack_expected,json=ackExpected" json:"ack_expected,omitempty"`
 	Received        bool   `protobuf:"varint,8,opt,name=received" json:"received,omitempty"`
 }
 
-func (m *MessageState) Reset()         { *m = MessageState{} }
-func (m *MessageState) String() string { return proto.CompactTextString(m) }
-func (*MessageState) ProtoMessage()    {}
+func (m *MessageState) Reset()                    { *m = MessageState{} }
+func (m *MessageState) String() string            { return proto.CompactTextString(m) }
+func (*MessageState) ProtoMessage()               {}
+func (*MessageState) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{1} }
 
 // ImapData is an entry in the database that contains a message and
 // some related metadata.
 type ImapData struct {
-	TimeReceived string `protobuf:"bytes,1,opt,name=time_received" json:"time_received,omitempty"`
+	TimeReceived string `protobuf:"bytes,1,opt,name=time_received,json=timeReceived" json:"time_received,omitempty"`
 	Flags        int32  `protobuf:"varint,2,opt,name=flags" json:"flags,omitempty"`
 }
 
-func (m *ImapData) Reset()         { *m = ImapData{} }
-func (m *ImapData) String() string { return proto.CompactTextString(m) }
-func (*ImapData) ProtoMessage()    {}
+func (m *ImapData) Reset()                    { *m = ImapData{} }
+func (m *ImapData) String() string            { return proto.CompactTextString(m) }
+func (*ImapData) ProtoMessage()               {}
+func (*ImapData) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{2} }
 
 // Encoding a bitmessage object payload.
 type Encoding struct {
@@ -93,6 +104,46 @@ type Encoding struct {
 	Body    []byte `protobuf:"bytes,3,opt,name=body,proto3" json:"body,omitempty"`
 }
 
-func (m *Encoding) Reset()         { *m = Encoding{} }
-func (m *Encoding) String() string { return proto.CompactTextString(m) }
-func (*Encoding) ProtoMessage()    {}
+func (m *Encoding) Reset()                    { *m = Encoding{} }
+func (m *Encoding) String() string            { return proto.CompactTextString(m) }
+func (*Encoding) ProtoMessage()               {}
+func (*Encoding) Descriptor() ([]byte, []int) { return fileDescriptor0, []int{3} }
+
+func init() {
+	proto.RegisterType((*Message)(nil), "Message")
+	proto.RegisterType((*MessageState)(nil), "MessageState")
+	proto.RegisterType((*ImapData)(nil), "ImapData")
+	proto.RegisterType((*Encoding)(nil), "Encoding")
+}
+
+func init() { proto.RegisterFile("encoding.proto", fileDescriptor0) }
+
+var fileDescriptor0 = []byte{
+	// 413 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x4c, 0x92, 0xcf, 0x8e, 0xd3, 0x30,
+	0x10, 0xc6, 0xd5, 0x6e, 0xff, 0x38, 0xd3, 0x74, 0x59, 0x59, 0x08, 0x59, 0x20, 0x10, 0x14, 0x81,
+	0xe0, 0xd2, 0x03, 0xbc, 0x01, 0xd0, 0x03, 0x07, 0x24, 0xe4, 0xe5, 0xc4, 0x25, 0x72, 0x93, 0x49,
+	0x31, 0xdb, 0xc6, 0x21, 0x76, 0x11, 0xcb, 0x23, 0xf0, 0x82, 0xbc, 0x0e, 0xe3, 0x89, 0x13, 0xf6,
+	0x36, 0xf3, 0x9b, 0x99, 0x4c, 0xbe, 0xcf, 0x03, 0x97, 0xd8, 0x94, 0xae, 0xb2, 0xcd, 0x61, 0xdb,
+	0x76, 0x2e, 0xb8, 0xcd, 0x9f, 0x29, 0x2c, 0x3f, 0xa1, 0xf7, 0xe6, 0x80, 0xf2, 0x05, 0x88, 0xa1,
+	0xaa, 0x26, 0x4f, 0x27, 0xaf, 0x56, 0x6f, 0xb2, 0xed, 0x2e, 0x01, 0x3d, 0x96, 0xa4, 0x84, 0x59,
+	0xdd, 0xb9, 0x93, 0x9a, 0x52, 0x4b, 0xa6, 0x39, 0x96, 0x97, 0x30, 0x0d, 0x4e, 0x5d, 0x30, 0xa1,
+	0x48, 0x3e, 0x06, 0x70, 0x75, 0x51, 0x7e, 0x33, 0x4d, 0x83, 0x47, 0x35, 0x23, 0x2e, 0x74, 0xe6,
+	0xea, 0xf7, 0x3d, 0x90, 0x4f, 0x00, 0xf0, 0x57, 0x6b, 0x3b, 0x13, 0xac, 0x6b, 0xd4, 0x9c, 0xc7,
+	0xee, 0x10, 0x79, 0x05, 0x17, 0xa6, 0xbc, 0x51, 0x0b, 0x2a, 0xe4, 0x3a, 0x86, 0xf2, 0x25, 0x64,
+	0xf6, 0x64, 0xda, 0xa2, 0x32, 0xc1, 0xa8, 0x65, 0xfa, 0xb9, 0x8f, 0x44, 0x3e, 0x10, 0xd0, 0xc2,
+	0xa6, 0x48, 0x3e, 0x80, 0x85, 0xdb, 0x7f, 0xc7, 0x32, 0x28, 0xc1, 0xc3, 0x29, 0x93, 0xcf, 0x61,
+	0xee, 0x83, 0x09, 0xa8, 0x32, 0x9e, 0x5d, 0x6f, 0x93, 0xe8, 0xeb, 0x08, 0x75, 0x5f, 0xdb, 0xfc,
+	0x9d, 0x40, 0x7e, 0x97, 0xcb, 0xd7, 0x70, 0xd5, 0x9e, 0xf7, 0x37, 0x78, 0x5b, 0x74, 0xf8, 0xe3,
+	0x8c, 0x3e, 0x60, 0xc5, 0xce, 0x08, 0x7d, 0xaf, 0xe7, 0x7a, 0xc0, 0x51, 0xb1, 0xc7, 0xa6, 0x2a,
+	0x42, 0x67, 0xd1, 0xb3, 0xe2, 0xb5, 0xce, 0x22, 0xf9, 0x12, 0x81, 0x7c, 0x04, 0xd9, 0xd1, 0xf8,
+	0x50, 0x44, 0x92, 0x04, 0x8b, 0x08, 0xae, 0x29, 0x97, 0xcf, 0x20, 0x27, 0x8d, 0xb4, 0xa3, 0x44,
+	0xfb, 0x93, 0x56, 0x2c, 0x78, 0xc5, 0x8a, 0x98, 0x4e, 0x68, 0x68, 0x21, 0x8f, 0x48, 0x0d, 0xb5,
+	0x2c, 0xc7, 0x96, 0x5d, 0x42, 0xf2, 0x21, 0x88, 0xf1, 0x0b, 0x82, 0xcb, 0x63, 0xbe, 0xd9, 0x81,
+	0x18, 0xcc, 0x22, 0x2b, 0xd6, 0xc1, 0x9e, 0xf0, 0xff, 0xba, 0x09, 0xff, 0x4e, 0x1e, 0xe1, 0xb8,
+	0xef, 0x3e, 0xcc, 0xeb, 0xa3, 0x39, 0x78, 0x7e, 0xe5, 0xb9, 0xee, 0x93, 0xcd, 0x67, 0x10, 0xc3,
+	0x41, 0x44, 0xa7, 0x6b, 0xd7, 0x9d, 0x4c, 0xe0, 0xf9, 0x99, 0x4e, 0x99, 0x54, 0xb0, 0xf4, 0xe7,
+	0xfe, 0x09, 0xa6, 0xfc, 0x04, 0x43, 0x1a, 0x0f, 0x67, 0xef, 0xaa, 0x5b, 0x3e, 0x93, 0x5c, 0x73,
+	0xfc, 0x6e, 0xf5, 0x95, 0x4c, 0xea, 0xac, 0x39, 0xda, 0xdf, 0xb8, 0x5f, 0xf0, 0x4d, 0xbe, 0xfd,
+	0x17, 0x00, 0x00, 0xff, 0xff, 0xd2, 0x99, 0xf1, 0xd3, 0xa5, 0x02, 0x00, 0x00,
+}

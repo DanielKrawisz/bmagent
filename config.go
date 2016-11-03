@@ -512,7 +512,7 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 		cfg.ImportKeyFile = cleanAndExpandPath(cfg.ImportKeyFile)
 
 		// We need to open the keyfile and store.
-		keymgr, store, _, _, err := openDatabases(&cfg)
+		keymgr, store, _, err := openDatabases(&cfg)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Unable to open databases:", err)
 			return nil, nil, err

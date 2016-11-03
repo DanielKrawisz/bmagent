@@ -24,7 +24,7 @@ func TestPKRequests(t *testing.T) {
 	f.Close()
 
 	l, err := store.Open(fName)
-	s, _, pk, err := l.Construct([]byte("password"))
+	s, pk, err := l.Construct([]byte("password"))
 	if err != nil {
 		t.Fatal(err)
 	}

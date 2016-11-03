@@ -50,7 +50,7 @@ type server struct {
 	users            map[uint32]*User
 	store            *store.Store
 	pk               *store.PKRequests
-	powManager       *powmgr.PowManager
+	pow              *powmgr.Pow
 	started          int32
 	shutdown         int32
 	msgCounter       uint64
@@ -66,8 +66,7 @@ type server struct {
 }
 
 // newServer initializes a new instance of server.
-func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, 
-	q *store.PowQueue, pk *store.PKRequests) (*server, error) {
+func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, pk *store.PKRequests) (*server, error) {
 
 	srvr := &server{
 		users:         make(map[uint32]*User),
@@ -161,7 +160,7 @@ func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store,
 	}
 
 	// Setup pow manager.
-	srvr.powManager = powmgr.New(q, srvr.receiveDonePow, cfg.powHandler)
+	srvr.pow = powmgr.New(cfg.powHandler)
 
 	return srvr, nil
 }
@@ -195,10 +194,6 @@ func (s *server) Start() {
 	serverLog.Info("Starting public key request handler.")
 	s.wg.Add(1)
 	go s.pkRequestHandler()
-
-	// Start proof of work manager.
-	serverLog.Info("Starting proof-of-work manager.")
-	s.powManager.Start()
 
 	// Start saving data periodically.
 	s.wg.Add(1)
@@ -363,11 +358,9 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 	}
 
 	var privID *keymgr.PrivateID
-	var id uint32
 
 	// Check if the getpubkey request corresponds to any of our identities.
-	for uid, user := range s.users {
-		id = uid
+	for _, user := range s.users {
 		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
 			if id.Disabled || id.IsChan { // We don't care about these.
 				return nil
@@ -404,17 +397,13 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 		return
 	}
 
-	// Add it to POW queue.
+	// Add it to pow queue.
 	b := wire.EncodeMessage(pkMsg)[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
 		uint64(pkMsg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	_, err = s.powManager.RunPow(target, id, b)
-	if err != nil {
-		serverLog.Critical("Failed to enqueue pow request:", err)
-		return
-	}
+	s.pow.Run(target, b, nil)
 }
 
 // pkRequestHandler manages the pubkey request store. It periodically checks
@@ -496,32 +485,14 @@ func (s *server) pkRequestHandler() {
 	}
 }
 
-// Receive a bitmessage object in binary after proof-of-work has been done on it. 
-func (s *server) receiveDonePow(index uint64, user uint32, obj []byte) {
-	// Create MsgObject.
-	msg := &wire.MsgObject{}
-	err := msg.Decode(bytes.NewReader(obj))
-	if err != nil {
-		serverLog.Critical("MsgObject.Decode failed: ", err)
-		return
-	}
-
-	// Send the object out on the network.
-	_, err = s.bmd.SendObject(obj)
+func (s *server) Send(obj []byte) error {	// Send the object out on the network.
+	_, err := s.bmd.SendObject(obj)
 	if err != nil {
 		serverLog.Error("Failed to send object:", err)
-		return
+		return err
 	}
-	serverLog.Trace("receiveDonePow: Object sent to the network.")
-
-	if msg.ObjectType == wire.ObjectTypeMsg ||
-		msg.ObjectType == wire.ObjectTypeBroadcast {
-		err := s.imapUser[user].DeliverPow(index, msg)
-		if err != nil {
-			serverLog.Critical("DeliverPow failed: ", err)
-			return
-		}
-	}
+	
+	return nil
 }
 
 // savePeriodically periodically saves data in memory to the disk. This is to
@@ -598,10 +569,9 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 		uint64(msg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	_, err = s.powManager.RunPow(target, user, b)
-	if err != nil {
-		return nil, err
-	}
+	s.pow.Run(target, b, func(obj []byte) {
+		s.Send(obj)
+	})
 
 	// Store a record of the public key request.
 	count, err := s.pk.New(address)
@@ -636,7 +606,6 @@ func (s *server) Stop() {
 	s.imapUser = nil // Prevent pointer cycle.
 
 	s.bmd.Stop()
-	s.powManager.Stop()
 	close(s.quit)
 }
 

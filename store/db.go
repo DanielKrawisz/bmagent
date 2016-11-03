@@ -159,10 +159,10 @@ func (l *Loader) IsEncrypted() bool {
 }
 
 // Construct creates a new Store from the given file.
-func (l *Loader) Construct(pass []byte) (*Store, *PowQueue, *PKRequests, error) {
+func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
 	
 	if l.db == nil {
-		return nil, nil, nil, errors.New("Closed database.");
+		return nil, nil, errors.New("Closed database.");
 	}
 	
 	if pass == nil {
@@ -272,7 +272,7 @@ func (l *Loader) Construct(pass []byte) (*Store, *PowQueue, *PKRequests, error) 
 	
 	if err != nil {
 		l.Close()
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	
 	store := &Store{
@@ -280,22 +280,16 @@ func (l *Loader) Construct(pass []byte) (*Store, *PowQueue, *PKRequests, error) 
 		Users: make(map[string]*UserData),
 		masterKey: &masterKey,
 	}
-	
-	q, err := newPowQueue(l.db)
-	if err != nil {
-		l.Close()
-		return nil, nil, nil, err
-	}
 
 	err = initializePKRequestStore(l.db)
 	if err != nil {
 		l.Close()
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	
 	if err != nil {
 		l.Close()
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	
 	// Load existing users.
@@ -309,14 +303,14 @@ func (l *Loader) Construct(pass []byte) (*Store, *PowQueue, *PKRequests, error) 
 	})
 	if err != nil {
 		l.Close()
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 	
 	for _, name := range users {
 		store.addUser(name)
 	}
 
-	return store, q, &PKRequests{db:l.db}, nil
+	return store, &PKRequests{db:l.db}, nil
 }
 
 func (s *Store) addUser(username string) (*UserData, error) {

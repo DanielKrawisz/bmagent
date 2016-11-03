@@ -78,8 +78,12 @@ func (s *serverOps) GetObjectExpiry(objType wire.ObjectType) time.Duration {
 }
 
 // PowQueue returns the store.PowQueue associated with the server.
-func (s *serverOps) RunPow(target uint64, obj []byte) (uint64, error) {
-	return s.server.powManager.RunPow(target, s.id, obj)
+func (s *serverOps) RunPow(target uint64, obj []byte, done func(obj []byte)) {
+	s.server.pow.Run(target, obj, done)
+}
+
+func (s *serverOps) Send(obj []byte) {	// Send the object out on the network.
+	s.server.Send(obj)
 }
 
 // Folders returns the set of folders for a given user.

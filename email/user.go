@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"bytes"
 	"time"
 
 	"github.com/jordwest/imap-server/mailstore"
@@ -117,20 +118,37 @@ func (u *User) DeliverFromSMTP(bmsg *Bitmessage) error {
 	if err != nil {
 		return nil
 	}
-
-	// Attempt to run pow on the message and send it off on the network.
-	// This will only happen if the pubkey can be found. An error is only
-	// returned if the message could not be generated and the pubkey request
-	// could not be sent.
-	err = bmsg.SubmitPow(u.server)
-	if err != nil {
-		smtpLog.Error("Unable to submit for proof-of-work: ", err)
-		return err
-	}
 	
-	// Save Bitmessage with pow index.
+	// Save Bitmessage in outbox folder. This sets its ImapData.
 	err = outbox.saveBitmessage(bmsg)
 	if err != nil {
+		return err
+	}
+
+	// Attempt to run pow on the message and send it off on the network.
+	// This will only happen if the pubkey can be found. If the pubkey
+	// cannot be found, then a pubkey request is sent instead, and no
+	// error is generated. 
+	err = bmsg.SubmitPow(u.server, func(obj []byte) {
+		u.server.Send(obj)
+		
+		msg := &wire.MsgObject{}
+		err = msg.Decode(bytes.NewReader(obj))
+		if err != nil {
+			smtpLog.Critical("MsgObject.Decode failed: ", err)
+			return
+		}
+
+		bmsg.object = msg
+		
+		err = u.DeliverPow(bmsg, msg)
+		if err != nil {
+			smtpLog.Critical("MsgObject.Decode could not deliver POW: ", err)
+			return
+		}
+	})
+	if err != nil {
+		smtpLog.Error("Unable to submit for proof-of-work: ", err)
 		return err
 	}
 	return nil
@@ -179,7 +197,12 @@ func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
 		}
 
 		// Add the message to the pow queue.
-		err := bmsg.SubmitPow(u.server)
+		err := bmsg.SubmitPow(u.server, func(obj []byte) {
+			err := u.server.Send
+			if err != nil {
+				smtpLog.Critical("Could not send public key! ", err)
+			}
+		})
 		if err != nil {
 			return errors.New("Unable to add message to pow queue.")
 		}
@@ -195,38 +218,8 @@ func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
 }
 
 // DeliverPow delivers an object that has had pow done on it.
-func (u *User) DeliverPow(index uint64, obj *wire.MsgObject) error {
+func (u *User) DeliverPow(bmsg *Bitmessage, obj *wire.MsgObject) error {
 	outbox := u.boxes[OutboxFolderName]
-
-	var bmsg *Bitmessage
-	var idMsg uint64
-	
-	// The error returned by the inner func which signifies that 
-	// a message was found successfully. This error is used to represent
-	// a success case for the query. 
-	var errMessageFound = errors.New("Message found.")
-
-	// Go through all messages in the Outbox and get IDs of all the matches.
-	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
-		var dbErr error
-		bmsg, dbErr = DecodeBitmessage(msg)
-		if dbErr != nil { // (Almost) impossible error.
-			return dbErr
-		}
-		// We have a match!
-		if bmsg.state.PowIndex == index {
-			idMsg = id
-			return errMessageFound
-		}
-		return nil
-	})
-	if err == nil {
-		return fmt.Errorf("Unable to find message in outbox with POW index %d",
-			index)
-	}
-	if err != errMessageFound {
-		return err
-	}
 
 	smtpLog.Trace("pow delivered for messege from " + bmsg.From + " to " + bmsg.To)
 
@@ -239,12 +232,11 @@ func (u *User) DeliverPow(index uint64, obj *wire.MsgObject) error {
 	}
 	newBox := u.boxes[newBoxName]
 
-	bmsg.state.PowIndex = 0
 	bmsg.state.SendTries++
 	bmsg.state.LastSend = time.Now()
 
 	// Move message from Outbox to the new mailbox.
-	err = outbox.DeleteBitmessageByUID(idMsg)
+	err := outbox.DeleteBitmessageByUID(bmsg.ImapData.UID)
 	if err != nil {
 		return err
 	}

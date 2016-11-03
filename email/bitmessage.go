@@ -96,10 +96,6 @@ type ImapData struct {
 type MessageState struct {
 	// Whether a pubkey request is pending for this message.
 	PubkeyRequestOutstanding bool
-	// The index of a pow computation for this message.
-	PowIndex uint64
-	// The index of a pow computation for the message ack.
-	AckPowIndex uint64
 	// The number of times that the message was sent.
 	SendTries uint32
 	// The last send attempt for the message.
@@ -155,8 +151,6 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 			AckExpected:     m.state.AckExpected,
 			AckReceived:     m.state.AckReceived,
 			PubkeyRequested: m.state.PubkeyRequestOutstanding,
-			PowIndex:        m.state.PowIndex,
-			AckPowIndex:     m.state.AckPowIndex,
 			LastSend:        lastsend,
 			Received:        m.state.Received,
 		}
@@ -330,7 +324,7 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 }
 
 // SubmitPow attempts to submit a message for pow.
-func (m *Bitmessage) SubmitPow(s ServerOps) error {
+func (m *Bitmessage) SubmitPow(s ServerOps, done func(obj []byte)) error {
 	smtpLog.Trace("SubmitPow: message from " + m.From + " to " + m.To + "submitted for pow.")
 	
 	// Attempt to generate the wire.Object form of the message.
@@ -350,12 +344,7 @@ func (m *Bitmessage) SubmitPow(s ServerOps) error {
 
 	target := pow.CalculateTarget(uint64(len(q)),
 		uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
-	index, err := s.RunPow(target, q)
-	if err != nil {
-		return err
-	}
-
-	m.state.PowIndex = index
+	s.RunPow(target, q, done)
 
 	return nil
 }
@@ -489,8 +478,6 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 
 		l.state = &MessageState{
 			PubkeyRequestOutstanding: msg.State.PubkeyRequested,
-			PowIndex:                 msg.State.PowIndex,
-			AckPowIndex:              msg.State.AckPowIndex,
 			SendTries:                msg.State.SendTries,
 			LastSend:                 lastSend,
 			AckExpected:              msg.State.AckExpected,
@@ -559,7 +546,7 @@ func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 }
 
 // NewBitmessageFromSMTP takes an SMTP e-mail and turns it into a Bitmessage.
-func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
+func NewBitmessageFromSMTP(smtp *data.Content, ack []byte) (*Bitmessage, error) {
 	header := smtp.Headers
 
 	// Check that To and From are set.
@@ -631,7 +618,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		From:       from,
 		To:         to,
 		Expiration: expiration,
-		Ack:        nil,
+		Ack:        ack,
 		Message: &format.Encoding2{
 			Subject: subject,
 			Body:    body,
