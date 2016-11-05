@@ -189,7 +189,7 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 	// that means that we should have made a pubkey request.
 	obj, nonceTrials, extraBytes, err := bmsg.GenerateObject(u.server)
 	if obj == nil {
-		smtpLog.Debug("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
+		smtpLog.Debug("trySend: could not generate message. Pubkey request sent? ", err == nil)
 		if err == nil {
 			bmsg.state.PubkeyRequestOutstanding = true
 			return nil
@@ -199,20 +199,11 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 
 	bmsg.state.PubkeyRequestOutstanding = false
 
-	// TODO generate ack.
-
-	// If we were able to generate the object, put it in the pow queue.
-	encoded := wire.EncodeMessage(bmsg.object)
-	q := encoded[8:] // exclude the nonce
-
-	target := pow.CalculateTarget(uint64(len(q)),
-		uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
-
-	// Attempt to run pow on the message and send it off on the network.
-	// This will only happen if the pubkey can be found. If the pubkey
-	// cannot be found, then a pubkey request is sent instead, and no
-	// error is generated.
-	u.server.RunPow(target, q, func(n powmgr.Nonce) {
+	// If we were able to generate the object, put it in the pow queue
+	// and send it off on the network. This will only happen if the
+	// pubkey can be found. If the pubkey cannot be found, then a
+	// pubkey request is sent instead, and no error is generated.
+	u.sendPow(obj, nonceTrials, extraBytes, func(q []byte, n powmgr.Nonce) {
 		// Put the nonce bytes into the encoded form of the message.
 		q = append(n.Bytes(), q...)
 
@@ -234,6 +225,19 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 
 	// Save Bitmessage in outbox folder.
 	return u.boxes[OutboxFolderName].saveBitmessage(bmsg)
+}
+
+func (u *User) sendPow(obj *wire.MsgObject, nonceTrials, extraBytes uint64, done func(q []byte, n powmgr.Nonce)) {
+	encoded := wire.EncodeMessage(obj)
+	q := encoded[8:] // exclude the nonce
+
+	target := pow.CalculateTarget(uint64(len(q)),
+		uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
+	
+	// Attempt to run pow on the message. 
+	u.server.RunPow(target, q, func(n powmgr.Nonce) {
+		done(q, n)
+	})
 }
 
 // DeliverAckReply takes a message ack and marks a message as having been

@@ -35,9 +35,15 @@ message ImapData {
 	int32  flags         = 2;
 }
 
+enum Format {
+	UNUSED  = 0;
+	ENCODING1 = 1;
+	ENCODING2 = 2;
+}
+
 // Encoding a bitmessage object payload. 
 message Encoding {
-	uint64 format   = 1;
-	bytes subject   = 2;
-	bytes body      = 3;
+	Format format = 1;
+	bytes subject         = 2;
+	bytes body            = 3;
 }

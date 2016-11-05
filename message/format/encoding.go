@@ -18,6 +18,7 @@ var encoding2Regex = regexp.MustCompile(`^Subject:(.*)\nBody:((?s).*)`)
 // Encoding represents a msg or broadcast object payload.
 type Encoding interface {
 	Encoding() uint64
+	encoding() serialize.Format
 	Message() []byte
 	ReadMessage([]byte) error
 	ToProtobuf() *serialize.Encoding
@@ -34,6 +35,11 @@ func (l *Encoding1) Encoding() uint64 {
 	return 1
 }
 
+// Encoding returns the encoding format of the bitmessage.
+func (l *Encoding1) encoding() serialize.Format {
+	return serialize.Format_ENCODING1
+}
+
 // Message returns the raw form of the object payload.
 func (l *Encoding1) Message() []byte {
 	return []byte(l.Body)
@@ -48,7 +54,7 @@ func (l *Encoding1) ReadMessage(msg []byte) error {
 // ToProtobuf encodes the message in a protobuf format.
 func (l *Encoding1) ToProtobuf() *serialize.Encoding {
 	return &serialize.Encoding{
-		Format: l.Encoding(),
+		Format: l.encoding(),
 		Body:   []byte(l.Body),
 	}
 }
@@ -63,6 +69,11 @@ type Encoding2 struct {
 // Encoding returns the encoding format of the bitmessage.
 func (l *Encoding2) Encoding() uint64 {
 	return 2
+}
+
+// Encoding returns the encoding format of the bitmessage.
+func (l *Encoding2) encoding() serialize.Format {
+	return serialize.Format_ENCODING2
 }
 
 // Message returns the raw form of the object payload.
@@ -84,7 +95,7 @@ func (l *Encoding2) ReadMessage(msg []byte) error {
 // ToProtobuf encodes the message in a protobuf format.
 func (l *Encoding2) ToProtobuf() *serialize.Encoding {
 	return &serialize.Encoding{
-		Format:  l.Encoding(),
+		Format:  l.encoding(),
 		Subject: []byte(l.Subject),
 		Body:    []byte(l.Body),
 	}
