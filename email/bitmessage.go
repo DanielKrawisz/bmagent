@@ -329,6 +329,79 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 	return object, nonceTrials, extraBytes, nil
 }
 
+func (m *Bitmessage) generateAck(s ServerOps) (ack *wire.MsgObject,
+	nonceTrials, extraBytes uint64, err error) {
+	
+	// If this is a broadcast message, no ack is expected. 
+	if m.To == "broadcast@bm.agent" {
+		return nil, 0, 0, errors.New("No acks on broadcast messages.")
+	} 
+	
+	// if no object form exists, attempt to generate that. 
+	if m.object == nil {
+		obj, _, _, err := m.GenerateObject(s)
+		if obj == nil {
+			smtpLog.Debug("trySend: could not generate message. Pubkey request sent? ", err == nil)
+			if err == nil {
+				return nil, 0, 0, errors.New("Private key missing.") 
+			}
+			return nil, 0, 0, err
+		}
+	}
+	
+	// Get our private key.
+	fromAddr, err := emailToBM(m.From)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	from := s.GetPrivateID(fromAddr)
+	
+	// Read the object as a MsgMsg
+	msg, err := wire.DecodeMsgMsg(wire.EncodeMessage(m.object))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	
+	addr := from.ToPublic().Address
+	
+	// TODO make a separate function in bmutil that does this.
+	var signingKey, encKey wire.PubKey
+	var destination wire.RipeHash
+	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
+	ek := from.EncryptionKey.PubKey().SerializeUncompressed()[1:]
+	copy(signingKey[:], sk)
+	copy(encKey[:], ek)
+	copy(destination[:], addr.Ripe[:])
+	
+	// Make a similar MsgMsg
+	msgAck := &wire.MsgMsg{
+		ExpiresTime:        msg.ExpiresTime,
+		ObjectType:         wire.ObjectTypeMsg,
+		Version:            msg.Version,
+		StreamNumber:       addr.Stream,
+		FromStreamNumber:   addr.Stream,
+		FromAddressVersion: addr.Version,
+		NonceTrials:        from.NonceTrialsPerByte,
+		ExtraBytes:         from.ExtraBytes,
+		SigningKey:         &signingKey,
+		EncryptionKey:      &encKey,
+		Destination:        &destination,
+		Encoding:           (&format.Encoding1{}).Encoding(),
+		Message:            []byte("ack"),
+	}
+	
+	// Encode it and save. 
+	m.Ack = wire.EncodeMessage(msgAck)
+	
+	// Regenerate as object and return it.
+	ack, err = wire.DecodeMsgObject(m.Ack)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	
+	return ack, from.NonceTrialsPerByte, from.ExtraBytes, nil
+}
+
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
 func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, error) {
 	message, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
