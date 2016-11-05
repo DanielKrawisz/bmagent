@@ -124,15 +124,15 @@ func validateEmail(to string) bool {
 	if err != nil {
 		return false
 	}
-	
+
 	if emailRegex.Match([]byte(addr.Address)) {
 		return true
 	}
-	
+
 	if commandRegex.Match([]byte(addr.Address)) {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -162,18 +162,11 @@ func smtpLogHandler(message string, args ...interface{}) {
 // messageReceived is called for each message recieved by the SMTP server.
 func (s *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, error) {
 	smtpLog.Info("Received message from SMTP server.")
-	
-	// TODO is this a good host name? 
+
+	// TODO is this a good host name?
 	message := smtpMessage.Parse("bmagent")
 
-	// Convert to bitmessage.
-	bm, err := NewBitmessageFromSMTP(message.Content, nil)
-	if err != nil {
-		smtpLog.Error("NewBitmessageFromSMTP gave error: ", err)
-		return "", err
-	}
-
-	return string(message.ID), s.user.DeliverFromSMTP(bm)
+	return string(message.ID), s.user.DeliverFromSMTP(message.Content)
 }
 
 // NewSMTPServer returns a new smtp server.

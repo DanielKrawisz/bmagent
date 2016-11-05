@@ -13,16 +13,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang/protobuf/proto"
-	"github.com/jordwest/imap-server/types"
-	"github.com/mailhog/data"
 	"github.com/DanielKrawisz/bmagent/message/format"
 	"github.com/DanielKrawisz/bmagent/message/serialize"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/cipher"
 	"github.com/DanielKrawisz/bmutil/identity"
-	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
+	"github.com/golang/protobuf/proto"
+	"github.com/jordwest/imap-server/types"
+	"github.com/mailhog/data"
 )
 
 const (
@@ -31,7 +30,7 @@ const (
 
 	// Pattern used for matching Bitmessage addresses.
 	bmAddrPattern = "BM-[123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ]+"
-	
+
 	commandPattern = "[a-z]+"
 )
 
@@ -40,21 +39,21 @@ var (
 	// address is invalid and a valid Bitmessage address cannot be extracted
 	// from it.
 	ErrInvalidEmail = errors.New(
-			fmt.Sprintf("From address must be of the form %s.", 
-				emailRegexString))
-				
+		fmt.Sprintf("From address must be of the form %s.",
+			emailRegexString))
+
 	bitmessageRegex = regexp.MustCompile(fmt.Sprintf("^%s$", bmAddrPattern))
-	
+
 	emailRegexString = fmt.Sprintf("^%s@bm\\.addr$", bmAddrPattern)
 
 	// emailRegex is used for extracting Bitmessage address from an e-mail
 	// address.
 	emailRegex = regexp.MustCompile(emailRegexString)
-	
+
 	commandRegexString = fmt.Sprintf("^%s@bm\\.agent$", commandPattern)
 
-	// commandRegex is used for detecting an email intended as a 
-	// command to bmagent. 
+	// commandRegex is used for detecting an email intended as a
+	// command to bmagent.
 	commandRegex = regexp.MustCompile(commandRegexString)
 )
 
@@ -73,7 +72,7 @@ func emailToBM(emailAddr string) (string, error) {
 	if !emailRegex.Match([]byte(addr.Address)) {
 		return "", ErrInvalidEmail
 	}
-	
+
 	bm := strings.Split(addr.Address, "@")[0]
 
 	if _, err := bmutil.DecodeAddress(bm); err != nil {
@@ -111,13 +110,15 @@ type MessageState struct {
 // Bitmessage represents a message compatible with a bitmessage format
 // (msg or broadcast). If To is empty, then it is a broadcast.
 type Bitmessage struct {
-	From       string
-	To         string
-	OfChannel  bool // Whether the message was sent to/received from a channel.
-	Expiration time.Time
-	Ack        []byte
-	Message    format.Encoding
-	ImapData   *ImapData
+	From        string
+	To          string
+	OfChannel   bool // Whether the message was sent to/received from a channel.
+	Expiration  time.Time
+	NonceTrials uint64
+	ExtraBytes  uint64
+	Ack         []byte
+	Content     format.Encoding
+	ImapData    *ImapData
 	// The encoded form of the message as a bitmessage object. Required
 	// for messages that are waiting to be sent or have pow done on them.
 	object *wire.MsgObject
@@ -155,8 +156,8 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 			Received:        m.state.Received,
 		}
 	}
-	
-	smtpLog.Trace("Serializing Bitmessage from " + m.From + " to " + m.To )
+
+	smtpLog.Trace("Serializing Bitmessage from " + m.From + " to " + m.To)
 
 	encode := &serialize.Message{
 		From:       m.From,
@@ -165,7 +166,7 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 		Expiration: expr,
 		Ack:        m.Ack,
 		ImapData:   imapData,
-		Encoding:   m.Message.ToProtobuf(),
+		Encoding:   m.Content.ToProtobuf(),
 		Object:     object,
 		State:      state,
 	}
@@ -213,8 +214,8 @@ func (m *Bitmessage) generateBroadcast(from *identity.Private, expiry time.Durat
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
 
-		Encoding: m.Message.Encoding(),
-		Message:  m.Message.Message(),
+		Encoding: m.Content.Encoding(),
+		Message:  m.Content.Message(),
 		Tag:      &tag,
 	}
 
@@ -253,12 +254,10 @@ func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, ex
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
 		Destination:        &destination,
-
-		Encoding: m.Message.Encoding(),
-		Message:  m.Message.Message(),
+		Ack:                m.Ack,
+		Encoding:           m.Content.Encoding(),
+		Message:            m.Content.Message(),
 	}
-
-	// TODO generate ack
 
 	err := cipher.SignAndEncryptMsg(message, from, to)
 	if err != nil {
@@ -275,7 +274,12 @@ func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, ex
 // GenerateObject generates the wire.MsgObject form of the message.
 func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 	nonceTrials, extraBytes uint64, genErr error) {
-		
+
+	// If a wire.Object already exists, just use that.
+	if m.object != nil {
+		return m.object, m.NonceTrials, m.ExtraBytes, nil
+	}
+
 	smtpLog.Debug("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
 	fromAddr, err := emailToBM(m.From)
 	if err != nil {
@@ -320,33 +324,9 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 		return nil, 0, 0, genErr
 	}
 	m.object = object
+	m.NonceTrials = nonceTrials
+	m.ExtraBytes = extraBytes
 	return object, nonceTrials, extraBytes, nil
-}
-
-// SubmitPow attempts to submit a message for pow.
-func (m *Bitmessage) SubmitPow(s ServerOps, done func(obj []byte)) error {
-	smtpLog.Trace("SubmitPow: message from " + m.From + " to " + m.To + "submitted for pow.")
-	
-	// Attempt to generate the wire.Object form of the message.
-	obj, nonceTrials, extraBytes, err := m.GenerateObject(s)
-	if obj == nil {
-		smtpLog.Debug("SubmitPow: could not generate message. Pubkey request sent? ", err == nil)
-		if err == nil {
-			m.state.PubkeyRequestOutstanding = true;
-			return nil
-		}
-		return err
-	}
-
-	// If we were able to generate the object, put it in the pow queue.
-	encoded := wire.EncodeMessage(obj)
-	q := encoded[8:] // exclude the nonce
-
-	target := pow.CalculateTarget(uint64(len(q)),
-		uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
-	s.RunPow(target, q, done)
-
-	return nil
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
@@ -371,7 +351,7 @@ func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, erro
 		Expiration: msg.ExpiresTime,
 		Ack:        msg.Ack,
 		OfChannel:  ofChan,
-		Message:    message,
+		Content:    message,
 	}, nil
 }
 
@@ -396,7 +376,7 @@ func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
 		From:       "broadcast@bm.agent",
 		To:         bmToEmail(fromAddress),
 		Expiration: msg.ExpiresTime,
-		Message:    message,
+		Content:    message,
 	}, nil
 }
 
@@ -450,7 +430,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 	l.To = msg.To
 	l.OfChannel = msg.OfChannel
 	l.Ack = msg.Ack
-	l.Message = q
+	l.Content = q
 	if msg.Object != nil {
 		l.object, err = wire.DecodeMsgObject(msg.Object)
 		if err != nil {
@@ -492,7 +472,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 // ToEmail converts a Bitmessage into an IMAPEmail.
 func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 	var payload *format.Encoding2
-	switch m := m.Message.(type) {
+	switch m := m.Content.(type) {
 	// Only encoding 2 is considered to be compatible with email.
 	// In the future, there may be more encodings also compatible with email.
 	case *format.Encoding2:
@@ -546,7 +526,7 @@ func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 }
 
 // NewBitmessageFromSMTP takes an SMTP e-mail and turns it into a Bitmessage.
-func NewBitmessageFromSMTP(smtp *data.Content, ack []byte) (*Bitmessage, error) {
+func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	header := smtp.Headers
 
 	// Check that To and From are set.
@@ -569,7 +549,7 @@ func NewBitmessageFromSMTP(smtp *data.Content, ack []byte) (*Bitmessage, error) 
 	}
 
 	var from, to string
-	
+
 	if !(validateEmail(fromList[0]) || validateEmail(toList[0])) {
 		return nil, ErrInvalidEmail
 	} else {
@@ -618,8 +598,8 @@ func NewBitmessageFromSMTP(smtp *data.Content, ack []byte) (*Bitmessage, error) 
 		From:       from,
 		To:         to,
 		Expiration: expiration,
-		Ack:        ack,
-		Message: &format.Encoding2{
+		Ack:        nil,
+		Content: &format.Encoding2{
 			Subject: subject,
 			Body:    body,
 		},
@@ -631,14 +611,14 @@ func NewBitmessageFromSMTP(smtp *data.Content, ack []byte) (*Bitmessage, error) 
 	}, nil
 }
 
-// NewBitmessageDraftFromSMTP takes an SMTP e-mail and turns it into a Bitmessage, 
+// NewBitmessageDraftFromSMTP takes an SMTP e-mail and turns it into a Bitmessage,
 // but is less strict than NewBitmessageFromSMTP in how it checks the email.
 func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 	header := smtp.Headers
 
 	// Check that To and From are set.
 	var to, from string
-	
+
 	toList, ok := header["To"]
 	if !ok || len(toList) != 1 {
 		to = ""
@@ -682,7 +662,7 @@ func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		To:         to,
 		Expiration: expiration,
 		Ack:        nil,
-		Message: &format.Encoding2{
+		Content: &format.Encoding2{
 			Subject: subject,
 			Body:    body,
 		},

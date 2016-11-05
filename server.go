@@ -569,8 +569,8 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 		uint64(msg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	s.pow.Run(target, b, func(obj []byte) {
-		s.Send(obj)
+	s.pow.Run(target, b, func(nonce powmgr.Nonce) {
+		s.Send(append(nonce.Bytes(), b...))
 	})
 
 	// Store a record of the public key request.

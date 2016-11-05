@@ -6,14 +6,14 @@
 package email
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
 
-	"github.com/jordwest/imap-server/mailstore"
-	"github.com/jordwest/imap-server/types"
+	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/message/format"
 	"github.com/DanielKrawisz/bmagent/store"
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/jordwest/imap-server/mailstore"
+	"github.com/jordwest/imap-server/types"
 )
 
 // IMAPConfig contains configuration options for the IMAP server.
@@ -34,7 +34,7 @@ type BitmessageStore struct {
 // are valid.
 func (s *BitmessageStore) Authenticate(username string, password string) (mailstore.User, error) {
 	imapLog.Tracef("imap authentication attempt with u=%s, p=%s", username, password)
-	
+
 	// TODO Use constant time comparisons.
 	if username != s.cfg.Username || password != s.cfg.Password {
 		return nil, errors.New("Invalid credentials")
@@ -46,7 +46,7 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 // InitializeStore initializes the store by creating the default mailboxes and
 // inserting the welcome message.
 func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) error {
-	
+
 	// Create Inbox.
 	mbox, err := u.NewFolder(InboxFolderName)
 	if err != nil {
@@ -81,49 +81,49 @@ func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) erro
 	if err != nil {
 		return err
 	}
-	
+
 	// Determine how many new keys to produce. Default is 0, unless
-	// the keymanager is empty, in which case it is 1. 
+	// the keymanager is empty, in which case it is 1.
 	var genkeys uint16
-	
-	if (GenKeys < 0 || keys.Size() == 0) {
+
+	if GenKeys < 0 || keys.Size() == 0 {
 		genkeys = 1
 	} else {
 		genkeys = uint16(GenKeys)
 	}
-	
+
 	var i uint16
-	for i = 0; i < genkeys; i ++ {
+	for i = 0; i < genkeys; i++ {
 		keys.NewHDIdentity(1, "")
 	}
-	
-	// Get all keys from key manager. 
+
+	// Get all keys from key manager.
 	addresses := keys.Addresses()
 	tags := keys.Names()
-	
-	// For each key, create a mailbox. 
+
+	// For each key, create a mailbox.
 	var toAddr string
 	keyList := ""
-	
+
 	for _, addr := range addresses {
 		toAddr = addr
 		var tag string
 		if t, ok := tags[addr]; ok {
 			tag = t
-		} 
+		}
 		keyList = fmt.Sprint(keyList, fmt.Sprintf("\t%s@bm.addr %s\n", addr, tag))
 	}
-	
+
 	welcome := fmt.Sprintf(welcomeMsg, keyList)
 
 	// Add the introductory message.
 	from := "welcome@bm.agent"
 	subject := "Welcome to bmagent!"
-	
+
 	err = inbox.AddNew(&Bitmessage{
 		From: from,
 		To:   fmt.Sprintf("%s@bm.addr", toAddr),
-		Message: &format.Encoding2{
+		Content: &format.Encoding2{
 			Subject: subject,
 			Body:    welcome,
 		},

@@ -10,21 +10,21 @@ import (
 	"container/list"
 	"errors"
 	"math"
+	"sort"
 	"sync"
 	"time"
-	"sort"
 
+	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
 	"github.com/mailhog/data"
-	"github.com/DanielKrawisz/bmagent/store"
 )
 
 // MessageSequence represents a sequence of uids contained in this mailbox.
 // It implements sort.Interface.
 type MessageSequence []uint64
 
-// GetSequenceNumber gets the lowest sequence number containing a value 
+// GetSequenceNumber gets the lowest sequence number containing a value
 // higher than or equal to the given uid.
 func (uids MessageSequence) GetSequenceNumber(uid uint64) uint32 {
 	// If the slice is empty.
@@ -94,14 +94,14 @@ func (uids MessageSequence) Swap(i, j int) {
 
 type Mailbox interface {
 	mailstore.Mailbox
-	
-	// Save saves an IMAP email in the Mailbox. 
+
+	// Save saves an IMAP email in the Mailbox.
 	Save(email *IMAPEmail) error
-	
+
 	// AddNew adds a new Bitmessage to the Mailbox.
 	AddNew(bmsg *Bitmessage, flags types.Flags) error
-	
-	// DeleteBitmessageByUID deletes a bitmessage by uid. 
+
+	// DeleteBitmessageByUID deletes a bitmessage by uid.
 	DeleteBitmessageByUID(id uint64) error
 }
 
@@ -109,16 +109,16 @@ type Mailbox interface {
 // mailstore.Mailbox interface. Only public functions take care of
 // locking/unlocking the embedded RWMutex.
 type mailbox struct {
-	mbox         store.Folder
-	
+	mbox store.Folder
+
 	// Used to define a subfolder, in which only those messages
-	// which return true belong to the mailbox. Can be nil. 
-	sub func (*Bitmessage) bool
-	
+	// which return true belong to the mailbox. Can be nil.
+	sub func(*Bitmessage) bool
+
 	// The set of addresses associated with this folder and their names.
-	addresses    map[string]string
-	drafts       bool // Whether this is a drafts folder. 
-	
+	addresses map[string]string
+	drafts    bool // Whether this is a drafts folder.
+
 	sync.RWMutex // Protect the following fields.
 	uids         MessageSequence
 	numRecent    uint32
@@ -175,8 +175,8 @@ func (box *mailbox) refresh() error {
 		if err != nil {
 			return imapLog.Errorf("Failed to decode message #%d: %v", id, err)
 		}
-		
-		// Only include messages that belong in this mailbox. 
+
+		// Only include messages that belong in this mailbox.
 		if box.sub != nil && !box.sub(entry) {
 			return nil
 		}
@@ -195,7 +195,7 @@ func (box *mailbox) refresh() error {
 	for e := list.Front(); e != nil; e = e.Next() {
 		box.uids = append(box.uids, e.Value.(uint64))
 	}
-	
+
 	sort.Sort(box.uids)
 
 	return nil
@@ -260,7 +260,7 @@ func (box *mailbox) bitmessageBySequenceNumber(seqno uint32) *Bitmessage {
 	if seqno < 1 || seqno > box.messages() {
 		return nil
 	}
-	uid := box.uids[seqno - 1]
+	uid := box.uids[seqno-1]
 	return box.bmsgByUID(uid)
 }
 
@@ -286,11 +286,11 @@ func (box *mailbox) MessageBySequenceNumber(seqno uint32) mailstore.Message {
 // bmsgByUID returns a Bitmessage by its uid. This function not protected with locks.
 func (box *mailbox) bmsgByUID(uid uint64) *Bitmessage {
 	seqno := box.uids.GetSequenceNumber(uint64(uid))
-	if seqno > uint32(len(box.uids)) || box.uids[seqno - 1] != uid {
-		// This message does not exist in this mailbox. 
+	if seqno > uint32(len(box.uids)) || box.uids[seqno-1] != uid {
+		// This message does not exist in this mailbox.
 		return nil
 	}
-	
+
 	suffix, msg, err := box.mbox.GetMessage(uid)
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).GetMessage gave error: %v", box.Name(), err)
@@ -347,18 +347,18 @@ func (box *mailbox) getRange(startUID, endUID uint64, startSequence, endSequence
 
 	i := uint32(0)
 	err := box.mbox.ForEachMessage(startUID, endUID, 2, func(id, suffix uint64, msg []byte) error {
-		
+
 		bm := box.decodeBitmessageForImap(id, startSequence+i, msg)
 		if bm == nil {
 			return nil // Skip this message, error has already been logged.
 		}
-		
+
 		if box.sub != nil && !box.sub(bm) {
 			return nil
 		}
-		
+
 		bitmessages = append(bitmessages, bm)
-		
+
 		i++
 		return nil
 	})
@@ -372,7 +372,7 @@ func (box *mailbox) getRange(startUID, endUID uint64, startSequence, endSequence
 // all greater than or equal to a given uid number. It does not check whether
 // the given sequence number makes sense.
 func (box *mailbox) getSince(startUID uint64, startSequence uint32) []*Bitmessage {
-	return box.getRange(startUID, box.uids[len(box.uids) - 1], startSequence, box.messages())
+	return box.getRange(startUID, box.uids[len(box.uids)-1], startSequence, box.messages())
 }
 
 // bitmessagesByUIDRange returns Bitmessage with UIDs between start and end.
@@ -399,8 +399,8 @@ func (box *mailbox) bitmessagesBySequenceRange(start, end uint32) []*Bitmessage 
 		end < 1 || end > box.messages() || end < start {
 		return nil
 	}
-	startUID := box.uids[start - 1]
-	endUID := box.uids[end - 1]
+	startUID := box.uids[start-1]
+	endUID := box.uids[end-1]
 	return box.getRange(startUID, endUID, start, end)
 }
 
@@ -410,7 +410,7 @@ func (box *mailbox) bitmessagesSinceSequenceNumber(start uint32) []*Bitmessage {
 	if start < 1 || start > box.Messages() {
 		return nil
 	}
-	startUID := box.uids[start - 1]
+	startUID := box.uids[start-1]
 	return box.getSince(startUID, start)
 }
 
@@ -590,7 +590,7 @@ func (box *mailbox) MessageSetBySequenceNumber(set types.SequenceSet) []mailstor
 func (box *mailbox) DeleteBitmessageByUID(id uint64) error {
 	box.Lock()
 	defer box.Unlock()
-	
+
 	bmsg := box.bmsgByUID(id)
 	if bmsg == nil {
 		return nil
@@ -631,8 +631,8 @@ func (box *mailbox) saveBitmessage(msg *Bitmessage) error {
 	}
 
 	// Insert the new version of the message.
-	if (msg.ImapData.UID == 0) {
-		msg.ImapData.UID, err = box.mbox.InsertNewMessage(encode, msg.Message.Encoding())
+	if msg.ImapData.UID == 0 {
+		msg.ImapData.UID, err = box.mbox.InsertNewMessage(encode, msg.Content.Encoding())
 	} else {
 		// Delete the old message from the database.
 		err := box.mbox.DeleteMessage(uint64(msg.ImapData.UID))
@@ -641,26 +641,26 @@ func (box *mailbox) saveBitmessage(msg *Bitmessage) error {
 				box.Name(), msg.ImapData.UID, err)
 			return err
 		}
-		
-		_, _, err = box.mbox.GetMessage(msg.ImapData.UID) 
+
+		_, _, err = box.mbox.GetMessage(msg.ImapData.UID)
 		if err == nil {
-			// There is still a message there despite our attempts to delete it. 
-			// That indicates that an entry exists in the folder which does not 
-			// belong to this mailbox. 
+			// There is still a message there despite our attempts to delete it.
+			// That indicates that an entry exists in the folder which does not
+			// belong to this mailbox.
 			return errors.New("Unable to save.")
 		}
-		
-		err = box.mbox.InsertMessage(msg.ImapData.UID, encode, msg.Message.Encoding())
+
+		err = box.mbox.InsertMessage(msg.ImapData.UID, encode, msg.Content.Encoding())
 	}
-	
+
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).InsertMessage(id=%d, suffix=%d) gave error %v",
-			box.Name(), msg.ImapData.UID, msg.Message.Encoding(), err)
+			box.Name(), msg.ImapData.UID, msg.Content.Encoding(), err)
 		return err
 	}
 
-	// TODO: don't refresh the whole thing every time we save. Jeez that's 
-	// a lot of extra work! 
+	// TODO: don't refresh the whole thing every time we save. Jeez that's
+	// a lot of extra work!
 	err = box.refresh()
 	if err != nil {
 		imapLog.Errorf("Mailbox(%s).Refresh gave error %v", box.Name(), err)
@@ -670,14 +670,14 @@ func (box *mailbox) saveBitmessage(msg *Bitmessage) error {
 	return nil
 }
 
-// Save saves an IMAP email in the Mailbox. 
-func (box *mailbox) Save(email *IMAPEmail) error {	
+// Save saves an IMAP email in the Mailbox.
+func (box *mailbox) Save(email *IMAPEmail) error {
 	var msg *Bitmessage
 	var err error
 	if box.drafts {
 		msg, err = NewBitmessageDraftFromSMTP(email.Content)
 	} else {
-		msg, err = NewBitmessageFromSMTP(email.Content, nil)
+		msg, err = NewBitmessageFromSMTP(email.Content)
 	}
 	if err != nil {
 		imapLog.Errorf("Error saving message #%d: %v", email.ImapUID, err)
@@ -766,7 +766,7 @@ func (box *mailbox) ReceiveAck(ack []byte) *Bitmessage {
 		if err != nil {
 			return err
 		}
-		
+
 		if box.sub != nil && !box.sub(entry) {
 			return nil
 		}
@@ -806,12 +806,12 @@ func (box *mailbox) NewMessage() mailstore.Message {
 // NewMailbox returns a new mailbox.
 func NewMailbox(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
-		return nil, errors.New("Nil mailbox.");
+		return nil, errors.New("Nil mailbox.")
 	}
-	
+
 	m := &mailbox{
-		mbox: mbox,
-		addresses: addresses, 
+		mbox:      mbox,
+		addresses: addresses,
 	}
 
 	// Populate various data fields.
@@ -826,11 +826,11 @@ func NewDrafts(mbox store.Folder, addresses map[string]string) (*mailbox, error)
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}
-	
+
 	m := &mailbox{
-		mbox: mbox,
-		addresses: addresses, 
-		drafts: true,
+		mbox:      mbox,
+		addresses: addresses,
+		drafts:    true,
 	}
 
 	// Populate various data fields.
