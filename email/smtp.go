@@ -161,7 +161,7 @@ func smtpLogHandler(message string, args ...interface{}) {
 
 // messageReceived is called for each message recieved by the SMTP server.
 func (s *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, error) {
-	smtpLog.Info("Received message from SMTP server.")
+	smtpLog.Trace("Received message from SMTP server.")
 
 	// TODO is this a good host name?
 	message := smtpMessage.Parse("bmagent")

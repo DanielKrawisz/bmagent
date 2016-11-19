@@ -12,17 +12,17 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"strings"
 	"regexp"
-	"errors"
+	"strings"
 
-	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/btcsuite/btcutil/hdkeychain"
 	"golang.org/x/crypto/ssh/terminal"
 )
 
@@ -123,10 +123,10 @@ func promptKeyfilePassPhrase() ([]byte, error) {
 	var err error
 	for {
 		pass, err = promptConsolePass(prompt, false)
-		if (err != nil) {
+		if err != nil {
 			return nil, err
 		}
-		if (pass != nil) {
+		if pass != nil {
 			return pass, err
 		}
 	}
@@ -149,7 +149,7 @@ func promptUsername(prefix string) (string, error) {
 			fmt.Printf("Username is \"%s\"\n", uname)
 			return uname, nil
 		}
-		
+
 		fmt.Println("Username must match ", match)
 	}
 }
@@ -162,10 +162,10 @@ func promptStorePassPhrase() ([]byte, error) {
 	var err error
 	for {
 		pass, err = promptConsolePass(prompt, false)
-		if (err != nil) {
+		if err != nil {
 			return nil, err
 		}
-		if (pass != nil) {
+		if pass != nil {
 			return pass, err
 		}
 	}
@@ -243,15 +243,15 @@ func createDatabases(cfg *config) error {
 	var keyfilePass, storePass []byte
 	var err error
 	var prompt string
-	
+
 	// Create default mailboxes and associated data.
 	var username string
-	if (cfg.Username != "") {
+	if cfg.Username != "" {
 		username = cfg.Username
 	} else {
-		// Prompt user for username. 
+		// Prompt user for username.
 		prompt = "\nEnter your username"
-		
+
 		username, err = promptUsername(prompt)
 		if err != nil {
 			return err
@@ -259,7 +259,7 @@ func createDatabases(cfg *config) error {
 		cfg.Username = username
 	}
 
-	// Ascertain the address generation seed. 
+	// Ascertain the address generation seed.
 	var seed []byte
 	if cfg.Seed != "" {
 		seed, err = hex.DecodeString(cfg.Seed)
@@ -272,7 +272,7 @@ func createDatabases(cfg *config) error {
 
 	if cfg.NoPass {
 		storePass = []byte{}
-	} else {	
+	} else {
 		// Prompt for the private passphrase for the data store.
 		prompt = "\nEnter passphrase for the data store"
 		for {
@@ -280,7 +280,7 @@ func createDatabases(cfg *config) error {
 			if err != nil {
 				return err
 			}
-			
+
 			if storePass != nil {
 				break
 			}
@@ -299,17 +299,17 @@ func createDatabases(cfg *config) error {
 	if err != nil {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
-	
+
 	s, _, err := load.Construct(storePass)
 	if err != nil {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
-	
+
 	user, err := s.NewUser(username)
 	if err != nil {
 		return err
 	}
-		
+
 	err = email.InitializeUser(user, kmgr, cfg.GenKeys)
 	if err != nil {
 		return err
@@ -320,10 +320,10 @@ func createDatabases(cfg *config) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if cfg.NoPass {
 		keyfilePass = []byte{}
-	} else {	
+	} else {
 		// Prompt for the private passphrase for the key file.
 		prompt = "Enter passphrase for the key file"
 		for {
@@ -331,7 +331,7 @@ func createDatabases(cfg *config) error {
 			if err != nil {
 				return err
 			}
-			
+
 			if keyfilePass != nil {
 				break
 			}
@@ -350,59 +350,58 @@ func createDatabases(cfg *config) error {
 // openDatabases returns an instance of keymgr.Manager, and store.Store based on
 // the configuration.
 func openDatabases(cfg *config) (*keymgr.Manager, *store.Store, *store.PKRequests, error) {
-		
+
 	// Read key file.
 	keyFile, err := ioutil.ReadFile(cfg.keyfilePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	
+
 	var kmgr *keymgr.Manager
-	
-	if cfg.NoPass { // If allowed, check for plaintext key file. 		
-		// Attempt to load unencrypted key file. 
+
+	if cfg.NoPass { // If allowed, check for plaintext key file.
+		// Attempt to load unencrypted key file.
 		kmgr, err = keymgr.FromPlaintext(bytes.NewBuffer(keyFile))
-		if err != nil { 
+		if err != nil {
 			return nil, nil, nil, err
 		}
 	}
-	
+
 	if kmgr == nil {
-	
+
 		// Read key file passphrase from console.
 		keyfilePass, err := promptKeyfilePassPhrase()
 		if err != nil {
 			return nil, nil, nil, err
 		}
-	
+
 		// Create an instance of key manager.
 		kmgr, err = keymgr.FromEncrypted(keyFile, keyfilePass)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("Failed to create key manager: %v", err)
 		}
-	
+
 		cfg.keyfilePass = keyfilePass
 	}
-	
-	
+
 	load, err := store.Open(cfg.storePath)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	
+
 	var dstore *store.Store
 	var pk *store.PKRequests
-	
+
 	if cfg.NoPass && !load.IsEncrypted() {
 		dstore, pk, err = load.Construct(nil)
 	} else {
-		
+
 		// Read store passphrase from console.
 		storePass, err := promptStorePassPhrase()
 		if err != nil {
 			return nil, nil, nil, err
 		}
-	
+
 		// Open store.
 		dstore, pk, err = load.Construct(storePass)
 		if err != nil {
@@ -420,15 +419,15 @@ func importKeyfile(kmgr *keymgr.Manager, file string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	keys := kmgr.ImportKeys(b)
 	if keys == nil {
 		return errors.New("Could not read file.")
 	}
-	
+
 	for addr, name := range keys {
 		fmt.Printf("Imported address %s %s\n", addr, name)
 	}
-	
+
 	return nil
 }

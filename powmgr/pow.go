@@ -76,8 +76,8 @@ func (q *Pow) enqueue(p *powOrder) {
 		next:  nil,
 	}
 
-	if q.tail == nil {
-		*q.tail = node.next
+	if q.head == nil {		
+		q.tail = &node.next
 		q.head = node
 
 		// Since the queue was empty, it's time to
@@ -91,57 +91,44 @@ func (q *Pow) enqueue(p *powOrder) {
 	q.tail = &node.next
 }
 
-func (q *Pow) peek() *powOrder {
+func (q *Pow) dequeue() *powOrder {
 	q.mtx.Lock()
 	defer q.mtx.Unlock()
 
 	if q.head == nil {
 		return nil
 	}
-
-	return q.head.order
-}
-
-func (q *Pow) dequeue() {
-	q.mtx.Lock()
-	defer q.mtx.Unlock()
-
-	if q.head == nil {
-		return
-	}
-
-	if *q.tail == q.head.next {
-		q.tail = nil
-	}
+	
+	p := q.head.order
 
 	q.head = q.head.next
+
+	return p
 }
 
 // work repeatedly checks the head of the queue and does work on anything
 // there until the queue is empty.
 func (q *Pow) work() {
 	for {
-		order := q.peek()
+		order := q.dequeue()
 
-		if order != nil {
+		if order == nil {
 			return
 		}
 
 		hash := bmutil.Sha512(order.object)
 
 		// run POW for the next object in the queue.
-		go func() {
-			nonce := q.powFunc(order.target, hash)
+		nonce := q.powFunc(order.target, hash)
 
-			// Encode the nonce as bytes.
-			nonceBytes := make([]byte, 8)
-			binary.BigEndian.PutUint64(nonceBytes, nonce)
+		// Encode the nonce as bytes.
+		nonceBytes := make([]byte, 8)
+		binary.BigEndian.PutUint64(nonceBytes, nonce)
 
-			// Remove the last item from the queue.
-			q.dequeue()
+		// Remove the last item from the queue.
+		q.dequeue()
 
-			// Do whatever we're supposed to do with the nonce.
-			order.donePowFunc(Nonce{b: nonceBytes, n: nonce})
-		}()
+		// Do whatever we're supposed to do with the nonce.
+		go order.donePowFunc(Nonce{b: nonceBytes, n: nonce})
 	}
 }

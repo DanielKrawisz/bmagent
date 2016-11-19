@@ -12,11 +12,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/btcsuite/btclog"
-	"github.com/btcsuite/seelog"
 	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/rpc"
+	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/seelog"
 )
 
 // Loggers per subsytem. Note that backendLog is a seelog logger that all of
@@ -108,7 +108,7 @@ func initSeelogLogger(logFile string, logConsole bool) {
 	} else {
 		console = ""
 	}
-	
+
 	config := `
 	<seelog type="adaptive" mininterval="2000000" maxinterval="100000000"
 		critmsgcount="500" minlevel="trace">

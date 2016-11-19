@@ -6,8 +6,11 @@
 package email
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -19,6 +22,7 @@ import (
 	"github.com/DanielKrawisz/bmutil/cipher"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/wire"
+	"github.com/DanielKrawisz/bmutil/wire/obj"
 	"github.com/golang/protobuf/proto"
 	"github.com/jordwest/imap-server/types"
 	"github.com/mailhog/data"
@@ -179,7 +183,7 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 }
 
 // generateBroadcast generates a wire.MsgBroadcast from a Bitmessage.
-func (m *Bitmessage) generateBroadcast(from *identity.Private, expiry time.Duration) (*wire.MsgObject, uint64, uint64, error) {
+func (m *Bitmessage) generateBroadcast(from *identity.Private, expiry time.Duration) (*obj.Broadcast, uint64, uint64, error) {
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
 	var tag wire.ShaHash
@@ -195,18 +199,20 @@ func (m *Bitmessage) generateBroadcast(from *identity.Private, expiry time.Durat
 	case 2:
 		fallthrough
 	case 3:
-		version = wire.TaglessBroadcastVersion
+		version = obj.TaglessBroadcastVersion
 	case 4:
-		version = wire.TagBroadcastVersion
+		version = obj.TagBroadcastVersion
 	default:
 		return nil, 0, 0, errors.New("Unknown from address version")
 	}
 
-	broadcast := &wire.MsgBroadcast{
-		ObjectType:         wire.ObjectTypeBroadcast,
-		Version:            version,
-		ExpiresTime:        time.Now().Add(expiry),
-		StreamNumber:       from.Address.Stream,
+	broadcast := &obj.Broadcast{
+		ObjectHeader: wire.ObjectHeader{
+			ObjectType:   wire.ObjectTypeBroadcast,
+			Version:      version,
+			ExpiresTime:  time.Now().Add(expiry),
+			StreamNumber: from.Address.Stream,
+		},
 		FromStreamNumber:   from.Address.Stream,
 		FromAddressVersion: from.Address.Version,
 		NonceTrials:        from.NonceTrialsPerByte,
@@ -224,15 +230,11 @@ func (m *Bitmessage) generateBroadcast(from *identity.Private, expiry time.Durat
 		return nil, 0, 0, err
 	}
 
-	obj, err := wire.ToMsgObject(broadcast)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	return obj, from.NonceTrialsPerByte, from.ExtraBytes, nil
+	return broadcast, from.NonceTrialsPerByte, from.ExtraBytes, nil
 }
 
 // generateMsg generates a wire.MsgMsg from a Bitmessage.
-func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, expiry time.Duration) (*wire.MsgObject, uint64, uint64, error) {
+func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, expiry time.Duration) (*obj.Message, uint64, uint64, error) {
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
 	var destination wire.RipeHash
@@ -242,11 +244,13 @@ func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, ex
 	copy(encKey[:], ek)
 	copy(destination[:], to.Address.Ripe[:])
 
-	message := &wire.MsgMsg{
-		ObjectType:         wire.ObjectTypeMsg,
-		ExpiresTime:        time.Now().Add(expiry),
-		Version:            1,
-		StreamNumber:       from.Address.Stream,
+	message := &obj.Message{
+		ObjectHeader: wire.ObjectHeader{
+			ObjectType:   wire.ObjectTypeMsg,
+			ExpiresTime:  time.Now().Add(expiry),
+			Version:      1,
+			StreamNumber: from.Address.Stream,
+		},
 		FromStreamNumber:   from.Address.Stream,
 		FromAddressVersion: from.Address.Version,
 		NonceTrials:        from.NonceTrialsPerByte,
@@ -264,15 +268,11 @@ func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, ex
 		return nil, 0, 0, err
 	}
 
-	obj, err := wire.ToMsgObject(message)
-	if err != nil {
-		return nil, 0, 0, err
-	}
-	return obj, from.NonceTrialsPerByte, from.ExtraBytes, nil
+	return message, from.NonceTrialsPerByte, from.ExtraBytes, nil
 }
 
 // GenerateObject generates the wire.MsgObject form of the message.
-func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
+func (m *Bitmessage) GenerateObject(s ServerOps) (object obj.Object,
 	nonceTrials, extraBytes uint64, genErr error) {
 
 	// If a wire.Object already exists, just use that.
@@ -323,47 +323,47 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object *wire.MsgObject,
 		smtpLog.Error("GenerateObject: ", genErr)
 		return nil, 0, 0, genErr
 	}
-	m.object = object
+	m.object = object.MsgObject()
 	m.NonceTrials = nonceTrials
 	m.ExtraBytes = extraBytes
 	return object, nonceTrials, extraBytes, nil
 }
 
-func (m *Bitmessage) generateAck(s ServerOps) (ack *wire.MsgObject,
+func (m *Bitmessage) generateAck(s ServerOps) (ack *obj.Message,
 	nonceTrials, extraBytes uint64, err error) {
-	
-	// If this is a broadcast message, no ack is expected. 
+
+	// If this is a broadcast message, no ack is expected.
 	if m.To == "broadcast@bm.agent" {
 		return nil, 0, 0, errors.New("No acks on broadcast messages.")
-	} 
-	
-	// if no object form exists, attempt to generate that. 
+	}
+
+	// if no object form exists, attempt to generate that.
 	if m.object == nil {
 		obj, _, _, err := m.GenerateObject(s)
 		if obj == nil {
 			smtpLog.Debug("trySend: could not generate message. Pubkey request sent? ", err == nil)
 			if err == nil {
-				return nil, 0, 0, errors.New("Private key missing.") 
+				return nil, 0, 0, errors.New("Private key missing.")
 			}
 			return nil, 0, 0, err
 		}
 	}
-	
+
 	// Get our private key.
 	fromAddr, err := emailToBM(m.From)
 	if err != nil {
 		return nil, 0, 0, err
 	}
 	from := s.GetPrivateID(fromAddr)
-	
+
 	// Read the object as a MsgMsg
-	msg, err := wire.DecodeMsgMsg(wire.EncodeMessage(m.object))
+	msg, err := obj.DecodeMessage(wire.EncodeMessage(m.object))
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	
+
 	addr := from.ToPublic().Address
-	
+
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
 	var destination wire.RipeHash
@@ -372,13 +372,15 @@ func (m *Bitmessage) generateAck(s ServerOps) (ack *wire.MsgObject,
 	copy(signingKey[:], sk)
 	copy(encKey[:], ek)
 	copy(destination[:], addr.Ripe[:])
-	
+
 	// Make a similar MsgMsg
-	msgAck := &wire.MsgMsg{
-		ExpiresTime:        msg.ExpiresTime,
-		ObjectType:         wire.ObjectTypeMsg,
-		Version:            msg.Version,
-		StreamNumber:       addr.Stream,
+	msgAck := &obj.Message{
+		ObjectHeader: wire.ObjectHeader{
+			ExpiresTime:  msg.ExpiresTime,
+			ObjectType:   wire.ObjectTypeMsg,
+			Version:      msg.Version,
+			StreamNumber: addr.Stream,
+		},
 		FromStreamNumber:   addr.Stream,
 		FromAddressVersion: addr.Version,
 		NonceTrials:        from.NonceTrialsPerByte,
@@ -386,24 +388,25 @@ func (m *Bitmessage) generateAck(s ServerOps) (ack *wire.MsgObject,
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
 		Destination:        &destination,
-		Encoding:           (&format.Encoding1{}).Encoding(),
-		Message:            []byte("ack"),
 	}
-	
-	// Encode it and save. 
-	m.Ack = wire.EncodeMessage(msgAck)
-	
-	// Regenerate as object and return it.
-	ack, err = wire.DecodeMsgObject(m.Ack)
+
+	// Add the message, which is a random number.
+	buf := new(bytes.Buffer)
+	var num int32 = rand.Int31()
+	err = binary.Write(buf, binary.LittleEndian, num)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	
-	return ack, from.NonceTrialsPerByte, from.ExtraBytes, nil
+	msgAck.Encrypted = buf.Bytes()
+
+	// Encode it and save.
+	m.Ack = wire.EncodeMessage(msgAck.MsgObject())
+
+	return msgAck, from.NonceTrialsPerByte, from.ExtraBytes, nil
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
-func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, error) {
+func MsgRead(msg *obj.Message, toAddress string, ofChan bool) (*Bitmessage, error) {
 	message, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
 	if err != nil {
 		return nil, err
@@ -425,12 +428,13 @@ func MsgRead(msg *wire.MsgMsg, toAddress string, ofChan bool) (*Bitmessage, erro
 		Ack:        msg.Ack,
 		OfChannel:  ofChan,
 		Content:    message,
+		object:     msg.MsgObject(),
 	}, nil
 }
 
 // BroadcastRead creates a Bitmessage object from an unencrypted
 // wire.MsgBroadcast.
-func BroadcastRead(msg *wire.MsgBroadcast) (*Bitmessage, error) {
+func BroadcastRead(msg *obj.Broadcast) (*Bitmessage, error) {
 	message, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
 	if err != nil {
 		return nil, err

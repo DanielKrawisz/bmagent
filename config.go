@@ -20,9 +20,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
-	"github.com/DanielKrawisz/bmutil/pow"
 )
 
 const (
@@ -50,9 +50,9 @@ const (
 	defaultPubkeyExpiry     = time.Hour * 24 * 14 // 14 days
 	defaultGetpubkeyExpiry  = time.Hour * 24 * 14 // 14 days
 	defaultUnknownObjExpiry = time.Hour * 24
-	
+
 	defaultLogConsole = true
-	
+
 	defaultGenKeys = -1
 )
 
@@ -103,14 +103,14 @@ type config struct {
 	MsgExpiry       time.Duration `long:"msgexpiry" description:"Time after which a message sent out should expire, more means more time for POW calculations"`
 	BroadcastExpiry time.Duration `long:"broadcastexpiry" description:"Time after which a broadcast sent out should expire, more means more time for POW calculations"`
 
-	LogConsole  bool `long:"logconsole" description:"display logs to console."`
+	LogConsole bool `long:"logconsole" description:"display logs to console."`
 
 	GenKeys int16 `long:"genkeys" description:"number of new keys to generate."`
 
-	powHandler  func(target uint64, hash []byte) uint64
-	storePath   string
-	
-	// TODO there should not be a global path for a single key file. 
+	powHandler func(target uint64, hash []byte) uint64
+	storePath  string
+
+	// TODO there should not be a global path for a single key file.
 	keyfilePath string
 	keyfilePass []byte
 }
@@ -333,10 +333,10 @@ func newConfigParser(cfg *config, appName string, options flags.Options) *flags.
 // settings while still allowing the user to override settings with config files
 // and command line options.  Command line options always take precedence.
 func loadConfig() (*config, []string, error) {
-	
+
 	appName := filepath.Base(os.Args[0])
 	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
-	
+
 	return LoadConfig(appName, os.Args[1:])
 }
 
@@ -354,7 +354,7 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 		MsgExpiry:       defaultMsgExpiry,
 		BroadcastExpiry: defaultBroadcastExpiry,
 		LogConsole:      defaultLogConsole,
-		GenKeys:         defaultGenKeys, 
+		GenKeys:         defaultGenKeys,
 	}
 
 	// Pre-parse the command line options to see if an alternative config
@@ -363,7 +363,6 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 	preParser := newConfigParser(&preCfg, appName, flags.HelpFlag)
 	_, err := preParser.ParseArgs(args)
 	if err != nil {
-		println("Got error ", err.Error())
 		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
@@ -383,7 +382,7 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 	var configFileError error
 	parser := newConfigParser(&cfg, appName, flags.Default)
 	if preCfg.ConfigFile != defaultConfigFile || fileExists(preCfg.ConfigFile) {
-		
+
 		err = flags.NewIniParser(parser).ParseFile(preCfg.ConfigFile)
 		if err != nil {
 			if _, ok := err.(*os.PathError); !ok {
@@ -505,7 +504,7 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 
 		fmt.Fprintln(os.Stderr, err)
 		return nil, nil, err
-	} 
+	}
 
 	// Import private keys from PyBitmessage's keys.dat file.
 	if cfg.ImportKeyFile != "" {
@@ -523,7 +522,7 @@ func LoadConfig(appName string, args []string) (*config, []string, error) {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
 		}
-		
+
 		u := &User{keymgr, cfg.keyfilePath, cfg.Username, cfg.keyfilePass}
 		u.SaveKeyfile()
 

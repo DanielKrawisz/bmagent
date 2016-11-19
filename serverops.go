@@ -18,9 +18,9 @@ import (
 // serverOps implements the email.ServerOps interface.
 type serverOps struct {
 	pubIDs map[string]*identity.Public // a cache
-	id uint32
-	user *User
-	data *store.UserData
+	id     uint32
+	user   *User
+	data   *store.UserData
 	server *server
 }
 
@@ -29,11 +29,11 @@ type serverOps struct {
 // request was successfully queued for proof-of-work.
 func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) {
 	serverLog.Debug("GetOrRequestPublicID for ", addr)
-	
+
 	// Check the map of cached identities.
 	identity, ok := s.pubIDs[addr]
 	if ok {
-		serverLog.Debug("GetOrRequestPublicID for ", addr)
+		serverLog.Debug("GetOrRequestPublicID: identity found ", addr)
 		return identity, nil
 	}
 
@@ -83,7 +83,7 @@ func (s *serverOps) RunPow(target uint64, obj []byte, done func(n powmgr.Nonce))
 	s.server.pow.Run(target, obj, done)
 }
 
-func (s *serverOps) Send(obj []byte) {	// Send the object out on the network.
+func (s *serverOps) Send(obj []byte) { // Send the object out on the network.
 	s.server.Send(obj)
 }
 

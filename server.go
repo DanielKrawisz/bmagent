@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/jordwest/imap-server"
 	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/powmgr"
@@ -27,6 +26,8 @@ import (
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
+	"github.com/DanielKrawisz/bmutil/wire/obj"
+	"github.com/jordwest/imap-server"
 )
 
 const (
@@ -71,39 +72,39 @@ func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, pk *store.PKR
 	srvr := &server{
 		users:         make(map[uint32]*User),
 		store:         s,
-		pk:            pk, 
+		pk:            pk,
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
-		imapUser:      make(map[uint32]*email.User), 
+		imapUser:      make(map[uint32]*email.User),
 	}
-	
+
 	var err error
 	srvr.bmd, err = rpc.NewClient(rpcc, srvr.newMessage, srvr.newBroadcast, srvr.newGetpubkey)
 	if err != nil {
 		log.Errorf("Cannot create bmd server RPC client: %v", err)
 		return nil, err
 	}
-	
+
 	// TODO allow for more than one user. Right now there is just 1 user.
 	srvr.users[1] = user
 	userData, err := s.GetUser(user.Username)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	so := &serverOps{
 		pubIDs: make(map[string]*identity.Public),
-		id: 1, 
-		user: user, 
+		id:     1,
+		user:   user,
 		server: srvr,
-		data: userData, 
+		data:   userData,
 	}
-		
+
 	// Create an email.User from the store.
 	imapUser, err := email.NewUser(user.Username, so, user.Keys)
 	if cfg.GenKeys > 0 {
-		imapUser.GenerateKeys(uint16(cfg.GenKeys));
+		imapUser.GenerateKeys(uint16(cfg.GenKeys))
 	}
 	if err != nil {
 		return nil, err
@@ -202,12 +203,12 @@ func (s *server) Start() {
 
 // newMessage is called when a new message is received by the RPC client.
 // Messages are guaranteed to be received in ascending order of counter value.
-func (s *server) newMessage(counter uint64, obj []byte) {
+func (s *server) newMessage(counter uint64, object []byte) {
 	// Store counter value.
 	atomic.StoreUint64(&s.msgCounter, counter)
 
-	msg := &wire.MsgMsg{}
-	err := msg.Decode(bytes.NewReader(obj))
+	msg := &obj.Message{}
+	err := msg.Decode(bytes.NewReader(object))
 	if err != nil {
 		serverLog.Errorf("Failed to decode message #%d from bytes: %v", counter,
 			err)
@@ -220,11 +221,19 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		return
 	}
 
+	// Is this an ack message we are expecting?
+	for _, user := range s.imapUser {
+		err = user.DeliverAckReply(object)
+		if err == nil {
+			return
+		}
+	}
+
 	// Contains the address of the identity used to decrypt the message.
 	var address string
 	// Whether the message was received from a channel.
 	var ofChan bool
-	
+
 	var id uint32
 
 	// Try decrypting with all available identities.
@@ -237,14 +246,14 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 			}
 			return nil
 		})
-	
+
 		if err != nil {
 			id = uid
 			// Decryption successful.
 			break
 		}
 	}
-	
+
 	if err == nil {
 		// Decryption unsuccessful.
 		return
@@ -260,7 +269,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 		log.Errorf("Failed to decode message #%d: %v", counter, err)
 		return
 	}
-	
+
 	rpccLog.Trace("Bitmessage received from " + bmsg.From + " to " + bmsg.To)
 
 	err = s.imapUser[id].DeliverFromBMNet(bmsg)
@@ -270,7 +279,7 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 	}
 
 	// Check if length of Ack is correct and message isn't from a channel.
-	if len(msg.Ack) < wire.MessageHeaderSize || ofChan {
+	if msg.Ack == nil || len(msg.Ack) < wire.MessageHeaderSize || ofChan {
 		return
 	}
 
@@ -290,12 +299,12 @@ func (s *server) newMessage(counter uint64, obj []byte) {
 
 // newBroadcast is called when a new broadcast is received by the RPC client.
 // Broadcasts are guaranteed to be received in ascending order of counter value.
-func (s *server) newBroadcast(counter uint64, obj []byte) {
+func (s *server) newBroadcast(counter uint64, object []byte) {
 	// Store counter value.
 	atomic.StoreUint64(&s.broadcastCounter, counter)
 
-	msg := &wire.MsgBroadcast{}
-	err := msg.Decode(bytes.NewReader(obj))
+	msg := &obj.Broadcast{}
+	err := msg.Decode(bytes.NewReader(object))
 	if err != nil {
 		serverLog.Errorf("Failed to decode broadcast #%d from bytes: %v",
 			counter, err)
@@ -322,16 +331,16 @@ func (s *server) newBroadcast(counter uint64, obj []byte) {
 		if err == nil { // Broadcast decryption failed.
 			return
 		}
-		
-	} 
-	
+
+	}
+
 	// Read message.
 	bmsg, err := email.BroadcastRead(msg)
 	if err != nil {
 		log.Errorf("Failed to decode message #%d: %v", counter, err)
 		return
 	}
-	
+
 	rpccLog.Trace("Bitmessage broadcast received from " + bmsg.From + " to " + bmsg.To)
 
 	err = s.imapUser[1].DeliverFromBMNet(bmsg)
@@ -345,12 +354,12 @@ func (s *server) newBroadcast(counter uint64, obj []byte) {
 // newGetpubkey is called when a new getpubkey is received by the RPC client.
 // Getpubkey requests are guaranteed to be received in ascending order of
 // counter value.
-func (s *server) newGetpubkey(counter uint64, obj []byte) {
+func (s *server) newGetpubkey(counter uint64, object []byte) {
 	// Store counter value.
 	atomic.StoreUint64(&s.getpubkeyCounter, counter)
 
-	msg := &wire.MsgGetPubKey{}
-	err := msg.Decode(bytes.NewReader(obj))
+	msg := &obj.GetPubKey{}
+	err := msg.Decode(bytes.NewReader(object))
 	if err != nil {
 		serverLog.Errorf("Failed to decode getpubkey #%d from bytes: %v",
 			counter, err)
@@ -365,12 +374,12 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 			if id.Disabled || id.IsChan { // We don't care about these.
 				return nil
 			}
-	
+
 			var cond bool // condition to satisfy
 			switch msg.Version {
-			case wire.SimplePubKeyVersion, wire.ExtendedPubKeyVersion:
+			case obj.SimplePubKeyVersion, obj.ExtendedPubKeyVersion:
 				cond = bytes.Equal(id.Private.Address.Ripe[:], msg.Ripe[:])
-			case wire.TagGetPubKeyVersion:
+			case obj.TagGetPubKeyVersion:
 				cond = bytes.Equal(id.Private.Address.Tag(), msg.Tag[:])
 			}
 			if cond {
@@ -398,12 +407,14 @@ func (s *server) newGetpubkey(counter uint64, obj []byte) {
 	}
 
 	// Add it to pow queue.
-	b := wire.EncodeMessage(pkMsg)[8:] // exclude nonce
+	b := wire.EncodeMessage(pkMsg.MsgObject())[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
 		uint64(pkMsg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
-	s.pow.Run(target, b, nil)
+	s.pow.Run(target, b, func(nonce powmgr.Nonce) {
+		s.Send(append(nonce.Bytes(), b...))
+	})
 }
 
 // pkRequestHandler manages the pubkey request store. It periodically checks
@@ -485,13 +496,13 @@ func (s *server) pkRequestHandler() {
 	}
 }
 
-func (s *server) Send(obj []byte) error {	// Send the object out on the network.
+func (s *server) Send(obj []byte) error { // Send the object out on the network.
 	_, err := s.bmd.SendObject(obj)
 	if err != nil {
 		serverLog.Error("Failed to send object:", err)
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -560,27 +571,27 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 	var tag wire.ShaHash
 	copy(tag[:], addr.Tag())
 
-	msg := wire.NewMsgGetPubKey(0, time.Now().Add(defaultGetpubkeyExpiry),
+	msg := obj.NewGetPubKey(0, time.Now().Add(defaultGetpubkeyExpiry),
 		addr.Version, addr.Stream, (*wire.RipeHash)(&addr.Ripe), &tag)
 
 	// Enqueue the request for proof-of-work.
-	b := wire.EncodeMessage(msg)[8:] // exclude nonce
+	b := wire.EncodeMessage(msg.MsgObject())[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
 		uint64(msg.ExpiresTime.Sub(time.Now()).Seconds()),
 		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
 
 	s.pow.Run(target, b, func(nonce powmgr.Nonce) {
-		s.Send(append(nonce.Bytes(), b...))
+		err := s.Send(append(nonce.Bytes(), b...))
+		if err != nil {
+			serverLog.Error("Could not run pow: ", err)
+		}
+
+		// Store a record of the public key request.
+		count, _ := s.pk.New(address)
+		serverLog.Tracef("getOrRequestPublicIdentity: Requested address %s %d time(s).",
+			address, count)
 	})
 
-	// Store a record of the public key request.
-	count, err := s.pk.New(address)
-	if err != nil {
-		return nil, err
-	}
-
-	serverLog.Tracef("getOrRequestPublicIdentity: Requested address %s %d time(s).",
-		address, count)
 	return nil, nil
 }
 

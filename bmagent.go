@@ -70,7 +70,7 @@ func bmagentMain() error {
 		}()
 	}
 
-	// Client config for rpc connection to bmd. 
+	// Client config for rpc connection to bmd.
 	rpcc := &rpc.ClientConfig{
 		DisableTLS: cfg.DisableClientTLS,
 		CAFile:     cfg.CAFile,
@@ -81,7 +81,7 @@ func bmagentMain() error {
 	}
 
 	// Initialize all servers.
-	user := &User{Keys:keys, Username: cfg.Username, Pass:cfg.keyfilePass, Path:cfg.keyfilePath}
+	user := &User{Keys: keys, Username: cfg.Username, Pass: cfg.keyfilePass, Path: cfg.keyfilePath}
 	server, err := newServer(rpcc, user, store, pkr)
 	if err != nil {
 		log.Errorf("Unable to create servers: %v", err)

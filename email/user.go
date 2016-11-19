@@ -184,76 +184,81 @@ func (u *User) Move(bmsg *Bitmessage, from, to string) error {
 	return toBox.AddNew(bmsg, types.FlagSeen)
 }
 
-// trySend takes a Bitmessage and does whatever needs to be done to it 
-// next in order to send it into the network. There are some steps in this 
+// trySend takes a Bitmessage and does whatever needs to be done to it
+// next in order to send it into the network. There are some steps in this
 // process that take a bit of time, so they can't all be handled sequentially
-// by one function. If we don't have the recipient's private key yet, we 
+// by one function. If we don't have the recipient's private key yet, we
 // can't send the message and we have to send a pubkey request to him instead.
-// On the other hand, messages might come in for which we already have the 
-// public key and then we can go on to the next step right away. 
+// On the other hand, messages might come in for which we already have the
+// public key and then we can go on to the next step right away.
 //
-// The next step is proof-of-work, and that also takes time. 
+// The next step is proof-of-work, and that also takes time.
 func (u *User) trySend(bmsg *Bitmessage) error {
+	outbox := u.boxes[OutboxFolderName]
+
 	// First we attempt to generate the wire.Object form of the message.
 	// If we can't, then it is possible that we don't have the recipient's
 	// pubkey. That is not an error state. If no object and no error is
 	// returned, this is what has happened. If there is no object, then we
-	// can't proceed futher so trySend completes. 
-	obj, nonceTrials, extraBytes, err := bmsg.GenerateObject(u.server)
-	if obj == nil {
+	// can't proceed futher so trySend completes.
+	object, nonceTrials, extraBytes, err := bmsg.GenerateObject(u.server)
+	if object == nil {
 		smtpLog.Debug("trySend: could not generate message. Pubkey request sent? ", err == nil)
 		if err == nil {
 			bmsg.state.PubkeyRequestOutstanding = true
+
+			err := outbox.saveBitmessage(bmsg)
+			if err != nil {
+				return err
+			}
 			return nil
 		}
 		return err
 	}
 
 	bmsg.state.PubkeyRequestOutstanding = false
-	
+
 	// sendPow takes a message in wire format with all required information
 	// to send it over the network other than having proof-of-work run on it.
 	// It generates the correct parameters for running the proof-of-work and
-	// sends it to the proof-of-work queue with a function provided by the 
-	// user that says what to do with the completed message when the 
-	// proof-of-work is done. 
-	sendPow := func(obj *wire.MsgObject, nonceTrials, extraBytes uint64, done func([]byte)) {
-		encoded := wire.EncodeMessage(obj)
+	// sends it to the proof-of-work queue with a function provided by the
+	// user that says what to do with the completed message when the
+	// proof-of-work is done.
+	sendPow := func(object *wire.MsgObject, nonceTrials, extraBytes uint64, done func([]byte)) {
+		encoded := wire.EncodeMessage(object)
 		q := encoded[8:] // exclude the nonce
-	
+
 		target := pow.CalculateTarget(uint64(len(q)),
-			uint64(obj.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
-		
-		// Attempt to run pow on the message. 
+			uint64(object.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
+
+		// Attempt to run pow on the message.
 		u.server.RunPow(target, q, func(n powmgr.Nonce) {
 			// Put the nonce bytes into the encoded form of the message.
 			q = append(n.Bytes(), q...)
 			done(q)
 		})
 	}
-	
+
 	// sendPreparedMessage is used after we have looked up private keys and
-	// generated an ack message, if applicable. 
+	// generated an ack message, if applicable.
 	sendPreparedMessage := func() error {
-		// Save Bitmessage in outbox folder. We need to do that because
-		// we've added more information to bmsg. 
-		err := u.boxes[OutboxFolderName].saveBitmessage(bmsg)
+		err := outbox.saveBitmessage(bmsg)
 		if err != nil {
 			return err
 		}
-	
+
 		// Put the prepared object in the pow queue and send it off
-		// through the network. 
-		sendPow(obj, nonceTrials, extraBytes, func(completed []byte) {
+		// through the network.
+		sendPow(object.MsgObject(), nonceTrials, extraBytes, func(completed []byte) {
 			err := func() error {
 				// Save Bitmessage in outbox folder.
 				err := u.boxes[OutboxFolderName].saveBitmessage(bmsg)
 				if err != nil {
 					return err
 				}
-				
+
 				u.server.Send(completed)
-		
+
 				// Select new box for the message.
 				var newBoxName string
 				if bmsg.state.AckExpected {
@@ -261,53 +266,45 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 				} else {
 					newBoxName = SentFolderName
 				}
-		
+
 				bmsg.state.SendTries++
 				bmsg.state.LastSend = time.Now()
-		
+
 				return u.Move(bmsg, OutboxFolderName, newBoxName)
 			}()
 			// We can't return the error any further because this function
-			// isn't even run until long after trySend completes! 
+			// isn't even run until long after trySend completes!
 			if err != nil {
 				smtpLog.Error("trySend: ", err)
 			}
 		})
-		
+
 		return nil
-	}
-	
-	// Save Bitmessage in outbox folder. This message might have just come
-	// in from the SMTP server, 
-	err = u.boxes[OutboxFolderName].saveBitmessage(bmsg)
-	if err != nil {
-		return err
 	}
 
 	// We may desire to receive an ack with this message, which has not yet
 	// been created. In that case, we need to do proof-of-work on the ack just
-	// as on the entire message. 
+	// as on the entire message.
 	if bmsg.Ack != nil && bmsg.state.AckExpected {
 		ack, nonceTrialsAck, extraBytesAck, err := bmsg.generateAck(u.server)
 		if err != nil {
 			return err
 		}
-		
-		sendPow(ack, nonceTrialsAck, extraBytesAck, func(completed []byte) {
-			err := func () error {
-				// Add the ack to the message. 
+
+		err = outbox.saveBitmessage(bmsg)
+		if err != nil {
+			return err
+		}
+
+		sendPow(ack.MsgObject(), nonceTrialsAck, extraBytesAck, func(completed []byte) {
+			err := func() error {
+				// Add the ack to the message.
 				bmsg.Ack = completed
-				
-				// Save Bitmessage in outbox folder.
-				err := u.boxes[OutboxFolderName].saveBitmessage(bmsg)
-				if err != nil {
-					return err
-				}
-				
+
 				return sendPreparedMessage()
 			}
-			// Once again, we can't return the error any further because 
-			// trySend is over by the time this function is run. 
+			// Once again, we can't return the error any further because
+			// trySend is over by the time this function is run.
 			if err != nil {
 				smtpLog.Error("trySend: ", err)
 			}
@@ -315,14 +312,25 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 	} else {
 		return sendPreparedMessage()
 	}
-	
+
 	return nil
 }
 
+var ErrNoAckExpected = errors.New("No ack found.")
+
 // DeliverAckReply takes a message ack and marks a message as having been
 // received by the recipient.
-func (u *User) DeliverAckReply() {
-	// TODO
+func (u *User) DeliverAckReply(ack []byte) error {
+	// Go through the Limbo folder and check if there is a message
+	// that is expecting this ack.
+	bmsg := u.boxes[LimboFolderName].ReceiveAck(ack)
+
+	// Move the message to the sent folder.
+	if bmsg != nil {
+		return u.Move(bmsg, LimboFolderName, SentFolderName)
+	}
+
+	return ErrNoAckExpected
 }
 
 // Generate keys creates n new keys for the user and sends him a message
