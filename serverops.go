@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/keymgr"
-	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/wire"
+	"github.com/DanielKrawisz/bmutil/pow"
 )
 
 // serverOps implements the email.ServerOps interface.
@@ -79,7 +79,7 @@ func (s *serverOps) GetObjectExpiry(objType wire.ObjectType) time.Duration {
 }
 
 // PowQueue returns the store.PowQueue associated with the server.
-func (s *serverOps) RunPow(target uint64, obj []byte, done func(n powmgr.Nonce)) {
+func (s *serverOps) RunPow(target uint64, obj []byte, done func(n pow.Nonce)) {
 	s.server.pow.Run(target, obj, done)
 }
 

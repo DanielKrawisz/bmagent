@@ -418,7 +418,7 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 		uint64(pkHeader.Expiration().Sub(time.Now()).Seconds()),
 		pow.DefaultData)
 
-	s.pow.Run(target, b, func(nonce powmgr.Nonce) {
+	s.pow.Run(target, b, func(nonce pow.Nonce) {
 		s.Send(append(nonce.Bytes(), b...))
 	})
 }
@@ -586,7 +586,7 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 		uint64(msg.Header().Expiration().Sub(time.Now()).Seconds()),
 		pow.DefaultData)
 
-	s.pow.Run(target, b, func(nonce powmgr.Nonce) {
+	s.pow.Run(target, b, func(nonce pow.Nonce) {
 		err := s.Send(append(nonce.Bytes(), b...))
 		if err != nil {
 			serverLog.Error("Could not run pow: ", err)

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/message/format"
 	"github.com/DanielKrawisz/bmagent/store/mem"
+	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
 )

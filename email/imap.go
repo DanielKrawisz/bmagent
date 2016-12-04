@@ -10,8 +10,8 @@ import (
 	"fmt"
 
 	"github.com/DanielKrawisz/bmagent/keymgr"
-	"github.com/DanielKrawisz/bmagent/message/format"
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
 )

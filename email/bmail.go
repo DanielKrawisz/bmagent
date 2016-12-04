@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/message/format"
-	"github.com/DanielKrawisz/bmagent/message/serialize"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/cipher"
+	"github.com/DanielKrawisz/bmutil/format"
+	"github.com/DanielKrawisz/bmutil/format/serialize"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
@@ -204,8 +204,7 @@ func (m *Bmail) generateBroadcast(from *identity.Private, expiry time.Duration) 
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
 		Pow:                powData,
-		Encoding:           m.Content.Encoding(),
-		Message:            m.Content.Message(),
+		Content:            m.Content,
 	}
 
 	var broadcast *cipher.Broadcast
@@ -250,8 +249,7 @@ func (m *Bmail) generateMessage(from *identity.Private, to *identity.Public, exp
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
 		Pow:                powData,
-		Encoding:           m.Content.Encoding(),
-		Message:            m.Content.Message(),
+		Content:            m.Content,
 	}
 
 	message, err := cipher.SignAndEncryptMessage(time.Now().Add(expiry), from.Address.Stream, data, m.Ack, from, to)
@@ -385,11 +383,6 @@ func MsgRead(msg *cipher.Message, toAddress string, ofChan bool) (*Bmail, error)
 	object := msg.Object()
 	header := object.Header()
 
-	message, err := format.DecodeObjectPayload(data.Encoding, data.Message)
-	if err != nil {
-		return nil, err
-	}
-
 	sign, _ := data.SigningKey.ToBtcec()
 	encr, _ := data.EncryptionKey.ToBtcec()
 	from := identity.NewPublic(sign, encr, data.Pow, data.FromAddressVersion, data.FromStreamNumber)
@@ -404,7 +397,7 @@ func MsgRead(msg *cipher.Message, toAddress string, ofChan bool) (*Bmail, error)
 		Expiration: header.Expiration(),
 		Ack:        msg.Ack(),
 		OfChannel:  ofChan,
-		Content:    message,
+		Content:    data.Content,
 		object:     object.MsgObject(),
 	}, nil
 }
@@ -414,10 +407,6 @@ func MsgRead(msg *cipher.Message, toAddress string, ofChan bool) (*Bmail, error)
 func BroadcastRead(msg *cipher.Broadcast) (*Bmail, error) {
 	header := msg.Object().Header()
 	data := msg.Bitmessage()
-	message, err := format.DecodeObjectPayload(data.Encoding, data.Message)
-	if err != nil {
-		return nil, err
-	}
 
 	sign, _ := data.SigningKey.ToBtcec()
 	encr, _ := data.EncryptionKey.ToBtcec()
@@ -431,7 +420,7 @@ func BroadcastRead(msg *cipher.Broadcast) (*Bmail, error) {
 		From:       "broadcast@bm.agent",
 		To:         bmToEmail(fromAddress),
 		Expiration: header.Expiration(),
-		Content:    message,
+		Content:    data.Content,
 	}, nil
 }
 

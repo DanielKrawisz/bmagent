@@ -12,8 +12,7 @@ import (
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/keymgr"
-	"github.com/DanielKrawisz/bmagent/message/format"
-	"github.com/DanielKrawisz/bmagent/powmgr"
+	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
@@ -234,7 +233,7 @@ func (u *User) trySend(bmsg *Bmail) error {
 			uint64(object.Header().Expiration().Sub(time.Now()).Seconds()), *powData)
 
 		// Attempt to run pow on the message.
-		u.server.RunPow(target, q, func(n powmgr.Nonce) {
+		u.server.RunPow(target, q, func(n pow.Nonce) {
 			// Put the nonce bytes into the encoded form of the message.
 			q = append(n.Bytes(), q...)
 			done(q)

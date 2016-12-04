@@ -5,25 +5,11 @@
 package powmgr
 
 import (
-	"encoding/binary"
 	"sync"
 
 	"github.com/DanielKrawisz/bmutil"
+	"github.com/DanielKrawisz/bmutil/pow"
 )
-
-// The nonce returned as both a byte string and a number.
-type Nonce struct {
-	b []byte
-	n uint64
-}
-
-func (u Nonce) Bytes() []byte {
-	return u.b
-}
-
-func (u Nonce) Natural() uint64 {
-	return u.n
-}
 
 // powOrder represents an order to perform proof-of-work on some data,
 // along with a function to call when the work is done.
@@ -35,7 +21,7 @@ type powOrder struct {
 	object []byte
 
 	// The function to run when the pow is completed.
-	donePowFunc func(u Nonce)
+	donePowFunc func(u pow.Nonce)
 }
 
 type PowNode struct {
@@ -46,7 +32,7 @@ type PowNode struct {
 // Pow is the proof-of-work manager.
 type Pow struct {
 	// powFunc is the function that calculates the pow.
-	powFunc func(target uint64, hash []byte) uint64
+	powFunc func(target uint64, hash []byte) pow.Nonce
 
 	mtx  sync.Mutex
 	head *PowNode
@@ -54,7 +40,7 @@ type Pow struct {
 }
 
 // New creates a new PowManager.
-func New(powFunc func(target uint64, hash []byte) uint64) *Pow {
+func New(powFunc func(target uint64, hash []byte) pow.Nonce) *Pow {
 	return &Pow{
 		powFunc: powFunc,
 	}
@@ -63,7 +49,7 @@ func New(powFunc func(target uint64, hash []byte) uint64) *Pow {
 // Pow adds an object message with a target value for PoW to the end of the
 // pow queue. It returns the index value of the stored element. If the
 // PowManager is running, then a signal is sent to start running hashes immediately.
-func (q *Pow) Run(target uint64, obj []byte, donePowFunc func(u Nonce)) {
+func (q *Pow) Run(target uint64, obj []byte, donePowFunc func(u pow.Nonce)) {
 	q.enqueue(&powOrder{target, obj, donePowFunc})
 }
 
@@ -119,16 +105,12 @@ func (q *Pow) work() {
 		hash := bmutil.Sha512(order.object)
 
 		// run POW for the next object in the queue.
-		nonce := q.powFunc(order.target, hash)
-
-		// Encode the nonce as bytes.
-		nonceBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(nonceBytes, nonce)
+		n := q.powFunc(order.target, hash)
 
 		// Remove the last item from the queue.
 		q.dequeue()
 
 		// Do whatever we're supposed to do with the nonce.
-		go order.donePowFunc(Nonce{b: nonceBytes, n: nonce})
+		go order.donePowFunc(n)
 	}
 }
