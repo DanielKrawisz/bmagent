@@ -17,6 +17,7 @@ import (
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
+	"github.com/DanielKrawisz/bmutil/wire/obj"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
 	"github.com/mailhog/data"
@@ -54,9 +55,9 @@ func NewUser(username string, server ServerOps, keys *keymgr.Manager) (*User, er
 		var err error
 		switch name {
 		case DraftsFolderName:
-			mb, err = NewDrafts(mbox, keys.Names())
+			mb, err = newDrafts(mbox, keys.Names())
 		default:
-			mb, err = NewMailbox(mbox, keys.Names())
+			mb, err = newMailbox(mbox, keys.Names())
 		}
 		if err != nil {
 			return nil, err
@@ -98,7 +99,7 @@ func (u *User) MailboxByName(name string) (mailstore.Mailbox, error) {
 
 // DeliverFromBMNet adds a message received from bmd into the appropriate
 // folder.
-func (u *User) DeliverFromBMNet(bm *Bitmessage) error {
+func (u *User) DeliverFromBMNet(bm *Bmail) error {
 	// Put message in the right folder.
 	return u.boxes[InboxFolderName].AddNew(bm, types.FlagRecent)
 }
@@ -142,7 +143,7 @@ func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
 	}
 
 	outbox := u.boxes[OutboxFolderName]
-	var bms []*Bitmessage
+	var bms []*Bmail
 
 	// Go through all messages in the Outbox and get IDs of all the matches.
 	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
@@ -170,7 +171,8 @@ func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
 	return nil
 }
 
-func (u *User) Move(bmsg *Bitmessage, from, to string) error {
+// Move finds a bmail in one mailbox and moves it to another.
+func (u *User) Move(bmsg *Bmail, from, to string) error {
 	fromBox := u.boxes[from]
 	toBox := u.boxes[to]
 
@@ -193,7 +195,7 @@ func (u *User) Move(bmsg *Bitmessage, from, to string) error {
 // public key and then we can go on to the next step right away.
 //
 // The next step is proof-of-work, and that also takes time.
-func (u *User) trySend(bmsg *Bitmessage) error {
+func (u *User) trySend(bmsg *Bmail) error {
 	outbox := u.boxes[OutboxFolderName]
 
 	// First we attempt to generate the wire.Object form of the message.
@@ -201,7 +203,7 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 	// pubkey. That is not an error state. If no object and no error is
 	// returned, this is what has happened. If there is no object, then we
 	// can't proceed futher so trySend completes.
-	object, nonceTrials, extraBytes, err := bmsg.GenerateObject(u.server)
+	object, powData, err := bmsg.GenerateObject(u.server)
 	if object == nil {
 		smtpLog.Debug("trySend: could not generate message. Pubkey request sent? ", err == nil)
 		if err == nil {
@@ -224,12 +226,12 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 	// sends it to the proof-of-work queue with a function provided by the
 	// user that says what to do with the completed message when the
 	// proof-of-work is done.
-	sendPow := func(object *wire.MsgObject, nonceTrials, extraBytes uint64, done func([]byte)) {
-		encoded := wire.EncodeMessage(object)
+	sendPow := func(object obj.Object, powData *pow.Data, done func([]byte)) {
+		encoded := wire.Encode(object)
 		q := encoded[8:] // exclude the nonce
 
 		target := pow.CalculateTarget(uint64(len(q)),
-			uint64(object.ExpiresTime.Sub(time.Now()).Seconds()), nonceTrials, extraBytes)
+			uint64(object.Header().Expiration().Sub(time.Now()).Seconds()), *powData)
 
 		// Attempt to run pow on the message.
 		u.server.RunPow(target, q, func(n powmgr.Nonce) {
@@ -249,7 +251,7 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 
 		// Put the prepared object in the pow queue and send it off
 		// through the network.
-		sendPow(object.MsgObject(), nonceTrials, extraBytes, func(completed []byte) {
+		sendPow(object, powData, func(completed []byte) {
 			err := func() error {
 				// Save Bitmessage in outbox folder.
 				err := u.boxes[OutboxFolderName].saveBitmessage(bmsg)
@@ -286,7 +288,7 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 	// been created. In that case, we need to do proof-of-work on the ack just
 	// as on the entire message.
 	if bmsg.Ack != nil && bmsg.state.AckExpected {
-		ack, nonceTrialsAck, extraBytesAck, err := bmsg.generateAck(u.server)
+		ack, powData, err := bmsg.generateAck(u.server)
 		if err != nil {
 			return err
 		}
@@ -296,7 +298,7 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 			return err
 		}
 
-		sendPow(ack.MsgObject(), nonceTrialsAck, extraBytesAck, func(completed []byte) {
+		sendPow(ack, powData, func(completed []byte) {
 			err := func() error {
 				// Add the ack to the message.
 				bmsg.Ack = completed
@@ -316,7 +318,9 @@ func (u *User) trySend(bmsg *Bitmessage) error {
 	return nil
 }
 
-var ErrNoAckExpected = errors.New("No ack found.")
+// ErrNoAckExpected is returned if we somehow receive an ack for
+// a message for which none was expected.
+var ErrNoAckExpected = errors.New("No ack expected.")
 
 // DeliverAckReply takes a message ack and marks a message as having been
 // received by the recipient.
@@ -333,7 +337,7 @@ func (u *User) DeliverAckReply(ack []byte) error {
 	return ErrNoAckExpected
 }
 
-// Generate keys creates n new keys for the user and sends him a message
+// GenerateKeys creates n new keys for the user and sends him a message
 // about them.
 func (u *User) GenerateKeys(n uint16) error {
 	if n == 0 {
@@ -356,7 +360,7 @@ func (u *User) GenerateKeys(n uint16) error {
 
 	message := fmt.Sprintf(newAddressesMsg, keyList)
 
-	err := inbox.AddNew(&Bitmessage{
+	err := inbox.AddNew(&Bmail{
 		From: "addresses@bm.agent",
 		To:   "", /*send to all new addresses*/
 		Content: &format.Encoding2{

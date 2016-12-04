@@ -92,6 +92,7 @@ func (uids MessageSequence) Swap(i, j int) {
 	uids[j] = id
 }
 
+// Mailbox represent a mailbox compatible with both IMAP and Bitmessage.
 type Mailbox interface {
 	mailstore.Mailbox
 
@@ -99,7 +100,7 @@ type Mailbox interface {
 	Save(email *IMAPEmail) error
 
 	// AddNew adds a new Bitmessage to the Mailbox.
-	AddNew(bmsg *Bitmessage, flags types.Flags) error
+	AddNew(bmsg *Bmail, flags types.Flags) error
 
 	// DeleteBitmessageByUID deletes a bitmessage by uid.
 	DeleteBitmessageByUID(id uint64) error
@@ -113,7 +114,7 @@ type mailbox struct {
 
 	// Used to define a subfolder, in which only those messages
 	// which return true belong to the mailbox. Can be nil.
-	sub func(*Bitmessage) bool
+	sub func(*Bmail) bool
 
 	// The set of addresses associated with this folder and their names.
 	addresses map[string]string
@@ -126,7 +127,7 @@ type mailbox struct {
 	nextUID      uint32
 }
 
-func (box *mailbox) decodeBitmessageForImap(uid uint64, seqno uint32, msg []byte) *Bitmessage {
+func (box *mailbox) decodeBitmessageForImap(uid uint64, seqno uint32, msg []byte) *Bmail {
 	b, err := DecodeBitmessage(msg)
 	if err != nil {
 		imapLog.Errorf("DecodeBitmessage for #%d failed: %v", uid, err)
@@ -146,7 +147,7 @@ func (box *mailbox) Name() string {
 
 // updateMailboxStats updates the mailbox data like number of recent/unseen
 // messages based on the provided Bitmessage.
-func (box *mailbox) updateMailboxStats(entry *Bitmessage, id uint64) {
+func (box *mailbox) updateMailboxStats(entry *Bmail, id uint64) {
 	if entry.ImapData.Flags.HasFlags(types.FlagRecent) {
 		box.numRecent++
 	}
@@ -255,7 +256,7 @@ func (box *mailbox) Unseen() uint32 {
 }
 
 // bitmessageBySequenceNumber gets a message by its sequence number
-func (box *mailbox) bitmessageBySequenceNumber(seqno uint32) *Bitmessage {
+func (box *mailbox) bitmessageBySequenceNumber(seqno uint32) *Bmail {
 
 	if seqno < 1 || seqno > box.messages() {
 		return nil
@@ -284,7 +285,7 @@ func (box *mailbox) MessageBySequenceNumber(seqno uint32) mailstore.Message {
 }
 
 // bmsgByUID returns a Bitmessage by its uid. This function not protected with locks.
-func (box *mailbox) bmsgByUID(uid uint64) *Bitmessage {
+func (box *mailbox) bmsgByUID(uid uint64) *Bmail {
 	seqno := box.uids.GetSequenceNumber(uint64(uid))
 	if seqno > uint32(len(box.uids)) || box.uids[seqno-1] != uid {
 		// This message does not exist in this mailbox.
@@ -305,7 +306,7 @@ func (box *mailbox) bmsgByUID(uid uint64) *Bitmessage {
 }
 
 // BitmessageByUID returns a Bitmessage by its uid.
-func (box *mailbox) BitmessageByUID(uid uint64) *Bitmessage {
+func (box *mailbox) BitmessageByUID(uid uint64) *Bmail {
 	box.RLock()
 	defer box.RUnlock()
 
@@ -330,7 +331,7 @@ func (box *mailbox) MessageByUID(uid uint32) mailstore.Message {
 }
 
 // lastBitmessage returns the last Bitmessage in the mailbox.
-func (box *mailbox) lastBitmessage() *Bitmessage {
+func (box *mailbox) lastBitmessage() *Bmail {
 	if box.messages() == 0 {
 		return nil
 	}
@@ -342,8 +343,8 @@ func (box *mailbox) lastBitmessage() *Bitmessage {
 // getRange returns a sequence of bitmessages from the mailbox in a range from
 // startUID to endUID. It does not check whether the given sequence numbers make
 // sense.
-func (box *mailbox) getRange(startUID, endUID uint64, startSequence, endSequence uint32) []*Bitmessage {
-	bitmessages := make([]*Bitmessage, 0, endSequence-startSequence+1)
+func (box *mailbox) getRange(startUID, endUID uint64, startSequence, endSequence uint32) []*Bmail {
+	bitmessages := make([]*Bmail, 0, endSequence-startSequence+1)
 
 	i := uint32(0)
 	err := box.mbox.ForEachMessage(startUID, endUID, 2, func(id, suffix uint64, msg []byte) error {
@@ -371,30 +372,30 @@ func (box *mailbox) getRange(startUID, endUID uint64, startSequence, endSequence
 // getSince returns a sequence of bitmessages from the mailbox which includes
 // all greater than or equal to a given uid number. It does not check whether
 // the given sequence number makes sense.
-func (box *mailbox) getSince(startUID uint64, startSequence uint32) []*Bitmessage {
+func (box *mailbox) getSince(startUID uint64, startSequence uint32) []*Bmail {
 	return box.getRange(startUID, box.uids[len(box.uids)-1], startSequence, box.messages())
 }
 
 // bitmessagesByUIDRange returns Bitmessage with UIDs between start and end.
-func (box *mailbox) bitmessagesByUIDRange(start, end uint64) []*Bitmessage {
+func (box *mailbox) bitmessagesByUIDRange(start, end uint64) []*Bmail {
 	startSequence := box.uids.GetSequenceNumber(start)
 	endSequence := box.uids.GetSequenceNumber(end)
 
 	if startSequence > endSequence {
-		return []*Bitmessage{}
+		return []*Bmail{}
 	}
 	return box.getRange(start, end, startSequence, endSequence)
 }
 
 // bitmessagesSinceUID returns messages with UIDs greater than start.
-func (box *mailbox) bitmessagesSinceUID(start uint64) []*Bitmessage {
+func (box *mailbox) bitmessagesSinceUID(start uint64) []*Bmail {
 	startSequence := box.uids.GetSequenceNumber(start)
 	return box.getSince(start, startSequence)
 }
 
 // bitmessagesBySequenceRange returns a set of Bitmessages in a range between
 // two sequence numbers inclusive.
-func (box *mailbox) bitmessagesBySequenceRange(start, end uint32) []*Bitmessage {
+func (box *mailbox) bitmessagesBySequenceRange(start, end uint32) []*Bmail {
 	if start < 1 || start > box.messages() ||
 		end < 1 || end > box.messages() || end < start {
 		return nil
@@ -406,7 +407,7 @@ func (box *mailbox) bitmessagesBySequenceRange(start, end uint32) []*Bitmessage 
 
 // bitmessagesSinceSequenceNumber returns the set of Bitmessages since and
 // including a given uid value.
-func (box *mailbox) bitmessagesSinceSequenceNumber(start uint32) []*Bitmessage {
+func (box *mailbox) bitmessagesSinceSequenceNumber(start uint32) []*Bmail {
 	if start < 1 || start > box.Messages() {
 		return nil
 	}
@@ -415,8 +416,8 @@ func (box *mailbox) bitmessagesSinceSequenceNumber(start uint32) []*Bitmessage {
 }
 
 // bitmessageSetByUID gets messages belonging to a set of ranges of UIDs
-func (box *mailbox) bitmessageSetByUID(set types.SequenceSet) []*Bitmessage {
-	var msgs []*Bitmessage
+func (box *mailbox) bitmessageSetByUID(set types.SequenceSet) []*Bmail {
+	var msgs []*Bmail
 
 	// If the mailbox is empty, return empty slice
 	if box.messages() == 0 {
@@ -467,8 +468,8 @@ func (box *mailbox) bitmessageSetByUID(set types.SequenceSet) []*Bitmessage {
 
 // bitmessageSetBySequenceNumber gets messages belonging to a set of ranges of
 // sequence numbers.
-func (box *mailbox) bitmessageSetBySequenceNumber(set types.SequenceSet) []*Bitmessage {
-	var msgs []*Bitmessage
+func (box *mailbox) bitmessageSetBySequenceNumber(set types.SequenceSet) []*Bmail {
+	var msgs []*Bmail
 
 	// If the mailbox is empty, return empty array
 	if box.Messages() == 0 {
@@ -519,7 +520,7 @@ func (box *mailbox) bitmessageSetBySequenceNumber(set types.SequenceSet) []*Bitm
 }
 
 // AddNew adds a new Bitmessage to the Mailbox.
-func (box *mailbox) AddNew(bmsg *Bitmessage, flags types.Flags) error {
+func (box *mailbox) AddNew(bmsg *Bmail, flags types.Flags) error {
 	box.Lock()
 	defer box.Unlock()
 
@@ -623,7 +624,7 @@ func (box *mailbox) DeleteBitmessageByUID(id uint64) error {
 }
 
 // saveBitmessage saves the given Bitmessage in the folder.
-func (box *mailbox) saveBitmessage(msg *Bitmessage) error {
+func (box *mailbox) saveBitmessage(msg *Bmail) error {
 	// Generate the new version of the message.
 	encode, err := msg.Serialize()
 	if err != nil {
@@ -672,7 +673,7 @@ func (box *mailbox) saveBitmessage(msg *Bitmessage) error {
 
 // Save saves an IMAP email in the Mailbox.
 func (box *mailbox) Save(email *IMAPEmail) error {
-	var msg *Bitmessage
+	var msg *Bmail
 	var err error
 	if box.drafts {
 		msg, err = NewBitmessageDraftFromSMTP(email.Content)
@@ -716,7 +717,7 @@ func (box *mailbox) Save(email *IMAPEmail) error {
 // DeleteFlaggedMessages deletes messages that were flagged for deletion.
 func (box *mailbox) DeleteFlaggedMessages() ([]mailstore.Message, error) {
 	box.RLock()
-	var delBMsgs []*Bitmessage
+	var delBMsgs []*Bmail
 
 	// Gather UIDs of all messages to be deleted.
 	for _, uid := range box.uids {
@@ -758,8 +759,8 @@ var errAckFound = errors.New("Ack Found")
 // ReceiveAck takes an object payload and tests it against messages in the
 // folder to see if it matches the ack of any sent message in the folder.
 // The first such message found is returned.
-func (box *mailbox) ReceiveAck(ack []byte) *Bitmessage {
-	var ackMatch *Bitmessage
+func (box *mailbox) ReceiveAck(ack []byte) *Bmail {
+	var ackMatch *Bmail
 
 	box.mbox.ForEachMessage(0, 0, 2, func(id, suffix uint64, msg []byte) error {
 		entry, err := DecodeBitmessage(msg)
@@ -803,8 +804,8 @@ func (box *mailbox) NewMessage() mailstore.Message {
 	}
 }
 
-// NewMailbox returns a new mailbox.
-func NewMailbox(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
+// newMailbox returns a new mailbox.
+func newMailbox(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}
@@ -821,8 +822,8 @@ func NewMailbox(mbox store.Folder, addresses map[string]string) (*mailbox, error
 	return m, nil
 }
 
-// NewDrafts returns a new Drafts folder.
-func NewDrafts(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
+// newDrafts returns a new Drafts folder.
+func newDrafts(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}

@@ -3,28 +3,22 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package email_test
+package email
 
 import (
 	"fmt"
 	"testing"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/message/format"
 	"github.com/DanielKrawisz/bmagent/store/mem"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
 )
 
-const (
-	// dateFormat is the format for encoding dates.
-	dateFormat = "Mon Jan 2 15:04:05 -0700 MST 2006"
-)
-
 func TestGetSequenceNumber(t *testing.T) {
 	tests := []struct {
-		list     email.MessageSequence
+		list     MessageSequence
 		uid      uint64
 		sequence uint32
 	}{
@@ -52,20 +46,20 @@ func TestGetSequenceNumber(t *testing.T) {
 	}
 }
 
-// Used to test different implementations of email.Mailbox
+// Used to test different implementations of Mailbox
 type TestContext interface {
 	T() *testing.T
 
 	// Prepare a mailbox that contains messages with uids as given emails,
 	// which is assumed to be a sorted list.
-	// The maximum email in the folder will be max(emails, nextId - 1)
-	MakeMailbox(name string, emails []uint64, nextId uint64) email.Mailbox
+	// The maximum email in the folder will be max(emails, nextID - 1)
+	MakeMailbox(name string, emails []uint64, nextID uint64) Mailbox
 }
 
-func MakeTestBitmessage(from, to, subject, body string) *email.Bitmessage {
+func MakeTestBitmessage(from, to, subject, body string) *Bmail {
 
 	expiration, _ := time.Parse(dateFormat, "Mon Jan 2 15:04:05 -0700 MST 2045")
-	return &email.Bitmessage{
+	return &Bmail{
 		From:       from,
 		To:         to,
 		OfChannel:  false,
@@ -79,8 +73,8 @@ func MakeTestBitmessage(from, to, subject, body string) *email.Bitmessage {
 
 // Prepare a test mailbox that contains messages with uids as given emails,
 // which is assumed to be a sorted list.
-// The maximum email in the folder will be max(emails, nextId - 1)
-func PrepareTestMailbox(mb email.Mailbox, emails []uint64, nextId uint64) email.Mailbox {
+// The maximum email in the folder will be max(emails, nextID - 1)
+func PrepareTestMailbox(mb Mailbox, emails []uint64, nextID uint64) Mailbox {
 
 	// Must be empty.
 	if mb.NextUID() != 1 {
@@ -97,7 +91,7 @@ func PrepareTestMailbox(mb email.Mailbox, emails []uint64, nextId uint64) email.
 	}
 
 	// Create the correct set of messages in it.
-	var last uint64 = 0
+	var last uint64
 	var next uint64 = 1
 
 	for _, id := range emails {
@@ -116,8 +110,8 @@ func PrepareTestMailbox(mb email.Mailbox, emails []uint64, nextId uint64) email.
 		}
 	}
 
-	// Do we need to add some more messages to get up to nextId?
-	for next < nextId {
+	// Do we need to add some more messages to get up to nextID?
+	for next < nextID {
 		addNew(next)
 
 		next++
@@ -135,7 +129,7 @@ type MessageSetByUIDTestCase struct {
 	// The value of nextID in this mailbox. If it is <= any value in
 	// emails, then the value of nextID will be the maximum value in
 	// emails plus 1.
-	nextId uint64
+	nextID uint64
 	// The sequence set which will be used
 	set string
 	// The list of ids expected to be returned by the query.
@@ -149,7 +143,7 @@ func (x *MessageSetByUIDTestCase) Run(tc TestContext) []mailstore.Message {
 		return nil
 	}
 
-	mailbox := tc.MakeMailbox("test inbox", x.emails, x.nextId)
+	mailbox := tc.MakeMailbox("test inbox", x.emails, x.nextID)
 	if mailbox == nil {
 		return nil
 	}
@@ -246,7 +240,7 @@ func testMessageSetByUID(tc TestContext) {
 	}
 }
 
-// Implementation of TestContext for email.mailbox
+// Implementation of TestContext for mailbox
 type mailboxTestContext struct {
 	t *testing.T
 }
@@ -255,19 +249,19 @@ func (tc *mailboxTestContext) T() *testing.T {
 	return tc.t
 }
 
-func (tc *mailboxTestContext) MakeMailbox(name string, emails []uint64, nextId uint64) email.Mailbox {
+func (tc *mailboxTestContext) MakeMailbox(name string, emails []uint64, nextID uint64) Mailbox {
 
-	mb, err := email.NewMailbox(mem.NewFolder(name), make(map[string]string))
+	mb, err := newMailbox(mem.NewFolder(name), make(map[string]string))
 	if err != nil {
 		fmt.Println("Err constructing mailbox: ", err)
 		return nil
 	}
 
-	return PrepareTestMailbox(mb, emails, nextId)
+	return PrepareTestMailbox(mb, emails, nextID)
 }
 
 func TestInterface(t *testing.T) {
-	var boxes []TestContext = make([]TestContext, 1)
+	boxes := make([]TestContext, 1)
 
 	boxes[0] = &mailboxTestContext{t: t}
 

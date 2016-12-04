@@ -21,6 +21,7 @@ import (
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/cipher"
 	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
 	"github.com/DanielKrawisz/bmutil/wire/obj"
 	"github.com/golang/protobuf/proto"
@@ -42,9 +43,8 @@ var (
 	// ErrInvalidEmail is the error returned by EmailToBM when the e-mail
 	// address is invalid and a valid Bitmessage address cannot be extracted
 	// from it.
-	ErrInvalidEmail = errors.New(
-		fmt.Sprintf("From address must be of the form %s.",
-			emailRegexString))
+	ErrInvalidEmail = fmt.Errorf("From address must be of the form %s.",
+		emailRegexString)
 
 	bitmessageRegex = regexp.MustCompile(fmt.Sprintf("^%s$", bmAddrPattern))
 
@@ -111,26 +111,25 @@ type MessageState struct {
 	Received bool
 }
 
-// Bitmessage represents a message compatible with a bitmessage format
+// Bmail represents an email compatible with a bitmessage format
 // (msg or broadcast). If To is empty, then it is a broadcast.
-type Bitmessage struct {
-	From        string
-	To          string
-	OfChannel   bool // Whether the message was sent to/received from a channel.
-	Expiration  time.Time
-	NonceTrials uint64
-	ExtraBytes  uint64
-	Ack         []byte
-	Content     format.Encoding
-	ImapData    *ImapData
+type Bmail struct {
+	From       string
+	To         string
+	OfChannel  bool // Whether the message was sent to/received from a channel.
+	Expiration time.Time
+	powData    *pow.Data
+	Ack        []byte
+	Content    format.Encoding
+	ImapData   *ImapData
 	// The encoded form of the message as a bitmessage object. Required
 	// for messages that are waiting to be sent or have pow done on them.
-	object *wire.MsgObject
+	object obj.Object
 	state  *MessageState
 }
 
 // Serialize encodes the message in a protobuf format.
-func (m *Bitmessage) Serialize() ([]byte, error) {
+func (m *Bmail) Serialize() ([]byte, error) {
 	expr := m.Expiration.Format(dateFormat)
 
 	var imapData *serialize.ImapData
@@ -145,7 +144,7 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 
 	var object []byte
 	if m.object != nil {
-		object = wire.EncodeMessage(m.object)
+		object = wire.Encode(m.object)
 	}
 
 	var state *serialize.MessageState
@@ -183,7 +182,7 @@ func (m *Bitmessage) Serialize() ([]byte, error) {
 }
 
 // generateBroadcast generates a wire.MsgBroadcast from a Bitmessage.
-func (m *Bitmessage) generateBroadcast(from *identity.Private, expiry time.Duration) (*obj.Broadcast, uint64, uint64, error) {
+func (m *Bmail) generateBroadcast(from *identity.Private, expiry time.Duration) (obj.Object, *pow.Data, error) {
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
 	var tag wire.ShaHash
@@ -194,47 +193,43 @@ func (m *Bitmessage) generateBroadcast(from *identity.Private, expiry time.Durat
 	copy(encKey[:], ek)
 	copy(tag[:], t)
 
-	var version uint64
+	powData := &pow.Data{
+		NonceTrialsPerByte: from.NonceTrialsPerByte,
+		ExtraBytes:         from.ExtraBytes,
+	}
+
+	data := &cipher.Bitmessage{
+		FromStreamNumber:   from.Address.Stream,
+		FromAddressVersion: from.Address.Version,
+		SigningKey:         &signingKey,
+		EncryptionKey:      &encKey,
+		Pow:                powData,
+		Encoding:           m.Content.Encoding(),
+		Message:            m.Content.Message(),
+	}
+
+	var broadcast *cipher.Broadcast
+	var err error
 	switch from.Address.Version {
 	case 2:
 		fallthrough
 	case 3:
-		version = obj.TaglessBroadcastVersion
+		broadcast, err = cipher.CreateTaglessBroadcast(time.Now().Add(expiry), data, from)
 	case 4:
-		version = obj.TagBroadcastVersion
+		broadcast, err = cipher.CreateTaggedBroadcast(time.Now().Add(expiry), data, &tag, from)
 	default:
-		return nil, 0, 0, errors.New("Unknown from address version")
+		return nil, nil, errors.New("Unknown from address version")
 	}
 
-	broadcast := &obj.Broadcast{
-		ObjectHeader: wire.ObjectHeader{
-			ObjectType:   wire.ObjectTypeBroadcast,
-			Version:      version,
-			ExpiresTime:  time.Now().Add(expiry),
-			StreamNumber: from.Address.Stream,
-		},
-		FromStreamNumber:   from.Address.Stream,
-		FromAddressVersion: from.Address.Version,
-		NonceTrials:        from.NonceTrialsPerByte,
-		ExtraBytes:         from.ExtraBytes,
-		SigningKey:         &signingKey,
-		EncryptionKey:      &encKey,
-
-		Encoding: m.Content.Encoding(),
-		Message:  m.Content.Message(),
-		Tag:      &tag,
-	}
-
-	err := cipher.SignAndEncryptBroadcast(broadcast, from)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, nil, err
 	}
 
-	return broadcast, from.NonceTrialsPerByte, from.ExtraBytes, nil
+	return broadcast.Object(), powData, nil
 }
 
-// generateMsg generates a wire.MsgMsg from a Bitmessage.
-func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, expiry time.Duration) (*obj.Message, uint64, uint64, error) {
+// generateMsg generates a cipher.Message from a Bitmessage.
+func (m *Bmail) generateMessage(from *identity.Private, to *identity.Public, expiry time.Duration) (obj.Object, *pow.Data, error) {
 	// TODO make a separate function in bmutil that does this.
 	var signingKey, encKey wire.PubKey
 	var destination wire.RipeHash
@@ -244,69 +239,65 @@ func (m *Bitmessage) generateMsg(from *identity.Private, to *identity.Public, ex
 	copy(encKey[:], ek)
 	copy(destination[:], to.Address.Ripe[:])
 
-	message := &obj.Message{
-		ObjectHeader: wire.ObjectHeader{
-			ObjectType:   wire.ObjectTypeMsg,
-			ExpiresTime:  time.Now().Add(expiry),
-			Version:      1,
-			StreamNumber: from.Address.Stream,
-		},
+	powData := &pow.Data{
+		NonceTrialsPerByte: from.NonceTrialsPerByte,
+		ExtraBytes:         from.ExtraBytes,
+	}
+
+	data := &cipher.Bitmessage{
 		FromStreamNumber:   from.Address.Stream,
 		FromAddressVersion: from.Address.Version,
-		NonceTrials:        from.NonceTrialsPerByte,
-		ExtraBytes:         from.ExtraBytes,
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
-		Destination:        &destination,
-		Ack:                m.Ack,
+		Pow:                powData,
 		Encoding:           m.Content.Encoding(),
 		Message:            m.Content.Message(),
 	}
 
-	err := cipher.SignAndEncryptMsg(message, from, to)
+	message, err := cipher.SignAndEncryptMessage(time.Now().Add(expiry), from.Address.Stream, data, m.Ack, from, to)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, nil, err
 	}
 
-	return message, from.NonceTrialsPerByte, from.ExtraBytes, nil
+	return message.Object(), powData, nil
 }
 
 // GenerateObject generates the wire.MsgObject form of the message.
-func (m *Bitmessage) GenerateObject(s ServerOps) (object obj.Object,
-	nonceTrials, extraBytes uint64, genErr error) {
+func (m *Bmail) GenerateObject(s ServerOps) (object obj.Object,
+	powData *pow.Data, genErr error) {
 
 	// If a wire.Object already exists, just use that.
 	if m.object != nil {
-		return m.object, m.NonceTrials, m.ExtraBytes, nil
+		return m.object, m.powData, nil
 	}
 
 	smtpLog.Debug("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
 	fromAddr, err := emailToBM(m.From)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, nil, err
 	}
 	from := s.GetPrivateID(fromAddr)
 	if from == nil {
 		smtpLog.Error("GenerateObject: no private id known ")
-		return nil, 0, 0, errors.New("Private id not found")
+		return nil, nil, errors.New("Private id not found")
 	}
 
 	if m.To == "broadcast@bm.agent" {
-		object, nonceTrials, extraBytes, genErr = m.generateBroadcast(&(from.Private), s.GetObjectExpiry(wire.ObjectTypeBroadcast))
+		object, powData, genErr = m.generateBroadcast(&(from.Private), s.GetObjectExpiry(wire.ObjectTypeBroadcast))
 	} else {
 		bmTo, err := emailToBM(m.To)
 		if err != nil {
-			return nil, 0, 0, err
+			return nil, nil, err
 		}
 		to, err := s.GetOrRequestPublicID(bmTo)
 		if err != nil {
 			smtpLog.Error("GenerateObject: results of lookup public identity: ", to, ", ", err)
-			return nil, 0, 0, err
+			return nil, nil, err
 		}
 		// Indicates that a pubkey request was sent.
 		if to == nil {
 			m.state.PubkeyRequestOutstanding = true
-			return nil, 0, 0, nil
+			return nil, nil, nil
 		}
 
 		id := s.GetPrivateID(bmTo)
@@ -316,51 +307,42 @@ func (m *Bitmessage) GenerateObject(s ServerOps) (object obj.Object,
 			m.state.AckExpected = false
 		}
 
-		object, nonceTrials, extraBytes, genErr = m.generateMsg(&(from.Private), to, s.GetObjectExpiry(wire.ObjectTypeMsg))
+		object, powData, genErr = m.generateMessage(&(from.Private), to, s.GetObjectExpiry(wire.ObjectTypeMsg))
 	}
 
 	if genErr != nil {
 		smtpLog.Error("GenerateObject: ", genErr)
-		return nil, 0, 0, genErr
+		return nil, nil, genErr
 	}
-	m.object = object.MsgObject()
-	m.NonceTrials = nonceTrials
-	m.ExtraBytes = extraBytes
-	return object, nonceTrials, extraBytes, nil
+	m.object = object
+	return object, powData, nil
 }
 
-func (m *Bitmessage) generateAck(s ServerOps) (ack *obj.Message,
-	nonceTrials, extraBytes uint64, err error) {
+func (m *Bmail) generateAck(s ServerOps) (ack obj.Object, powData *pow.Data, err error) {
 
 	// If this is a broadcast message, no ack is expected.
 	if m.To == "broadcast@bm.agent" {
-		return nil, 0, 0, errors.New("No acks on broadcast messages.")
+		return nil, nil, errors.New("No acks on broadcast messages.")
 	}
 
 	// if no object form exists, attempt to generate that.
 	if m.object == nil {
-		obj, _, _, err := m.GenerateObject(s)
+		obj, _, err := m.GenerateObject(s)
 		if obj == nil {
 			smtpLog.Debug("trySend: could not generate message. Pubkey request sent? ", err == nil)
 			if err == nil {
-				return nil, 0, 0, errors.New("Private key missing.")
+				return nil, nil, errors.New("Private key missing.")
 			}
-			return nil, 0, 0, err
+			return nil, nil, err
 		}
 	}
 
 	// Get our private key.
 	fromAddr, err := emailToBM(m.From)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, nil, err
 	}
 	from := s.GetPrivateID(fromAddr)
-
-	// Read the object as a MsgMsg
-	msg, err := obj.DecodeMessage(wire.EncodeMessage(m.object))
-	if err != nil {
-		return nil, 0, 0, err
-	}
 
 	addr := from.ToPublic().Address
 
@@ -373,93 +355,89 @@ func (m *Bitmessage) generateAck(s ServerOps) (ack *obj.Message,
 	copy(encKey[:], ek)
 	copy(destination[:], addr.Ripe[:])
 
-	// Make a similar MsgMsg
-	msgAck := &obj.Message{
-		ObjectHeader: wire.ObjectHeader{
-			ExpiresTime:  msg.ExpiresTime,
-			ObjectType:   wire.ObjectTypeMsg,
-			Version:      msg.Version,
-			StreamNumber: addr.Stream,
-		},
-		FromStreamNumber:   addr.Stream,
-		FromAddressVersion: addr.Version,
-		NonceTrials:        from.NonceTrialsPerByte,
-		ExtraBytes:         from.ExtraBytes,
-		SigningKey:         &signingKey,
-		EncryptionKey:      &encKey,
-		Destination:        &destination,
-	}
-
 	// Add the message, which is a random number.
 	buf := new(bytes.Buffer)
-	var num int32 = rand.Int31()
+	num := rand.Int31()
 	err = binary.Write(buf, binary.LittleEndian, num)
 	if err != nil {
-		return nil, 0, 0, err
+		return nil, nil, err
 	}
-	msgAck.Encrypted = buf.Bytes()
+
+	header := m.object.Header()
+
+	msgAck := wire.NewMsgObject(
+		wire.NewObjectHeader(0,
+			header.Expiration(),
+			wire.ObjectTypeMsg,
+			obj.MessageVersion,
+			addr.Stream,
+		), buf.Bytes())
 
 	// Encode it and save.
-	m.Ack = wire.EncodeMessage(msgAck.MsgObject())
+	m.Ack = wire.Encode(msgAck)
 
-	return msgAck, from.NonceTrialsPerByte, from.ExtraBytes, nil
+	return msgAck, &from.Data, nil
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
-func MsgRead(msg *obj.Message, toAddress string, ofChan bool) (*Bitmessage, error) {
-	message, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
+func MsgRead(msg *cipher.Message, toAddress string, ofChan bool) (*Bmail, error) {
+	data := msg.Bitmessage()
+	object := msg.Object()
+	header := object.Header()
+
+	message, err := format.DecodeObjectPayload(data.Encoding, data.Message)
 	if err != nil {
 		return nil, err
 	}
 
-	sign, _ := msg.SigningKey.ToBtcec()
-	encr, _ := msg.EncryptionKey.ToBtcec()
-	from := identity.NewPublic(sign, encr, msg.NonceTrials,
-		msg.ExtraBytes, msg.FromAddressVersion, msg.FromStreamNumber)
+	sign, _ := data.SigningKey.ToBtcec()
+	encr, _ := data.EncryptionKey.ToBtcec()
+	from := identity.NewPublic(sign, encr, data.Pow, data.FromAddressVersion, data.FromStreamNumber)
 	fromAddress, err := from.Address.Encode()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Bitmessage{
+	return &Bmail{
 		From:       bmToEmail(fromAddress),
 		To:         bmToEmail(toAddress),
-		Expiration: msg.ExpiresTime,
-		Ack:        msg.Ack,
+		Expiration: header.Expiration(),
+		Ack:        msg.Ack(),
 		OfChannel:  ofChan,
 		Content:    message,
-		object:     msg.MsgObject(),
+		object:     object.MsgObject(),
 	}, nil
 }
 
 // BroadcastRead creates a Bitmessage object from an unencrypted
 // wire.MsgBroadcast.
-func BroadcastRead(msg *obj.Broadcast) (*Bitmessage, error) {
-	message, err := format.DecodeObjectPayload(msg.Encoding, msg.Message)
+func BroadcastRead(msg *cipher.Broadcast) (*Bmail, error) {
+	header := msg.Object().Header()
+	data := msg.Bitmessage()
+	message, err := format.DecodeObjectPayload(data.Encoding, data.Message)
 	if err != nil {
 		return nil, err
 	}
 
-	sign, _ := msg.SigningKey.ToBtcec()
-	encr, _ := msg.EncryptionKey.ToBtcec()
-	from := identity.NewPublic(sign, encr, msg.NonceTrials,
-		msg.ExtraBytes, msg.FromAddressVersion, msg.FromStreamNumber)
+	sign, _ := data.SigningKey.ToBtcec()
+	encr, _ := data.EncryptionKey.ToBtcec()
+	from := identity.NewPublic(sign, encr, data.Pow, data.FromAddressVersion, data.FromStreamNumber)
 	fromAddress, err := from.Address.Encode()
 	if err != nil {
 		return nil, err
 	}
 
-	return &Bitmessage{
+	return &Bmail{
 		From:       "broadcast@bm.agent",
 		To:         bmToEmail(fromAddress),
-		Expiration: msg.ExpiresTime,
+		Expiration: header.Expiration(),
 		Content:    message,
 	}, nil
 }
 
 // DecodeBitmessage takes the protobuf encoding of a Bitmessage and converts it
 // back to a Bitmessage.
-func DecodeBitmessage(data []byte) (*Bitmessage, error) {
+func DecodeBitmessage(data []byte) (*Bmail, error) {
 	msg := &serialize.Message{}
 	err := proto.Unmarshal(data, msg)
 	if err != nil {
@@ -496,7 +474,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 		return nil, errors.New("Unsupported encoding")
 	}
 
-	l := &Bitmessage{}
+	l := &Bmail{}
 
 	if msg.Expiration != "" {
 		expr, _ := time.Parse(dateFormat, msg.Expiration)
@@ -509,7 +487,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 	l.Ack = msg.Ack
 	l.Content = q
 	if msg.Object != nil {
-		l.object, err = wire.DecodeMsgObject(msg.Object)
+		l.object, err = obj.ReadObject(msg.Object)
 		if err != nil {
 			return nil, err
 		}
@@ -547,7 +525,7 @@ func DecodeBitmessage(data []byte) (*Bitmessage, error) {
 }
 
 // ToEmail converts a Bitmessage into an IMAPEmail.
-func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
+func (m *Bmail) ToEmail() (*IMAPEmail, error) {
 	var payload *format.Encoding2
 	switch m := m.Content.(type) {
 	// Only encoding 2 is considered to be compatible with email.
@@ -603,7 +581,7 @@ func (m *Bitmessage) ToEmail() (*IMAPEmail, error) {
 }
 
 // NewBitmessageFromSMTP takes an SMTP e-mail and turns it into a Bitmessage.
-func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
+func NewBitmessageFromSMTP(smtp *data.Content) (*Bmail, error) {
 	header := smtp.Headers
 
 	// Check that To and From are set.
@@ -629,14 +607,14 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 
 	if !(validateEmail(fromList[0]) || validateEmail(toList[0])) {
 		return nil, ErrInvalidEmail
-	} else {
-		// No errors because this must have succeeded when the
-		// address was validated above.
-		fromAddr, _ := mail.ParseAddress(fromList[0])
-		toAddr, _ := mail.ParseAddress(toList[0])
-		from = fromAddr.Address
-		to = toAddr.Address
 	}
+
+	// No errors because this must have succeeded when the
+	// address was validated above.
+	fromAddr, _ := mail.ParseAddress(fromList[0])
+	toAddr, _ := mail.ParseAddress(toList[0])
+	from = fromAddr.Address
+	to = toAddr.Address
 
 	// If CC or BCC are set, give an error because these headers cannot
 	// be made to work as the user would expect with the Bitmessage protocol
@@ -671,7 +649,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		return nil, err
 	}
 
-	return &Bitmessage{
+	return &Bmail{
 		From:       from,
 		To:         to,
 		Expiration: expiration,
@@ -690,7 +668,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 
 // NewBitmessageDraftFromSMTP takes an SMTP e-mail and turns it into a Bitmessage,
 // but is less strict than NewBitmessageFromSMTP in how it checks the email.
-func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bitmessage, error) {
+func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bmail, error) {
 	header := smtp.Headers
 
 	// Check that To and From are set.
@@ -734,7 +712,7 @@ func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bitmessage, error) {
 		return nil, err
 	}
 
-	return &Bitmessage{
+	return &Bmail{
 		From:       from,
 		To:         to,
 		Expiration: expiration,

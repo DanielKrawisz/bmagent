@@ -11,10 +11,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec"
 	pb "github.com/DanielKrawisz/bmd/rpcproto"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
+	"github.com/btcsuite/btcd/btcec"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -66,7 +67,7 @@ type Client struct {
 
 // NewClient creates a new RPC connection to bmd.
 func NewClient(cfg *ClientConfig, msg, broadcast, getpubkey func(counter uint64, msg []byte)) (*Client, error) {
-		
+
 	opts := []grpc.DialOption{
 		grpc.WithPerRPCCredentials(
 			pb.NewBasicAuthCredentials(cfg.Username, cfg.Password)),
@@ -105,7 +106,7 @@ func NewClient(cfg *ClientConfig, msg, broadcast, getpubkey func(counter uint64,
 		started:       false,
 		msgFunc:       msg,
 		broadcastFunc: broadcast,
-		getpubkeyFunc: getpubkey,  
+		getpubkeyFunc: getpubkey,
 	}, nil
 }
 
@@ -135,8 +136,11 @@ func (c *Client) GetIdentity(address string) (*identity.Public, error) {
 		return nil, err
 	}
 
-	return identity.NewPublic(signKey, encKey, res.NonceTrials,
-		res.ExtraBytes, addr.Version, addr.Stream), nil
+	return identity.NewPublic(signKey, encKey,
+		&pow.Data{
+			res.NonceTrials,
+			res.ExtraBytes,
+		}, addr.Version, addr.Stream), nil
 }
 
 // SendObject sends the given object to bmd so that it can send it out to the
@@ -173,7 +177,7 @@ func (c *Client) Start(msgCounter, broadcastCounter, getpubkeyCounter uint64) {
 // each object.
 func (c *Client) processObjects(objType pb.ObjectType, fromCounter uint64,
 	f func(counter uint64, msg []byte)) {
-		
+
 	defer c.wg.Done()
 
 	stream, err := c.bmd.GetObjects(context.Background(), &pb.GetObjectsRequest{
@@ -193,7 +197,7 @@ func (c *Client) processObjects(objType pb.ObjectType, fromCounter uint64,
 			return
 		default:
 			obj, err := stream.Recv()
-			// We shouldn't show an error if the system is just shutting down. 
+			// We shouldn't show an error if the system is just shutting down.
 			if err != nil {
 				if err.Error() != "rpc error: code = 13 desc = transport is closing" {
 					clientLog.Criticalf("Failed to receive object of type %s: %v", objType, err)
@@ -213,7 +217,7 @@ func (c *Client) Stop() {
 
 	close(c.quit)
 	c.conn.Close()
-	
+
 	// This may eliminate a possible memory leak, since the server struct
 	// from which these functions arose also has a pointer to this rpc client.
 	c.msgFunc = nil

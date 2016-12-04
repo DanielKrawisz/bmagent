@@ -137,7 +137,7 @@ func validateEmail(to string) bool {
 }
 
 // validateSender validates an email FROM header entry
-func (s *SMTPServer) validateSender(from string) bool {
+func (serv *SMTPServer) validateSender(from string) bool {
 	addr, err := mail.ParseAddress(from)
 	if err != nil {
 		return false
@@ -148,7 +148,7 @@ func (s *SMTPServer) validateSender(from string) bool {
 		return false
 	}
 
-	if s.user.server.GetPrivateID(bmAddr) == nil {
+	if serv.user.server.GetPrivateID(bmAddr) == nil {
 		return false
 	}
 	return true
@@ -160,13 +160,13 @@ func smtpLogHandler(message string, args ...interface{}) {
 }
 
 // messageReceived is called for each message recieved by the SMTP server.
-func (s *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, error) {
+func (serv *SMTPServer) messageReceived(smtpMessage *data.SMTPMessage) (string, error) {
 	smtpLog.Trace("Received message from SMTP server.")
 
 	// TODO is this a good host name?
 	message := smtpMessage.Parse("bmagent")
 
-	return string(message.ID), s.user.DeliverFromSMTP(message.Content)
+	return string(message.ID), serv.user.DeliverFromSMTP(message.Content)
 }
 
 // NewSMTPServer returns a new smtp server.

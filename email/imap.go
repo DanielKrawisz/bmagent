@@ -43,7 +43,7 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 	return s.user, nil
 }
 
-// InitializeStore initializes the store by creating the default mailboxes and
+// InitializeUser initializes the store by creating the default mailboxes and
 // inserting the welcome message.
 func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) error {
 
@@ -52,7 +52,7 @@ func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) erro
 	if err != nil {
 		return err
 	}
-	inbox, err := NewMailbox(mbox, keys.Names())
+	inbox, err := newMailbox(mbox, keys.Names())
 	if err != nil {
 		return err
 	}
@@ -120,7 +120,7 @@ func InitializeUser(u *store.UserData, keys *keymgr.Manager, GenKeys int16) erro
 	from := "welcome@bm.agent"
 	subject := "Welcome to bmagent!"
 
-	err = inbox.AddNew(&Bitmessage{
+	err = inbox.AddNew(&Bmail{
 		From: from,
 		To:   fmt.Sprintf("%s@bm.addr", toAddr),
 		Content: &format.Encoding2{

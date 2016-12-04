@@ -201,6 +201,8 @@ func (s *server) Start() {
 	go s.savePeriodically()
 }
 
+var errSuccessCode error = errors.New("decryption successful")
+
 // newMessage is called when a new message is received by the RPC client.
 // Messages are guaranteed to be received in ascending order of counter value.
 func (s *server) newMessage(counter uint64, object []byte) {
@@ -235,14 +237,18 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	var ofChan bool
 
 	var id uint32
+	var message *cipher.Message
 
 	// Try decrypting with all available identities.
 	for uid, user := range s.users {
 		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
-			if cipher.TryDecryptAndVerifyMsg(msg, &id.Private) == nil {
+			var decryptErr error
+			message, decryptErr = cipher.TryDecryptAndVerifyMessage(msg, &id.Private)
+			if decryptErr == nil {
 				address = id.Address()
 				ofChan = id.IsChan
-				return errors.New("decryption successful")
+				//id = uid
+				return errSuccessCode
 			}
 			return nil
 		})
@@ -254,7 +260,7 @@ func (s *server) newMessage(counter uint64, object []byte) {
 		}
 	}
 
-	if err == nil {
+	if message == nil {
 		// Decryption unsuccessful.
 		return
 	}
@@ -264,7 +270,7 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	// TODO Store public key of the sender in bmagent
 
 	// Read message.
-	bmsg, err := email.MsgRead(msg, address, ofChan)
+	bmsg, err := email.MsgRead(message, address, ofChan)
 	if err != nil {
 		log.Errorf("Failed to decode message #%d: %v", counter, err)
 		return
@@ -279,17 +285,17 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	}
 
 	// Check if length of Ack is correct and message isn't from a channel.
-	if msg.Ack == nil || len(msg.Ack) < wire.MessageHeaderSize || ofChan {
+	if message.Ack() == nil || len(message.Ack()) < wire.MessageHeaderSize || ofChan {
 		return
 	}
 
 	// Send out ack if necessary.
-	ack := &wire.MsgObject{}
-	err = ack.Decode(bytes.NewReader(msg.Ack[wire.MessageHeaderSize:]))
+	ack := message.Ack()[wire.MessageHeaderSize:]
+	err = (&wire.MsgObject{}).Decode(bytes.NewReader(ack))
 	if err != nil { // Can't send invalid Ack.
 		return
 	}
-	_, err = s.bmd.SendObject(msg.Ack[wire.MessageHeaderSize:])
+	_, err = s.bmd.SendObject(ack)
 	if err != nil {
 		log.Infof("Failed to send ack for message #%d: %v", counter, err)
 		return
@@ -303,8 +309,7 @@ func (s *server) newBroadcast(counter uint64, object []byte) {
 	// Store counter value.
 	atomic.StoreUint64(&s.broadcastCounter, counter)
 
-	msg := &obj.Broadcast{}
-	err := msg.Decode(bytes.NewReader(object))
+	msg, err := obj.DecodeBroadcast(object)
 	if err != nil {
 		serverLog.Errorf("Failed to decode broadcast #%d from bytes: %v",
 			counter, err)
@@ -313,42 +318,40 @@ func (s *server) newBroadcast(counter uint64, object []byte) {
 
 	// Check if broadcast is smaller than expected.
 	// IV + Curve params/X/Y + 1 block + HMAC-256
-	if len(msg.Encrypted) <= aes.BlockSize+70+aes.BlockSize+sha256.Size {
+	if len(msg.Encrypted()) <= aes.BlockSize+70+aes.BlockSize+sha256.Size {
 		return
 	}
-
-	var fromAddress string
 
 	for _, user := range s.store.Users {
 
-		err = user.BroadcastAddresses.ForEach(func(addr *bmutil.Address) error {
-			if cipher.TryDecryptAndVerifyBroadcast(msg, addr) == nil {
+		err := user.BroadcastAddresses.ForEach(func(addr *bmutil.Address) error {
+			var fromAddress string
+			broadcast, err := cipher.TryDecryptAndVerifyBroadcast(msg, addr)
+			if err == nil {
 				fromAddress, _ = addr.Encode()
-				return errors.New("Broadcast decryption succeeded.")
 			}
-			return nil
+
+			// Read message.
+			bmsg, err := email.BroadcastRead(broadcast)
+			if err != nil {
+				return fmt.Errorf("Failed to decode message #%d: %v", counter, err)
+			}
+
+			rpccLog.Trace("Bitmessage broadcast received from " + bmsg.From + " to " + bmsg.To)
+
+			err = s.imapUser[1].DeliverFromBMNet(bmsg)
+			if err != nil {
+				return fmt.Errorf("Failed to save message #%d: %v", counter, err)
+			}
+			serverLog.Infof("Got new broadcast from %s", fromAddress)
+
+			return errSuccessCode
 		})
-		if err == nil { // Broadcast decryption failed.
-			return
+
+		if err != nil && err != errSuccessCode {
+			log.Error(err)
 		}
-
 	}
-
-	// Read message.
-	bmsg, err := email.BroadcastRead(msg)
-	if err != nil {
-		log.Errorf("Failed to decode message #%d: %v", counter, err)
-		return
-	}
-
-	rpccLog.Trace("Bitmessage broadcast received from " + bmsg.From + " to " + bmsg.To)
-
-	err = s.imapUser[1].DeliverFromBMNet(bmsg)
-	if err != nil {
-		log.Errorf("Failed to save message #%d: %v", counter, err)
-		return
-	}
-	serverLog.Infof("Got new broadcast from %s:\n%s", fromAddress, msg.Message)
 }
 
 // newGetpubkey is called when a new getpubkey is received by the RPC client.
@@ -367,6 +370,7 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 	}
 
 	var privID *keymgr.PrivateID
+	header := msg.Header()
 
 	// Check if the getpubkey request corresponds to any of our identities.
 	for _, user := range s.users {
@@ -376,7 +380,7 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 			}
 
 			var cond bool // condition to satisfy
-			switch msg.Version {
+			switch header.Version {
 			case obj.SimplePubKeyVersion, obj.ExtendedPubKeyVersion:
 				cond = bytes.Equal(id.Private.Address.Ripe[:], msg.Ripe[:])
 			case obj.TagGetPubKeyVersion:
@@ -407,10 +411,12 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 	}
 
 	// Add it to pow queue.
-	b := wire.EncodeMessage(pkMsg.MsgObject())[8:] // exclude nonce
+	pkObj := pkMsg.Object()
+	pkHeader := pkObj.Header()
+	b := wire.Encode(pkObj)[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
-		uint64(pkMsg.ExpiresTime.Sub(time.Now()).Seconds()),
-		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
+		uint64(pkHeader.Expiration().Sub(time.Now()).Seconds()),
+		pow.DefaultData)
 
 	s.pow.Run(target, b, func(nonce powmgr.Nonce) {
 		s.Send(append(nonce.Bytes(), b...))
@@ -575,10 +581,10 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 		addr.Version, addr.Stream, (*wire.RipeHash)(&addr.Ripe), &tag)
 
 	// Enqueue the request for proof-of-work.
-	b := wire.EncodeMessage(msg.MsgObject())[8:] // exclude nonce
+	b := wire.Encode(msg)[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
-		uint64(msg.ExpiresTime.Sub(time.Now()).Seconds()),
-		pow.DefaultNonceTrialsPerByte, pow.DefaultExtraBytes)
+		uint64(msg.Header().Expiration().Sub(time.Now()).Seconds()),
+		pow.DefaultData)
 
 	s.pow.Run(target, b, func(nonce powmgr.Nonce) {
 		err := s.Send(append(nonce.Bytes(), b...))
