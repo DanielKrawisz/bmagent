@@ -66,7 +66,9 @@ var (
 	defaultLogDir      = filepath.Join(defaultDataDir, defaultLogDirname)
 )
 
-type config struct {
+// Config contains the configuration information read from the command line and
+// from the config file.
+type Config struct {
 	ShowVersion bool   `short:"V" long:"version" description:"Display version information and exit"`
 	DataDir     string `short:"D" long:"datadir" description:"Directory to store key file and the data store"`
 	LogDir      string `long:"logdir" description:"Directory to log output"`
@@ -310,7 +312,7 @@ func checkCreateDir(path string) error {
 }
 
 // newConfigParser returns a new command line flags parser.
-func newConfigParser(cfg *config, appName string, options flags.Options) *flags.Parser {
+func newConfigParser(cfg *Config, appName string, options flags.Options) *flags.Parser {
 	p := flags.NewNamedParser(appName, options)
 
 	if cfg != nil {
@@ -332,7 +334,7 @@ func newConfigParser(cfg *config, appName string, options flags.Options) *flags.
 // The above results in btcwallet functioning properly without any config
 // settings while still allowing the user to override settings with config files
 // and command line options.  Command line options always take precedence.
-func loadConfig() (*config, []string, error) {
+func loadConfig() (*Config, []string, error) {
 
 	appName := filepath.Base(os.Args[0])
 	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
@@ -340,9 +342,10 @@ func loadConfig() (*config, []string, error) {
 	return LoadConfig(appName, os.Args[1:])
 }
 
-func LoadConfig(appName string, args []string) (*config, []string, error) {
+// LoadConfig reads a Config type from the command-line options and config file.
+func LoadConfig(appName string, args []string) (*Config, []string, error) {
 	// Default config.
-	cfg := config{
+	cfg := Config{
 		DebugLevel:      defaultLogLevel,
 		ConfigFile:      defaultConfigFile,
 		DataDir:         defaultDataDir,

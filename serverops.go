@@ -11,8 +11,8 @@ import (
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmutil/identity"
-	"github.com/DanielKrawisz/bmutil/wire"
 	"github.com/DanielKrawisz/bmutil/pow"
+	"github.com/DanielKrawisz/bmutil/wire"
 )
 
 // serverOps implements the email.ServerOps interface.

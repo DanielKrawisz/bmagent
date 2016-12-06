@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	cfg             *config
+	cfg             *Config
 	shutdownChannel = make(chan struct{})
 )
 

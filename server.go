@@ -201,7 +201,7 @@ func (s *server) Start() {
 	go s.savePeriodically()
 }
 
-var errSuccessCode error = errors.New("decryption successful")
+var errSuccessCode = errors.New("decryption successful")
 
 // newMessage is called when a new message is received by the RPC client.
 // Messages are guaranteed to be received in ascending order of counter value.

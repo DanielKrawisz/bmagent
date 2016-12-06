@@ -19,6 +19,7 @@ type User struct {
 	Pass     []byte
 }
 
+// SaveKeyfile saves the key file to a file.
 func (u *User) SaveKeyfile() {
 	saveKeyfile(u.Keys, u.Path, u.Pass)
 }

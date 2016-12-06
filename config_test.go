@@ -13,9 +13,9 @@ import (
 )
 
 // If config files exist while we are doing
-var oldDefaultConfigFile []byte = nil
-var oldConfigFile []byte = nil
-var oldConfigFilename *string = nil
+var oldDefaultConfigFile []byte
+var oldConfigFile []byte
+var oldConfigFilename *string
 
 func setup(defaultConfigContents, configFileContents, configFilename *string) error {
 	var err error
@@ -48,9 +48,9 @@ func setup(defaultConfigContents, configFileContents, configFilename *string) er
 	// path.
 	if configFilename == nil || *configFilename == defaultConfigFile {
 		return nil
-	} else {
-		oldConfigFilename = configFilename
 	}
+
+	oldConfigFilename = configFilename
 
 	// If the file exists, save it.
 	if _, err = os.Stat(*configFilename); !os.IsNotExist(err) {
@@ -100,10 +100,10 @@ func cleanup() {
 	oldDefaultConfigFile = nil
 }
 
-func testConfig(t *testing.T, testId int, expected int16, cmdLine *int16, defaultConfig *int16, config *int16, configFile *string) {
+func testConfig(t *testing.T, testID int, expected int16, cmdLine *int16, defaultConfig *int16, config *int16, configFile *string) {
 	var defaultConfigContents *string
 	var configFileContents *string
-	var commandLine []string = []string{"-u", "admin", "-P", "admin"}
+	commandLine := []string{"-u", "admin", "-P", "admin"}
 
 	defer cleanup()
 
@@ -117,13 +117,13 @@ func testConfig(t *testing.T, testId int, expected int16, cmdLine *int16, defaul
 
 	// Make the default config file.
 	if defaultConfig != nil {
-		var dcc string = fmt.Sprintf("genkeys=%s", strconv.FormatInt(int64(*defaultConfig), 10))
+		dcc := fmt.Sprintf("genkeys=%s", strconv.FormatInt(int64(*defaultConfig), 10))
 		defaultConfigContents = &dcc
 	}
 
 	// Make the extra config file.
 	if config != nil {
-		var cc string = fmt.Sprintf("genkeys=%s", strconv.FormatInt(int64(*config), 10))
+		cc := fmt.Sprintf("genkeys=%s", strconv.FormatInt(int64(*config), 10))
 		configFileContents = &cc
 	}
 
@@ -136,12 +136,12 @@ func testConfig(t *testing.T, testId int, expected int16, cmdLine *int16, defaul
 	cfg, _, err := LoadConfig("test", commandLine)
 
 	if cfg == nil {
-		t.Errorf("Error, test id %d: nil config returned! %s", testId, err.Error())
+		t.Errorf("Error, test id %d: nil config returned! %s", testID, err.Error())
 		return
 	}
 
 	if cfg.GenKeys != expected {
-		t.Errorf("Error, test id %d: expected %d got %d.", testId, expected, cfg.GenKeys)
+		t.Errorf("Error, test id %d: expected %d got %d.", testID, expected, cfg.GenKeys)
 	}
 
 	return
@@ -162,7 +162,7 @@ func TestLoadConfig(t *testing.T) {
 	// Test that an option is correctly set when specified
 	// in the default config file without a command line
 	// option set.
-	var cfg string = "altbmdagent.conf"
+	cfg := "altbmdagent.conf"
 	testConfig(t, 3, q, nil, &q, nil, nil)
 	testConfig(t, 4, q, nil, nil, &q, &cfg)
 

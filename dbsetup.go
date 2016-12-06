@@ -239,7 +239,7 @@ func promptConsoleSeed() ([]byte, error) {
 // createDatabases prompts the user for information needed to generate a new
 // key file and data store and generates them accordingly. The new databases
 // will reside at the provided path.
-func createDatabases(cfg *config) error {
+func createDatabases(cfg *Config) error {
 	var keyfilePass, storePass []byte
 	var err error
 	var prompt string
@@ -349,7 +349,7 @@ func createDatabases(cfg *config) error {
 
 // openDatabases returns an instance of keymgr.Manager, and store.Store based on
 // the configuration.
-func openDatabases(cfg *config) (*keymgr.Manager, *store.Store, *store.PKRequests, error) {
+func openDatabases(cfg *Config) (*keymgr.Manager, *store.Store, *store.PKRequests, error) {
 
 	// Read key file.
 	keyFile, err := ioutil.ReadFile(cfg.keyfilePath)
