@@ -6,7 +6,6 @@
 package email
 
 import (
-	"bytes"
 	"container/list"
 	"errors"
 	"math"
@@ -750,47 +749,6 @@ func (box *mailbox) DeleteFlaggedMessages() ([]mailstore.Message, error) {
 	}
 
 	return msgs, nil
-}
-
-// This error is used to cause mailbox.ForEachMessage to stop looping through
-// every message once an ack is found, but is not really an error.
-var errAckFound = errors.New("Ack Found")
-
-// ReceiveAck takes an object payload and tests it against messages in the
-// folder to see if it matches the ack of any sent message in the folder.
-// The first such message found is returned.
-func (box *mailbox) ReceiveAck(ack []byte) *Bmail {
-	var ackMatch *Bmail
-
-	box.mbox.ForEachMessage(0, 0, 2, func(id, suffix uint64, msg []byte) error {
-		entry, err := DecodeBitmessage(msg)
-		if err != nil {
-			return err
-		}
-
-		if box.sub != nil && !box.sub(entry) {
-			return nil
-		}
-
-		if bytes.Equal(entry.Ack, ack) {
-			ackMatch = entry
-
-			// Stop ForEachMessage from searching the rest of the messages.
-			return errAckFound
-		}
-		return nil
-	})
-	if ackMatch == nil {
-		return nil
-	}
-
-	ackMatch.state.AckReceived = true
-
-	box.Lock()
-	box.saveBitmessage(ackMatch)
-	box.Unlock()
-
-	return ackMatch
 }
 
 // NewMessage creates a new empty message associated with this folder.

@@ -217,18 +217,25 @@ func (s *server) newMessage(counter uint64, object []byte) {
 		return // Ignore message.
 	}
 
+	// Is this an ack message we are expecting?
+	if len(object) == cipher.AckLength {	
+		for _, user := range s.imapUser {
+			err = user.DeliverAckReply(wire.InventoryHash(object))
+			if err != email.ErrUnrecognizedAck {
+				if err != nil {
+					serverLog.Errorf("Error returned receiving ack: %v", err)
+				}
+				return
+			}
+		}
+		
+		return
+	}
+
 	// Check if message is smaller than expected.
 	// IV + Curve params/X/Y + 1 block + HMAC-256
 	if len(msg.Encrypted) <= aes.BlockSize+70+aes.BlockSize+sha256.Size {
 		return
-	}
-
-	// Is this an ack message we are expecting?
-	for _, user := range s.imapUser {
-		err = user.DeliverAckReply(object)
-		if err == nil {
-			return
-		}
 	}
 
 	// Contains the address of the identity used to decrypt the message.

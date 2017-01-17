@@ -86,7 +86,7 @@ func PrepareTestMailbox(mb Mailbox, emails []uint64, nextID uint64) Mailbox {
 			"BM-From",
 			"BM-To",
 			"top secret",
-			fmt.Sprintf("message %s", next),
+			fmt.Sprintf("message %d", next),
 		), 0)
 	}
 

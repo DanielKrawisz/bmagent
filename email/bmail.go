@@ -46,6 +46,18 @@ var (
 	ErrInvalidEmail = fmt.Errorf("From address must be of the form %s.",
 		emailRegexString)
 
+	// ErrGetPubKeySent is the error returned by GenerateObject when a
+	// a message could not be written as an object because the necessary
+	// PubKey was missing. However, a GetPubKey request was successfully
+	// sent, so we should receive it eventually.
+	ErrGetPubKeySent = fmt.Errorf("GetPubKey request sent")
+
+	// ErrAckMissing is the error returned by GenerateObject when a
+	// message could not be written as an object because an ack is required
+	// but missing. Therefore it is necessary to generate the ack and
+	// do POW on it before proceeding.
+	ErrAckMissing = fmt.Errorf("Ack missing")
+
 	bitmessageRegex = regexp.MustCompile(fmt.Sprintf("^%s$", bmAddrPattern))
 
 	emailRegexString = fmt.Sprintf("^%s@bm\\.addr$", bmAddrPattern)
@@ -229,7 +241,11 @@ func (m *Bmail) generateBroadcast(from *identity.Private, expiry time.Duration) 
 
 // generateMsg generates a cipher.Message from a Bitmessage.
 func (m *Bmail) generateMessage(from *identity.Private, to *identity.Public, expiry time.Duration) (obj.Object, *pow.Data, error) {
-	// TODO make a separate function in bmutil that does this.
+	// Check for
+	if m.Ack == nil && m.state.AckExpected {
+		return nil, nil, ErrAckMissing
+	}
+
 	var signingKey, encKey wire.PubKey
 	var destination wire.RipeHash
 	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
@@ -246,6 +262,7 @@ func (m *Bmail) generateMessage(from *identity.Private, to *identity.Public, exp
 	data := &cipher.Bitmessage{
 		FromStreamNumber:   from.Address.Stream,
 		FromAddressVersion: from.Address.Version,
+		Destination:        &destination,
 		SigningKey:         &signingKey,
 		EncryptionKey:      &encKey,
 		Pow:                powData,
@@ -295,7 +312,7 @@ func (m *Bmail) GenerateObject(s ServerOps) (object obj.Object,
 		// Indicates that a pubkey request was sent.
 		if to == nil {
 			m.state.PubkeyRequestOutstanding = true
-			return nil, nil, nil
+			return nil, nil, ErrGetPubKeySent
 		}
 
 		id := s.GetPrivateID(bmTo)
@@ -317,22 +334,9 @@ func (m *Bmail) GenerateObject(s ServerOps) (object obj.Object,
 }
 
 func (m *Bmail) generateAck(s ServerOps) (ack obj.Object, powData *pow.Data, err error) {
-
 	// If this is a broadcast message, no ack is expected.
 	if m.To == "broadcast@bm.agent" {
 		return nil, nil, errors.New("No acks on broadcast messages.")
-	}
-
-	// if no object form exists, attempt to generate that.
-	if m.object == nil {
-		obj, _, err := m.GenerateObject(s)
-		if obj == nil {
-			smtpLog.Debug("trySend: could not generate message. Pubkey request sent? ", err == nil)
-			if err == nil {
-				return nil, nil, errors.New("Private key missing.")
-			}
-			return nil, nil, err
-		}
 	}
 
 	// Get our private key.
@@ -344,15 +348,6 @@ func (m *Bmail) generateAck(s ServerOps) (ack obj.Object, powData *pow.Data, err
 
 	addr := from.ToPublic().Address
 
-	// TODO make a separate function in bmutil that does this.
-	var signingKey, encKey wire.PubKey
-	var destination wire.RipeHash
-	sk := from.SigningKey.PubKey().SerializeUncompressed()[1:]
-	ek := from.EncryptionKey.PubKey().SerializeUncompressed()[1:]
-	copy(signingKey[:], sk)
-	copy(encKey[:], ek)
-	copy(destination[:], addr.Ripe[:])
-
 	// Add the message, which is a random number.
 	buf := new(bytes.Buffer)
 	num := rand.Int31()
@@ -361,20 +356,15 @@ func (m *Bmail) generateAck(s ServerOps) (ack obj.Object, powData *pow.Data, err
 		return nil, nil, err
 	}
 
-	header := m.object.Header()
+	// We don't save the message because it still needs POW done on it.
 
-	msgAck := wire.NewMsgObject(
+	return wire.NewMsgObject(
 		wire.NewObjectHeader(0,
-			header.Expiration(),
+			time.Now().Add(s.GetObjectExpiry(wire.ObjectTypeMsg)),
 			wire.ObjectTypeMsg,
 			obj.MessageVersion,
 			addr.Stream,
-		), buf.Bytes())
-
-	// Encode it and save.
-	m.Ack = wire.Encode(msgAck)
-
-	return msgAck, &from.Data, nil
+		), buf.Bytes()), &from.Data, nil
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
