@@ -73,7 +73,9 @@ func NewClient(cfg *ClientConfig, msg, broadcast, getpubkey func(counter uint64,
 			pb.NewBasicAuthCredentials(cfg.Username, cfg.Password)),
 		grpc.WithTimeout(cfg.Timeout)}
 
-	if !cfg.DisableTLS {
+	if cfg.DisableTLS {
+		opts = append(opts, grpc.WithInsecure())
+	} else {
 		creds, err := credentials.NewClientTLSFromFile(cfg.CAFile, "")
 		if err != nil {
 			return nil, fmt.Errorf("Failed to create TLS credentials %v", err)
