@@ -19,9 +19,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/user"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"golang.org/x/crypto/ssh/terminal"
 )
@@ -305,12 +305,12 @@ func createDatabases(cfg *Config) error {
 		return fmt.Errorf("Failed to create data store: %v", err)
 	}
 
-	user, err := s.NewUser(username)
+	u, err := s.NewUser(username)
 	if err != nil {
 		return err
 	}
 
-	err = email.InitializeUser(user, kmgr, cfg.GenKeys)
+	err = user.Initialize(u, kmgr, cfg.GenKeys)
 	if err != nil {
 		return err
 	}

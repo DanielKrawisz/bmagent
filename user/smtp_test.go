@@ -3,12 +3,12 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package email_test
+package user_test
 
 import (
 	"testing"
 
-	"github.com/DanielKrawisz/bmagent/email"
+	"github.com/DanielKrawisz/bmagent/user/email"
 )
 
 func TestGetContentType(t *testing.T) {
@@ -43,7 +43,7 @@ func TestGetContentType(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		_, _, _, err := email.TstGetContentType(test.input)
+		_, _, _, err := email.GetContentType(test.input)
 		if (err == nil) && !test.acceptible {
 			t.Error("Test ", i, " failed because it should not have been accepted:", test.input)
 		}

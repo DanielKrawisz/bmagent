@@ -3,7 +3,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package email
+package user
 
 import (
 	"fmt"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/store/mem"
+	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
@@ -46,20 +47,20 @@ func TestGetSequenceNumber(t *testing.T) {
 	}
 }
 
-// Used to test different implementations of Mailbox
+// Used to test different implementations of email.Mailbox
 type TestContext interface {
 	T() *testing.T
 
-	// Prepare a mailbox that contains messages with uids as given emails,
+	// Prepare a email.Mailbox that contains messages with uids as given emails,
 	// which is assumed to be a sorted list.
 	// The maximum email in the folder will be max(emails, nextID - 1)
-	MakeMailbox(name string, emails []uint64, nextID uint64) Mailbox
+	MakeMailbox(name string, emails []uint64, nextID uint64) email.Mailbox
 }
 
-func MakeTestBitmessage(from, to, subject, body string) *Bmail {
+func MakeTestBitmessage(from, to, subject, body string) *email.Bmail {
 
-	expiration, _ := time.Parse(dateFormat, "Mon Jan 2 15:04:05 -0700 MST 2045")
-	return &Bmail{
+	expiration, _ := time.Parse(email.DateFormat, "Mon Jan 2 15:04:05 -0700 MST 2045")
+	return &email.Bmail{
 		From:       from,
 		To:         to,
 		OfChannel:  false,
@@ -71,10 +72,10 @@ func MakeTestBitmessage(from, to, subject, body string) *Bmail {
 	}
 }
 
-// Prepare a test mailbox that contains messages with uids as given emails,
+// Prepare a test email.Mailbox that contains messages with uids as given emails,
 // which is assumed to be a sorted list.
 // The maximum email in the folder will be max(emails, nextID - 1)
-func PrepareTestMailbox(mb Mailbox, emails []uint64, nextID uint64) Mailbox {
+func PrepareTestMailbox(mb email.Mailbox, emails []uint64, nextID uint64) email.Mailbox {
 
 	// Must be empty.
 	if mb.NextUID() != 1 {
@@ -123,10 +124,10 @@ func PrepareTestMailbox(mb Mailbox, emails []uint64, nextID uint64) Mailbox {
 type MessageSetByUIDTestCase struct {
 	// The test case number.
 	c uint32
-	// The set of uids which are filled in this mailbox.
+	// The set of uids which are filled in this email.Mailbox.
 	// Should be sorted.
 	emails []uint64
-	// The value of nextID in this mailbox. If it is <= any value in
+	// The value of nextID in this email.Mailbox. If it is <= any value in
 	// emails, then the value of nextID will be the maximum value in
 	// emails plus 1.
 	nextID uint64
@@ -240,20 +241,20 @@ func testMessageSetByUID(tc TestContext) {
 	}
 }
 
-// Implementation of TestContext for mailbox
-type mailboxTestContext struct {
+// Implementation of TestContext for email.Mailbox
+type MailboxTestContext struct {
 	t *testing.T
 }
 
-func (tc *mailboxTestContext) T() *testing.T {
+func (tc *MailboxTestContext) T() *testing.T {
 	return tc.t
 }
 
-func (tc *mailboxTestContext) MakeMailbox(name string, emails []uint64, nextID uint64) Mailbox {
+func (tc *MailboxTestContext) MakeMailbox(name string, emails []uint64, nextID uint64) email.Mailbox {
 
 	mb, err := newMailbox(mem.NewFolder(name), make(map[string]string))
 	if err != nil {
-		fmt.Println("Err constructing mailbox: ", err)
+		fmt.Println("Err constructing Mailbox: ", err)
 		return nil
 	}
 
@@ -263,7 +264,7 @@ func (tc *mailboxTestContext) MakeMailbox(name string, emails []uint64, nextID u
 func TestInterface(t *testing.T) {
 	boxes := make([]TestContext, 1)
 
-	boxes[0] = &mailboxTestContext{t: t}
+	boxes[0] = &MailboxTestContext{t: t}
 
 	for _, tc := range boxes {
 		testMessageSetByUID(tc)

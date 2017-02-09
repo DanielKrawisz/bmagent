@@ -3,16 +3,15 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package email
+package user
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/keymgr"
-	"github.com/DanielKrawisz/bmutil/format"
+	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
@@ -42,11 +41,11 @@ type User struct {
 	boxes    map[string]*mailbox
 	keys     *keymgr.Manager
 	acks     map[wire.ShaHash]uint64
-	server   ServerOps
+	server   email.ServerOps
 }
 
 // NewUser creates a User object from the store.
-func NewUser(username string, server ServerOps, keys *keymgr.Manager) (*User, error) {
+func NewUser(username string, server email.ServerOps, keys *keymgr.Manager) (*User, error) {
 
 	mboxes := server.Folders()
 
@@ -83,7 +82,7 @@ func NewUser(username string, server ServerOps, keys *keymgr.Manager) (*User, er
 }
 
 // NewMailbox adds a new mailbox.
-func (u *User) NewMailbox(name string) (Mailbox, error) {
+func (u *User) NewMailbox(name string) (email.Mailbox, error) {
 	return nil, errors.New("Not yet implemented.")
 }
 
@@ -113,7 +112,7 @@ func (u *User) MailboxByName(name string) (mailstore.Mailbox, error) {
 
 // DeliverFromBMNet adds a message received from bmd into the appropriate
 // folder.
-func (u *User) DeliverFromBMNet(bm *Bmail) error {
+func (u *User) DeliverFromBMNet(bm *email.Bmail) error {
 	// Put message in the right folder.
 	return u.boxes[InboxFolderName].AddNew(bm, types.FlagRecent)
 }
@@ -121,17 +120,17 @@ func (u *User) DeliverFromBMNet(bm *Bmail) error {
 // DeliverFromSMTP adds a message received via SMTP to the POW queue, if needed,
 // and the outbox.
 func (u *User) DeliverFromSMTP(smtp *data.Content) error {
-	bmsg, err := NewBitmessageFromSMTP(smtp)
+	bmsg, err := email.NewBitmessageFromSMTP(smtp)
 	if err != nil {
-		smtpLog.Error("NewBitmessageFromSMTP gave error: ", err)
+		email.SMTPLog.Error("NewBitmessageFromSMTP gave error: ", err)
 		return err
 	}
 
-	smtpLog.Debug("Bitmessage received by SMTP from " + bmsg.From + " to " + bmsg.To)
+	email.SMTPLog.Debug("Bitmessage received by SMTP from " + bmsg.From + " to " + bmsg.To)
 
 	// Check for command.
-	if commandRegex.Match([]byte(bmsg.To)) {
-		return errors.New("Commands not yet supported.")
+	if email.CommandRegex.Match([]byte(bmsg.To)) {
+		return u.executeCommand(smtp.Headers["Subject"][0], smtp.Body)
 	}
 
 	outbox := u.boxes[OutboxFolderName]
@@ -149,25 +148,25 @@ func (u *User) DeliverFromSMTP(smtp *data.Content) error {
 // If a matching message is found, the message is encoded to the wire format
 // and sent to the pow queue.
 func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
-	smtpLog.Debug("Deliver Public Key for address ", bmaddr)
+	email.SMTPLog.Debug("Deliver Public Key for address ", bmaddr)
 
 	// Ensure that the address given is in the form of a bitmessage address.
-	if !bitmessageRegex.Match([]byte(bmaddr)) {
+	if !email.BitmessageRegex.Match([]byte(bmaddr)) {
 		return errors.New("Bitmessage address required.")
 	}
 
 	outbox := u.boxes[OutboxFolderName]
-	var bms []*Bmail
+	var bms []*email.Bmail
 
 	// Go through all messages in the Outbox and get IDs of all the matches.
 	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
-		bmsg, err := DecodeBitmessage(msg)
+		bmsg, err := email.DecodeBitmessage(msg)
 		if err != nil { // (Almost) impossible error.
 			return err
 		}
 
 		// We have a match!
-		if bmsg.state.PubkeyRequestOutstanding && strings.Contains(bmsg.To, bmaddr) {
+		if bmsg.State.PubkeyRequestOutstanding && strings.Contains(bmsg.To, bmaddr) {
 			bms = append(bms, bmsg)
 		}
 		return nil
@@ -185,8 +184,8 @@ func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
 	return nil
 }
 
-// Move finds a bmail in one mailbox and moves it to another.
-func (u *User) Move(bmsg *Bmail, from, to string) error {
+// Move finds a email.Bmail in one mailbox and moves it to another.
+func (u *User) Move(bmsg *email.Bmail, from, to string) error {
 	fromBox := u.boxes[from]
 	toBox := u.boxes[to]
 
@@ -209,8 +208,8 @@ func (u *User) Move(bmsg *Bmail, from, to string) error {
 // public key and then we can go on to the next step right away.
 //
 // The next step is proof-of-work, and that also takes time.
-func (u *User) trySend(bmsg *Bmail) error {
-	smtpLog.Debug("trySend called.")
+func (u *User) trySend(bmsg *email.Bmail) error {
+	email.SMTPLog.Debug("trySend called.")
 	outbox := u.boxes[OutboxFolderName]
 
 	// sendPow takes a message in wire format with all required information
@@ -237,7 +236,7 @@ func (u *User) trySend(bmsg *Bmail) error {
 	// sendPreparedMessage is used after we have looked up private keys and
 	// generated an ack message, if applicable.
 	sendPreparedMessage := func(object obj.Object, powData *pow.Data) error {
-		smtpLog.Debug("Generating pow for message.")
+		email.SMTPLog.Debug("Generating pow for message.")
 		err := outbox.saveBitmessage(bmsg)
 		if err != nil {
 			return err
@@ -257,21 +256,21 @@ func (u *User) trySend(bmsg *Bmail) error {
 
 				// Select new box for the message.
 				var newBoxName string
-				if bmsg.state.AckExpected {
+				if bmsg.State.AckExpected {
 					newBoxName = LimboFolderName
 				} else {
 					newBoxName = SentFolderName
 				}
 
-				bmsg.state.SendTries++
-				bmsg.state.LastSend = time.Now()
+				bmsg.State.SendTries++
+				bmsg.State.LastSend = time.Now()
 
 				return u.Move(bmsg, OutboxFolderName, newBoxName)
 			}()
 			// We can't return the error any further because this function
 			// isn't even run until long after trySend completes!
 			if err != nil {
-				smtpLog.Error("trySend could not send message: ", err.Error())
+				email.SMTPLog.Error("trySend could not send message: ", err.Error())
 			}
 		})
 
@@ -286,8 +285,8 @@ func (u *User) trySend(bmsg *Bmail) error {
 	object, powData, err := bmsg.GenerateObject(u.server)
 
 	if err != nil {
-		if err == ErrGetPubKeySent {
-			smtpLog.Debug("trySend: Pubkey request sent.")
+		if err == email.ErrGetPubKeySent {
+			email.SMTPLog.Debug("trySend: Pubkey request sent.")
 
 			// Try to save the message, as its state has changed.
 			err := outbox.saveBitmessage(bmsg)
@@ -296,9 +295,9 @@ func (u *User) trySend(bmsg *Bmail) error {
 			}
 
 			return nil
-		} else if err == ErrAckMissing {
-			smtpLog.Debug("trySend: Generating ack.")
-			ack, powData, err := bmsg.generateAck(u.server)
+		} else if err == email.ErrAckMissing {
+			email.SMTPLog.Debug("trySend: Generating ack.")
+			ack, powData, err := GenerateAck(u.server, bmsg)
 			if err != nil {
 				return err
 			}
@@ -323,13 +322,13 @@ func (u *User) trySend(bmsg *Bmail) error {
 				// Once again, we can't return the error any further because
 				// trySend is over by the time this function is run.
 				if err != nil {
-					smtpLog.Error("trySend: could not send pow ", err.Error())
+					email.SMTPLog.Error("trySend: could not send pow ", err.Error())
 				}
 			})
 
 			return nil
 		} else {
-			smtpLog.Debug("trySend: could not generate message.", err.Error())
+			email.SMTPLog.Debug("trySend: could not generate message.", err.Error())
 			return err
 		}
 	}
@@ -350,50 +349,12 @@ func (u *User) DeliverAckReply(hash *wire.ShaHash) error {
 
 	// Move the message to the sent folder.
 	if bmsg != nil {
-		if !bmsg.state.AckExpected {
+		if !bmsg.State.AckExpected {
 			return ErrNoAckExpected
 		}
-		bmsg.state.AckReceived = true
+		bmsg.State.AckReceived = true
 		return u.Move(bmsg, LimboFolderName, SentFolderName)
 	}
 
 	return ErrNoMessageFound
-}
-
-// GenerateKeys creates n new keys for the user and sends him a message
-// about them.
-func (u *User) GenerateKeys(n uint16) error {
-	if n == 0 {
-		return nil
-	}
-
-	inbox := u.boxes[InboxFolderName]
-	if inbox == nil {
-		return errors.New("Could not find inbox.")
-	}
-
-	// first generate the new keys.
-	var i uint16
-	keyList := ""
-	for i = 0; i < n; i++ {
-		addr := u.keys.NewHDIdentity(1, "").Address()
-
-		keyList = fmt.Sprint(keyList, fmt.Sprintf("\t%s@bm.addr\n", addr))
-	}
-
-	message := fmt.Sprintf(newAddressesMsg, keyList)
-
-	err := inbox.AddNew(&Bmail{
-		From: "addresses@bm.agent",
-		To:   "", /*send to all new addresses*/
-		Content: &format.Encoding2{
-			Subject: "New addresses generated.",
-			Body:    message,
-		},
-	}, types.FlagRecent)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }

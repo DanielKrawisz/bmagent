@@ -3,7 +3,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package email
+package user
 
 const welcomeMsg = `
 Welcome to bmagent and to the anonymous, encrypted world of Bitmessage! You are

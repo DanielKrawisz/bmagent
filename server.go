@@ -16,11 +16,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/email"
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/rpc"
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/user"
+	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/cipher"
 	"github.com/DanielKrawisz/bmutil/identity"
@@ -57,17 +58,17 @@ type server struct {
 	msgCounter       uint64
 	broadcastCounter uint64
 	getpubkeyCounter uint64
-	smtp             *email.SMTPServer
+	smtp             *user.SMTPServer
 	smtpListeners    []net.Listener
 	imap             *imap.Server
-	imapUser         map[uint32]*email.User
+	imapUser         map[uint32]*user.User
 	imapListeners    []net.Listener
 	quit             chan struct{}
 	wg               sync.WaitGroup
 }
 
 // newServer initializes a new instance of server.
-func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, pk *store.PKRequests) (*server, error) {
+func newServer(rpcc *rpc.ClientConfig, u *User, s *store.Store, pk *store.PKRequests) (*server, error) {
 
 	srvr := &server{
 		users:         make(map[uint32]*User),
@@ -76,7 +77,7 @@ func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, pk *store.PKR
 		smtpListeners: make([]net.Listener, 0, len(cfg.SMTPListeners)),
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
-		imapUser:      make(map[uint32]*email.User),
+		imapUser:      make(map[uint32]*user.User),
 	}
 
 	var err error
@@ -87,8 +88,8 @@ func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, pk *store.PKR
 	}
 
 	// TODO allow for more than one user. Right now there is just 1 user.
-	srvr.users[1] = user
-	userData, err := s.GetUser(user.Username)
+	srvr.users[1] = u
+	userData, err := s.GetUser(u.Username)
 	if err != nil {
 		return nil, err
 	}
@@ -96,15 +97,15 @@ func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, pk *store.PKR
 	so := &serverOps{
 		pubIDs: make(map[string]*identity.Public),
 		id:     1,
-		user:   user,
+		user:   u,
 		server: srvr,
 		data:   userData,
 	}
 
-	// Create an email.User from the store.
-	imapUser, err := email.NewUser(user.Username, so, user.Keys)
+	// Create an user.User from the store.
+	imapUser, err := user.NewUser(u.Username, so, u.Keys)
 	if cfg.GenKeys > 0 {
-		imapUser.GenerateKeys(uint16(cfg.GenKeys))
+		imapUser.GenerateKey(uint16(cfg.GenKeys))
 	}
 	if err != nil {
 		return nil, err
@@ -112,12 +113,12 @@ func newServer(rpcc *rpc.ClientConfig, user *User, s *store.Store, pk *store.PKR
 	srvr.imapUser[1] = imapUser
 
 	// Setup SMTP and IMAP servers.
-	srvr.smtp = email.NewSMTPServer(&email.SMTPConfig{
+	srvr.smtp = user.NewSMTPServer(&email.SMTPConfig{
 		RequireTLS: !cfg.DisableServerTLS,
 		Username:   cfg.Username,
 		Password:   cfg.Password,
 	}, imapUser)
-	srvr.imap = imap.NewServer(email.NewBitmessageStore(imapUser, &email.IMAPConfig{
+	srvr.imap = imap.NewServer(user.NewBitmessageStore(imapUser, &email.IMAPConfig{
 		RequireTLS: !cfg.DisableServerTLS,
 		Username:   cfg.Username,
 		Password:   cfg.Password,
@@ -218,17 +219,17 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	}
 
 	// Is this an ack message we are expecting?
-	if len(object) == cipher.AckLength {	
-		for _, user := range s.imapUser {
-			err = user.DeliverAckReply(wire.InventoryHash(object))
-			if err != email.ErrUnrecognizedAck {
+	if len(object) == cipher.AckLength {
+		for _, u := range s.imapUser {
+			err = u.DeliverAckReply(wire.InventoryHash(object))
+			if err != user.ErrUnrecognizedAck {
 				if err != nil {
 					serverLog.Errorf("Error returned receiving ack: %v", err)
 				}
 				return
 			}
 		}
-		
+
 		return
 	}
 
@@ -272,7 +273,7 @@ func (s *server) newMessage(counter uint64, object []byte) {
 		return
 	}
 
-	// Decryption was successful. Add message to store.
+	// Decryption was successful.
 
 	// TODO Store public key of the sender in bmagent
 
@@ -292,14 +293,20 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	}
 
 	// Check if length of Ack is correct and message isn't from a channel.
-	if message.Ack() == nil || len(message.Ack()) < wire.MessageHeaderSize || ofChan {
+	ack := message.Ack()
+	if ack == nil || len(ack) < wire.MessageHeaderSize || ofChan {
+		log.Debugf("No ack found #%d: %v", counter)
+		return
+	} else if len(ack) < wire.MessageHeaderSize || ofChan {
+		log.Errorf("Ack too big #%d: %v", counter)
 		return
 	}
 
-	// Send out ack if necessary.
-	ack := message.Ack()[wire.MessageHeaderSize:]
-	err = (&wire.MsgObject{}).Decode(bytes.NewReader(ack))
+	// Send ack message if it exists.
+	ackObj := ack[wire.MessageHeaderSize:]
+	err = (&wire.MsgObject{}).Decode(bytes.NewReader(ackObj))
 	if err != nil { // Can't send invalid Ack.
+		log.Errorf("Failed to decode ack #%d: %v", counter, err)
 		return
 	}
 	_, err = s.bmd.SendObject(ack)
@@ -509,7 +516,8 @@ func (s *server) pkRequestHandler() {
 	}
 }
 
-func (s *server) Send(obj []byte) error { // Send the object out on the network.
+// Send the object out on the network.
+func (s *server) Send(obj []byte) error {
 	_, err := s.bmd.SendObject(obj)
 	if err != nil {
 		serverLog.Error("Failed to send object:", err)

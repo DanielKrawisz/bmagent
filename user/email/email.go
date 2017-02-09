@@ -50,7 +50,7 @@ func (e *IMAPEmail) InternalDate() time.Time { return e.Date }
 
 // Body returns the body of the email.
 func (e *IMAPEmail) Body() string {
-	body, _ := getSMTPBody(e.Content)
+	body, _ := GetSMTPBody(e.Content)
 	return body
 }
 
@@ -92,7 +92,7 @@ func (e *IMAPEmail) SetBody(body string) mailstore.Message {
 // SetHeaders sets the headers of a message.
 func (e *IMAPEmail) SetHeaders(headers textproto.MIMEHeader) mailstore.Message {
 	if date := headers.Get("Date"); date != "" {
-		d, err := time.Parse(dateFormat, date)
+		d, err := time.Parse(DateFormat, date)
 		if err == nil {
 			e.Date = d
 		}

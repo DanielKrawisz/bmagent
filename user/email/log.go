@@ -15,8 +15,8 @@ import (
 // Loggers initialized with no output filters. This means the package will not
 // perform any logging by default until the caller requests it.
 var (
-	imapLog btclog.Logger
-	smtpLog btclog.Logger
+	IMAPLog btclog.Logger
+	SMTPLog btclog.Logger
 )
 
 // The default amount of logging is none.
@@ -26,18 +26,18 @@ func init() {
 
 // DisableLog disables all library log output.
 func DisableLog() {
-	imapLog = btclog.Disabled
-	smtpLog = btclog.Disabled
+	IMAPLog = btclog.Disabled
+	SMTPLog = btclog.Disabled
 }
 
 // UseIMAPLogger uses a specified Logger to output logging info for the IMAP
 // server.
 func UseIMAPLogger(logger btclog.Logger) {
-	imapLog = logger
+	IMAPLog = logger
 }
 
 // UseSMTPLogger uses a specified Logger to output logging info for the SMTP
 // server.
 func UseSMTPLogger(logger btclog.Logger) {
-	smtpLog = logger
+	SMTPLog = logger
 }

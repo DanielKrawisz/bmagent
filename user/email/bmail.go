@@ -6,11 +6,8 @@
 package email
 
 import (
-	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"math/rand"
 	"net/mail"
 	"regexp"
 	"strings"
@@ -30,8 +27,8 @@ import (
 )
 
 const (
-	// dateFormat is the format for encoding dates.
-	dateFormat = "Mon Jan 2 15:04:05 -0700 MST 2006"
+	// DateFormat is the format for encoding dates.
+	DateFormat = "Mon Jan 2 15:04:05 -0700 MST 2006"
 
 	// Pattern used for matching Bitmessage addresses.
 	bmAddrPattern = "BM-[123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ]+"
@@ -40,7 +37,7 @@ const (
 )
 
 var (
-	// ErrInvalidEmail is the error returned by EmailToBM when the e-mail
+	// ErrInvalidEmail is the error returned by ToBM when the e-mail
 	// address is invalid and a valid Bitmessage address cannot be extracted
 	// from it.
 	ErrInvalidEmail = fmt.Errorf("From address must be of the form %s.",
@@ -58,7 +55,8 @@ var (
 	// do POW on it before proceeding.
 	ErrAckMissing = fmt.Errorf("Ack missing")
 
-	bitmessageRegex = regexp.MustCompile(fmt.Sprintf("^%s$", bmAddrPattern))
+	// BitmessageRegex is the regex of a Bitmessage address.
+	BitmessageRegex = regexp.MustCompile(fmt.Sprintf("^%s$", bmAddrPattern))
 
 	emailRegexString = fmt.Sprintf("^%s@bm\\.addr$", bmAddrPattern)
 
@@ -68,9 +66,9 @@ var (
 
 	commandRegexString = fmt.Sprintf("^%s@bm\\.agent$", commandPattern)
 
-	// commandRegex is used for detecting an email intended as a
+	// CommandRegex is used for detecting an email intended as a
 	// command to bmagent.
-	commandRegex = regexp.MustCompile(commandRegexString)
+	CommandRegex = regexp.MustCompile(commandRegexString)
 )
 
 // bmToEmail converts a Bitmessage address to an e-mail address.
@@ -78,8 +76,8 @@ func bmToEmail(bmAddr string) string {
 	return fmt.Sprintf("%s@bm.addr", bmAddr)
 }
 
-// emailToBM extracts a Bitmessage address from an e-mail address.
-func emailToBM(emailAddr string) (string, error) {
+// ToBM extracts a Bitmessage address from an e-mail address.
+func ToBM(emailAddr string) (string, error) {
 	addr, err := mail.ParseAddress(emailAddr)
 	if err != nil {
 		return "", err
@@ -95,6 +93,24 @@ func emailToBM(emailAddr string) (string, error) {
 		return "", ErrInvalidEmail
 	}
 	return bm, nil
+}
+
+// ValidateEmail validates an email TO header entry.
+func ValidateEmail(to string) bool {
+	addr, err := mail.ParseAddress(to)
+	if err != nil {
+		return false
+	}
+
+	if emailRegex.Match([]byte(addr.Address)) {
+		return true
+	}
+
+	if CommandRegex.Match([]byte(addr.Address)) {
+		return true
+	}
+
+	return false
 }
 
 // ImapData provides a Bitmessage with extra information to make it
@@ -134,19 +150,19 @@ type Bmail struct {
 	Ack        []byte
 	Content    format.Encoding
 	ImapData   *ImapData
+	State      *MessageState
 	// The encoded form of the message as a bitmessage object. Required
 	// for messages that are waiting to be sent or have pow done on them.
 	object obj.Object
-	state  *MessageState
 }
 
 // Serialize encodes the message in a protobuf format.
 func (m *Bmail) Serialize() ([]byte, error) {
-	expr := m.Expiration.Format(dateFormat)
+	expr := m.Expiration.Format(DateFormat)
 
 	var imapData *serialize.ImapData
 	if m.ImapData != nil {
-		t := m.ImapData.TimeReceived.Format(dateFormat)
+		t := m.ImapData.TimeReceived.Format(DateFormat)
 
 		imapData = &serialize.ImapData{
 			TimeReceived: t,
@@ -160,19 +176,19 @@ func (m *Bmail) Serialize() ([]byte, error) {
 	}
 
 	var state *serialize.MessageState
-	if m.state != nil {
-		lastsend := m.state.LastSend.Format(dateFormat)
+	if m.State != nil {
+		lastsend := m.State.LastSend.Format(DateFormat)
 		state = &serialize.MessageState{
-			SendTries:       m.state.SendTries,
-			AckExpected:     m.state.AckExpected,
-			AckReceived:     m.state.AckReceived,
-			PubkeyRequested: m.state.PubkeyRequestOutstanding,
+			SendTries:       m.State.SendTries,
+			AckExpected:     m.State.AckExpected,
+			AckReceived:     m.State.AckReceived,
+			PubkeyRequested: m.State.PubkeyRequestOutstanding,
 			LastSend:        lastsend,
-			Received:        m.state.Received,
+			Received:        m.State.Received,
 		}
 	}
 
-	smtpLog.Trace("Serializing Bitmessage from " + m.From + " to " + m.To)
+	SMTPLog.Trace("Serializing Bitmessage from " + m.From + " to " + m.To)
 
 	encode := &serialize.Message{
 		From:       m.From,
@@ -242,7 +258,7 @@ func (m *Bmail) generateBroadcast(from *identity.Private, expiry time.Duration) 
 // generateMsg generates a cipher.Message from a Bitmessage.
 func (m *Bmail) generateMessage(from *identity.Private, to *identity.Public, expiry time.Duration) (obj.Object, *pow.Data, error) {
 	// Check for
-	if m.Ack == nil && m.state.AckExpected {
+	if m.Ack == nil && m.State.AckExpected {
 		return nil, nil, ErrAckMissing
 	}
 
@@ -286,32 +302,32 @@ func (m *Bmail) GenerateObject(s ServerOps) (object obj.Object,
 		return m.object, m.powData, nil
 	}
 
-	smtpLog.Debug("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
-	fromAddr, err := emailToBM(m.From)
+	SMTPLog.Debug("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
+	fromAddr, err := ToBM(m.From)
 	if err != nil {
 		return nil, nil, err
 	}
 	from := s.GetPrivateID(fromAddr)
 	if from == nil {
-		smtpLog.Error("GenerateObject: no private id known ")
+		SMTPLog.Error("GenerateObject: no private id known ")
 		return nil, nil, errors.New("Private id not found")
 	}
 
 	if m.To == "broadcast@bm.agent" {
 		object, powData, genErr = m.generateBroadcast(&(from.Private), s.GetObjectExpiry(wire.ObjectTypeBroadcast))
 	} else {
-		bmTo, err := emailToBM(m.To)
+		bmTo, err := ToBM(m.To)
 		if err != nil {
 			return nil, nil, err
 		}
 		to, err := s.GetOrRequestPublicID(bmTo)
 		if err != nil {
-			smtpLog.Error("GenerateObject: results of lookup public identity: ", to, ", ", err)
+			SMTPLog.Error("GenerateObject: results of lookup public identity: ", to, ", ", err)
 			return nil, nil, err
 		}
 		// Indicates that a pubkey request was sent.
 		if to == nil {
-			m.state.PubkeyRequestOutstanding = true
+			m.State.PubkeyRequestOutstanding = true
 			return nil, nil, ErrGetPubKeySent
 		}
 
@@ -319,52 +335,18 @@ func (m *Bmail) GenerateObject(s ServerOps) (object obj.Object,
 		if id != nil {
 			m.OfChannel = id.IsChan
 			// We're sending to ourselves/chan so don't bother with ack.
-			m.state.AckExpected = false
+			m.State.AckExpected = false
 		}
 
 		object, powData, genErr = m.generateMessage(&(from.Private), to, s.GetObjectExpiry(wire.ObjectTypeMsg))
 	}
 
 	if genErr != nil {
-		smtpLog.Error("GenerateObject: ", genErr)
+		SMTPLog.Error("GenerateObject: ", genErr)
 		return nil, nil, genErr
 	}
 	m.object = object
 	return object, powData, nil
-}
-
-func (m *Bmail) generateAck(s ServerOps) (ack obj.Object, powData *pow.Data, err error) {
-	// If this is a broadcast message, no ack is expected.
-	if m.To == "broadcast@bm.agent" {
-		return nil, nil, errors.New("No acks on broadcast messages.")
-	}
-
-	// Get our private key.
-	fromAddr, err := emailToBM(m.From)
-	if err != nil {
-		return nil, nil, err
-	}
-	from := s.GetPrivateID(fromAddr)
-
-	addr := from.ToPublic().Address
-
-	// Add the message, which is a random number.
-	buf := new(bytes.Buffer)
-	num := rand.Int31()
-	err = binary.Write(buf, binary.LittleEndian, num)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// We don't save the message because it still needs POW done on it.
-
-	return wire.NewMsgObject(
-		wire.NewObjectHeader(0,
-			time.Now().Add(s.GetObjectExpiry(wire.ObjectTypeMsg)),
-			wire.ObjectTypeMsg,
-			obj.MessageVersion,
-			addr.Stream,
-		), buf.Bytes()), &from.Data, nil
 }
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
@@ -456,7 +438,7 @@ func DecodeBitmessage(data []byte) (*Bmail, error) {
 	l := &Bmail{}
 
 	if msg.Expiration != "" {
-		expr, _ := time.Parse(dateFormat, msg.Expiration)
+		expr, _ := time.Parse(DateFormat, msg.Expiration)
 		l.Expiration = expr
 	}
 
@@ -473,7 +455,7 @@ func DecodeBitmessage(data []byte) (*Bmail, error) {
 	}
 
 	if msg.ImapData != nil {
-		timeReceived, err := time.Parse(dateFormat, msg.ImapData.TimeReceived)
+		timeReceived, err := time.Parse(DateFormat, msg.ImapData.TimeReceived)
 		if err != nil {
 			return nil, err
 		}
@@ -485,12 +467,12 @@ func DecodeBitmessage(data []byte) (*Bmail, error) {
 	}
 
 	if msg.State != nil {
-		lastSend, err := time.Parse(dateFormat, msg.State.LastSend)
+		lastSend, err := time.Parse(DateFormat, msg.State.LastSend)
 		if err != nil {
 			return nil, err
 		}
 
-		l.state = &MessageState{
+		l.State = &MessageState{
 			PubkeyRequestOutstanding: msg.State.PubkeyRequested,
 			SendTries:                msg.State.SendTries,
 			LastSend:                 lastSend,
@@ -531,8 +513,8 @@ func (m *Bmail) ToEmail() (*IMAPEmail, error) {
 		headers["To"] = []string{m.To}
 	}
 
-	headers["Date"] = []string{m.ImapData.TimeReceived.Format(dateFormat)}
-	headers["Expires"] = []string{m.Expiration.Format(dateFormat)}
+	headers["Date"] = []string{m.ImapData.TimeReceived.Format(DateFormat)}
+	headers["Expires"] = []string{m.Expiration.Format(DateFormat)}
 	if m.OfChannel {
 		headers["Reply-To"] = []string{m.To}
 	}
@@ -584,7 +566,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bmail, error) {
 
 	var from, to string
 
-	if !(validateEmail(fromList[0]) || validateEmail(toList[0])) {
+	if !(ValidateEmail(fromList[0]) || ValidateEmail(toList[0])) {
 		return nil, ErrInvalidEmail
 	}
 
@@ -609,7 +591,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bmail, error) {
 	// Otherwise, use the default.
 	var expiration time.Time
 	if expireStr, ok := header["Expires"]; ok {
-		exp, err := time.Parse(dateFormat, expireStr[0])
+		exp, err := time.Parse(DateFormat, expireStr[0])
 		if err != nil {
 			return nil, err
 		}
@@ -623,7 +605,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bmail, error) {
 		subject = ""
 	}
 
-	body, err := getSMTPBody(smtp)
+	body, err := GetSMTPBody(smtp)
 	if err != nil {
 		return nil, err
 	}
@@ -637,7 +619,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bmail, error) {
 			Subject: subject,
 			Body:    body,
 		},
-		state: &MessageState{
+		State: &MessageState{
 			// false if broadcast; Code for setting it false if sending to
 			// channel/self is in GenerateObject.
 			AckExpected: to != "",
@@ -672,7 +654,7 @@ func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bmail, error) {
 	// Otherwise, use the default.
 	var expiration time.Time
 	if expireStr, ok := header["Expires"]; ok {
-		exp, err := time.Parse(dateFormat, expireStr[0])
+		exp, err := time.Parse(DateFormat, expireStr[0])
 		if err != nil {
 			return nil, err
 		}
@@ -686,7 +668,7 @@ func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bmail, error) {
 		subject = ""
 	}
 
-	body, err := getSMTPBody(smtp)
+	body, err := GetSMTPBody(smtp)
 	if err != nil {
 		return nil, err
 	}
@@ -700,7 +682,7 @@ func NewBitmessageDraftFromSMTP(smtp *data.Content) (*Bmail, error) {
 			Subject: subject,
 			Body:    body,
 		},
-		state: &MessageState{
+		State: &MessageState{
 			// false if broadcast; Code for setting it false if sending to
 			// channel/self is in GenerateObject.
 			AckExpected: to != "",

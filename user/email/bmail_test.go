@@ -43,7 +43,7 @@ func TestEmailAddressConversion(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		bm, err := emailToBM(test.email)
+		bm, err := ToBM(test.email)
 		if !test.valid {
 			if err == nil {
 				t.Error("Test ", i, " failed; email should not have been accepted:", test.email)
