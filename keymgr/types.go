@@ -9,9 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/btcsuite/btcutil/hdkeychain"
 )
 
 // MasterKey is the key from which all HD keys are derived. It's an ExtendedKey
@@ -33,11 +33,11 @@ type PrivateID struct {
 	// we don't want to receive messages for anymore) or we want to store the
 	// private keys for an imported identity but not actively listen on it.
 	Disabled bool
-	
-	// IsImported says whether the identity is imported or derived. 
+
+	// IsImported says whether the identity is imported or derived.
 	Imported bool
-	
-	// Name is a name for this id. 
+
+	// Name is a name for this id.
 	Name string
 }
 
@@ -83,11 +83,11 @@ func (id *PrivateID) MarshalJSON() ([]byte, error) {
 		"nonceTrialsPerByte": id.NonceTrialsPerByte,
 		"extraBytes":         id.ExtraBytes,
 		"signingKey":         bmutil.EncodeWIF(id.SigningKey),
-		"encryptionKey":      bmutil.EncodeWIF(id.EncryptionKey),
+		"encryptionKey":      bmutil.EncodeWIF(id.DecryptionKey),
 		"isChan":             id.IsChan,
 		"disabled":           id.Disabled,
 		"imported":           id.Imported,
-		"name":               id.Name, 
+		"name":               id.Name,
 	})
 }
 
@@ -133,7 +133,7 @@ func (id *PrivateID) UnmarshalJSON(in []byte) error {
 
 	id.Private.Address = *addr
 	id.SigningKey = signKey
-	id.EncryptionKey = encKey
+	id.DecryptionKey = encKey
 	id.NonceTrialsPerByte = stored.NonceTrialsPerByte
 	id.ExtraBytes = stored.ExtraBytes
 	id.IsChan = stored.IsChan

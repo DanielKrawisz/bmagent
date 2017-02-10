@@ -295,10 +295,10 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	// Check if length of Ack is correct and message isn't from a channel.
 	ack := message.Ack()
 	if ack == nil || len(ack) < wire.MessageHeaderSize || ofChan {
-		log.Debugf("No ack found #%d: %v", counter)
+		log.Debugf("No ack found #%d", counter)
 		return
 	} else if len(ack) < wire.MessageHeaderSize || ofChan {
-		log.Errorf("Ack too big #%d: %v", counter)
+		log.Errorf("Ack too big #%d.", counter)
 		return
 	}
 

@@ -10,18 +10,18 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"errors"
-	"sync"
 	"io"
-	"strings"
 	"strconv"
+	"strings"
+	"sync"
 
+	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcutil/hdkeychain"
 	"github.com/btcsuite/golangcrypto/nacl/secretbox"
-	"github.com/DanielKrawisz/bmutil/identity"
-	"github.com/DanielKrawisz/bmutil/pow"
-	"golang.org/x/crypto/pbkdf2"
 	ini "github.com/vaughan0/go-ini"
+	"golang.org/x/crypto/pbkdf2"
 )
 
 const (
@@ -65,10 +65,10 @@ type Manager struct {
 
 	// ImportedIDs contains all IDs that weren't derived from the master key.
 	// This could include channels or addresses imported from PyBitmessage.
-	importedIDs []string 
+	importedIDs []string
 
 	// DerivedIDs contains all IDs derived from the master key.
-	derivedIDs []string 
+	derivedIDs []string
 }
 
 // New creates a new key manager and generates a master key from the provided
@@ -81,11 +81,11 @@ func New(seed []byte) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	mgr := &Manager{
-		db: newDb((*MasterKey)(mKey), latestFileVersion),
-		importedIDs : make([]string, 0, dbInitSize),
-		derivedIDs : make([]string, 0, dbInitSize),
+		db:          newDb((*MasterKey)(mKey), latestFileVersion),
+		importedIDs: make([]string, 0, dbInitSize),
+		derivedIDs:  make([]string, 0, dbInitSize),
 	}
 
 	return mgr, nil
@@ -122,24 +122,24 @@ func FromEncrypted(enc, pass []byte) (*Manager, error) {
 	if !success {
 		return nil, ErrDecryptionFailed
 	}
-	
+
 	return FromPlaintext(bytes.NewReader(contents))
 }
 
-// Imports a key manager from plaintext. 
-func FromPlaintext(r io.Reader) (*Manager, error) {	
+// Imports a key manager from plaintext.
+func FromPlaintext(r io.Reader) (*Manager, error) {
 	db, err := openDb(r)
 	if err != nil {
 		return nil, err
 	}
 	mgr := &Manager{
-		db: db,
-		importedIDs : make([]string, 0, len(db.IDs)),
-		derivedIDs : make([]string, 0, len(db.IDs)),
+		db:          db,
+		importedIDs: make([]string, 0, len(db.IDs)),
+		derivedIDs:  make([]string, 0, len(db.IDs)),
 	}
-	
+
 	for addr, id := range db.IDs {
-		if (id.Imported) {
+		if id.Imported {
 			mgr.importedIDs = append(mgr.importedIDs, addr)
 		} else {
 			mgr.derivedIDs = append(mgr.derivedIDs, addr)
@@ -186,7 +186,7 @@ func (mgr *Manager) ExportEncrypted(pass []byte) ([]byte, error) {
 }
 
 // ExportPlaintext exports the state of the key manager in an unencrypted
-// state. It's useful for debugging or manual inspection of keys. 
+// state. It's useful for debugging or manual inspection of keys.
 func (mgr *Manager) ExportPlaintext() ([]byte, error) {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
@@ -197,10 +197,10 @@ func (mgr *Manager) ExportPlaintext() ([]byte, error) {
 // ImportIdentity imports an existing identity into the key manager. It's useful
 // for users who have existing identities or want to subscribe to channels.
 func (mgr *Manager) ImportIdentity(privID PrivateID) {
-	
-	// Encode as string. 
-	str := privID.Address() 
-	
+
+	// Encode as string.
+	str := privID.Address()
+
 	mgr.mutex.Lock()
 	defer mgr.mutex.Unlock()
 
@@ -208,9 +208,9 @@ func (mgr *Manager) ImportIdentity(privID PrivateID) {
 	if _, ok := mgr.db.IDs[str]; ok {
 		return
 	}
-	
+
 	// Insert a copy into database.
-	privID.Imported = true // Make sure it is marked as imported. 
+	privID.Imported = true // Make sure it is marked as imported.
 	mgr.db.IDs[str] = &privID
 	mgr.importedIDs = append(mgr.importedIDs, str)
 
@@ -221,11 +221,11 @@ func (mgr *Manager) ImportIdentity(privID PrivateID) {
 /*func (mgr *Manager) RemoveImported(str string) {
 	mgr.mutex.Lock()
 	defer mgr.mutex.Unlock()
-	
+
 	if _, ok := mgr.db.IDs[str]; !ok {
 		return
 	}
-	
+
 	delete(mgr.db.IDs, str)
 
 	for i, addr := range mgr.importedIDs {
@@ -265,16 +265,16 @@ func (mgr *Manager) NewHDIdentity(stream uint32, name string) *PrivateID {
 	id := &PrivateID{
 		Private: *privID,
 		IsChan:  false,
-		Name: name,
+		Name:    name,
 	}
-	
-	// Encode address as string. 
+
+	// Encode address as string.
 	str, err := privID.Address.Encode()
 	if err != nil {
 		return nil
 	}
 
-	// Add to derived ids. 
+	// Add to derived ids.
 	mgr.derivedIDs = append(mgr.derivedIDs, str)
 
 	// Insert in addresses.
@@ -284,7 +284,7 @@ func (mgr *Manager) NewHDIdentity(stream uint32, name string) *PrivateID {
 }
 
 func (mgr *Manager) NewHDUnnamedIdentity(stream uint32) *PrivateID {
-	return mgr.NewHDIdentity(stream, "");
+	return mgr.NewHDIdentity(stream, "")
 }
 
 func (mgr *Manager) forEach(f func(*PrivateID) error) error {
@@ -300,7 +300,7 @@ func (mgr *Manager) forEach(f func(*PrivateID) error) error {
 
 // ForEach runs the specified function for all the identities stored in the key
 // manager. It does not return until the function has been invoked for all keys
-// and breaks early on error. 
+// and breaks early on error.
 func (mgr *Manager) ForEach(f func(*PrivateID) error) error {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
@@ -314,9 +314,9 @@ func (mgr *Manager) ForEach(f func(*PrivateID) error) error {
 func (mgr *Manager) LookupByAddress(address string) *PrivateID {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
-	
+
 	p := mgr.db.IDs[address]
-	
+
 	return p
 }
 
@@ -341,21 +341,21 @@ func (mgr *Manager) NumDeterministic() int {
 func (mgr *Manager) Size() int {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
-	
+
 	return len(mgr.db.IDs)
 }
 
-// GetAddresses returns the set of addresses in the key manager. 
+// GetAddresses returns the set of addresses in the key manager.
 func (mgr *Manager) Addresses() []string {
 	addresses := make([]string, len(mgr.db.IDs))
-	
+
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
-	
-	var i int= 0;
+
+	var i int = 0
 	for address, _ := range mgr.db.IDs {
 		addresses[i] = address
-		i ++
+		i++
 	}
 	return addresses
 }
@@ -364,24 +364,24 @@ func (mgr *Manager) Addresses() []string {
 func (mgr *Manager) NameAddress(address, name string) error {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
-	
-	// Does the address exist in the database? 
+
+	// Does the address exist in the database?
 	if id, ok := mgr.db.IDs[address]; !ok {
 		return ErrNonexistentIdentity
 	} else {
 		id.Name = name
 		mgr.db.IDs[address] = id
 	}
-	
+
 	return nil
-} 
+}
 
 // UnnameAddress removes a name from the address.
 func (mgr *Manager) UnnameAddress(address string) error {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
-	
-	// Does the address exist in the database? 
+
+	// Does the address exist in the database?
 	if id, ok := mgr.db.IDs[address]; !ok {
 		return ErrNonexistentIdentity
 	} else {
@@ -391,37 +391,37 @@ func (mgr *Manager) UnnameAddress(address string) error {
 	return nil
 }
 
-// Get the map of addresses to names. 
+// Get the map of addresses to names.
 func (mgr *Manager) Names() map[string]string {
-	
+
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
-	
+
 	names := make(map[string]string)
-	
+
 	for address, id := range mgr.db.IDs {
 		names[address] = id.Name
 	}
-	
+
 	return names
 }
 
-// Import keys from Pybitmessage or another bmagent identity. 
-// Returns a map containing the imported addresses and names. 
+// Import keys from Pybitmessage or another bmagent identity.
+// Returns a map containing the imported addresses and names.
 func (mgr *Manager) ImportKeys(data []byte) map[string]string {
-	
-	// First try to import as a pybitmessage format. 
+
+	// First try to import as a pybitmessage format.
 	f, err := ini.Load(bytes.NewReader(data))
 	if err == nil {
 		return mgr.ImportKeysFromPyBitmessage(f)
 	}
-	
-	// Next try to import from standard format. 
+
+	// Next try to import from standard format.
 	m, err := FromPlaintext(bytes.NewReader(data))
 	if err != nil {
 		return nil
 	}
-	
+
 	addresses := make(map[string]string)
 
 	m.ForEach(func(p *PrivateID) error {
@@ -433,12 +433,12 @@ func (mgr *Manager) ImportKeys(data []byte) map[string]string {
 	return addresses
 }
 
-// Given an ini file like that created by PyBitmessage, 
+// Given an ini file like that created by PyBitmessage,
 // import into the key manager.
 func (mgr *Manager) ImportKeysFromPyBitmessage(f ini.File) map[string]string {
-	
+
 	addresses := make(map[string]string)
-	
+
 	for k, v := range f {
 		if k == "bitmessagesettings" {
 			continue
@@ -458,7 +458,7 @@ func (mgr *Manager) ImportKeysFromPyBitmessage(f ini.File) map[string]string {
 		extraBytes := readIniUint64(v, "payloadlengthextrabytes", pow.DefaultExtraBytes)
 		enabled := readIniBool(v, "enabled", true)
 		isChan := readIniBool(v, "chan", false)
-		
+
 		name := v["label"]
 
 		// Now that we have read everything related to the identity, create it.
@@ -466,19 +466,19 @@ func (mgr *Manager) ImportKeysFromPyBitmessage(f ini.File) map[string]string {
 		if err != nil {
 			continue
 		}
-		
+
 		p := PrivateID{
 			Private:  *id,
 			IsChan:   isChan,
 			Disabled: !enabled,
-			Name: name, 
+			Name:     name,
 		}
-		
+
 		addresses[p.Address()] = p.Name
- 
+
 		mgr.ImportIdentity(p)
 	}
-	
+
 	return addresses
 }
 

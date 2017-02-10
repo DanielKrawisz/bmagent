@@ -32,6 +32,9 @@ var (
 
 	// ErrNoMessageFound is returned when no message is found.
 	ErrNoMessageFound = errors.New("No message found")
+
+	// ErrMissingPrivateID is returned when the private id could not be found.
+	ErrMissingPrivateID = errors.New("Private id not found")
 )
 
 // User implements the mailstore.User interface and represents
@@ -41,11 +44,11 @@ type User struct {
 	boxes    map[string]*mailbox
 	keys     *keymgr.Manager
 	acks     map[wire.ShaHash]uint64
-	server   email.ServerOps
+	server   ServerOps
 }
 
 // NewUser creates a User object from the store.
-func NewUser(username string, server email.ServerOps, keys *keymgr.Manager) (*User, error) {
+func NewUser(username string, server ServerOps, keys *keymgr.Manager) (*User, error) {
 
 	mboxes := server.Folders()
 
@@ -141,7 +144,7 @@ func (u *User) DeliverFromSMTP(smtp *data.Content) error {
 		return nil
 	}
 
-	return u.trySend(bmsg)
+	return u.trySend(&bmail{b: bmsg})
 }
 
 // DeliverPublicKey takes a public key and attempts to match it with a message.
@@ -156,17 +159,17 @@ func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
 	}
 
 	outbox := u.boxes[OutboxFolderName]
-	var bms []*email.Bmail
+	var bms []*bmail
 
 	// Go through all messages in the Outbox and get IDs of all the matches.
 	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
-		bmsg, err := email.DecodeBitmessage(msg)
+		bmsg, err := decodeBitmessage(msg)
 		if err != nil { // (Almost) impossible error.
 			return err
 		}
 
 		// We have a match!
-		if bmsg.State.PubkeyRequestOutstanding && strings.Contains(bmsg.To, bmaddr) {
+		if bmsg.b.State.PubkeyRequestOutstanding && strings.Contains(bmsg.b.To, bmaddr) {
 			bms = append(bms, bmsg)
 		}
 		return nil
@@ -189,14 +192,21 @@ func (u *User) Move(bmsg *email.Bmail, from, to string) error {
 	fromBox := u.boxes[from]
 	toBox := u.boxes[to]
 
+	uid := bmsg.ImapData.UID
+
+	b := fromBox.bmsgByUID(uid)
+	if b == nil {
+		return nil
+	}
+
 	// Move message from old mailbox to the new one.
-	err := fromBox.DeleteBitmessageByUID(bmsg.ImapData.UID)
+	err := fromBox.DeleteBitmessageByUID(uid)
 	if err != nil {
 		return err
 	}
 
-	bmsg.ImapData = nil
-	return toBox.AddNew(bmsg, types.FlagSeen)
+	b.b.ImapData = nil
+	return toBox.addNew(b, types.FlagSeen)
 }
 
 // trySend takes a Bitmessage and does whatever needs to be done to it
@@ -208,7 +218,7 @@ func (u *User) Move(bmsg *email.Bmail, from, to string) error {
 // public key and then we can go on to the next step right away.
 //
 // The next step is proof-of-work, and that also takes time.
-func (u *User) trySend(bmsg *email.Bmail) error {
+func (u *User) trySend(bmsg *bmail) error {
 	email.SMTPLog.Debug("trySend called.")
 	outbox := u.boxes[OutboxFolderName]
 
@@ -256,16 +266,16 @@ func (u *User) trySend(bmsg *email.Bmail) error {
 
 				// Select new box for the message.
 				var newBoxName string
-				if bmsg.State.AckExpected {
+				if bmsg.b.State.AckExpected {
 					newBoxName = LimboFolderName
 				} else {
 					newBoxName = SentFolderName
 				}
 
-				bmsg.State.SendTries++
-				bmsg.State.LastSend = time.Now()
+				bmsg.b.State.SendTries++
+				bmsg.b.State.LastSend = time.Now()
 
-				return u.Move(bmsg, OutboxFolderName, newBoxName)
+				return u.Move(bmsg.b, OutboxFolderName, newBoxName)
 			}()
 			// We can't return the error any further because this function
 			// isn't even run until long after trySend completes!
@@ -282,7 +292,7 @@ func (u *User) trySend(bmsg *email.Bmail) error {
 	// pubkey. That is not an error state. If no object and no error is
 	// returned, this is what has happened. If there is no object, then we
 	// can't proceed futher so trySend completes.
-	object, powData, err := bmsg.GenerateObject(u.server)
+	object, data, err := bmsg.generateObject(u.server)
 
 	if err != nil {
 		if err == email.ErrGetPubKeySent {
@@ -297,27 +307,27 @@ func (u *User) trySend(bmsg *email.Bmail) error {
 			return nil
 		} else if err == email.ErrAckMissing {
 			email.SMTPLog.Debug("trySend: Generating ack.")
-			ack, powData, err := GenerateAck(u.server, bmsg)
+			ack, powData, err := bmsg.generateAck(u.server)
 			if err != nil {
 				return err
 			}
 
 			// Save the ack.
-			u.acks[*obj.InventoryHash(ack)] = bmsg.ImapData.UID
+			u.acks[*obj.InventoryHash(ack)] = bmsg.b.ImapData.UID
 
 			sendPow(ack, powData, func(completed []byte) {
 				err := func() error {
 					// Add the ack to the message.
-					bmsg.Ack = completed
+					bmsg.b.Ack = completed
 
 					// Attempt to generate object again. This time it
 					// should work so we return every error.
-					object, objPowData, err := bmsg.GenerateObject(u.server)
+					object, objData, err := bmsg.generateObject(u.server)
 					if err != nil {
 						return err
 					}
 
-					return sendPreparedMessage(object, objPowData)
+					return sendPreparedMessage(object, objData.Pow)
 				}()
 				// Once again, we can't return the error any further because
 				// trySend is over by the time this function is run.
@@ -334,7 +344,7 @@ func (u *User) trySend(bmsg *email.Bmail) error {
 	}
 
 	// If the object was generated successufully, do POW and send it.
-	return sendPreparedMessage(object, powData)
+	return sendPreparedMessage(object, data.Pow)
 }
 
 // DeliverAckReply takes a message ack and marks a message as having been
@@ -349,11 +359,11 @@ func (u *User) DeliverAckReply(hash *wire.ShaHash) error {
 
 	// Move the message to the sent folder.
 	if bmsg != nil {
-		if !bmsg.State.AckExpected {
+		if !bmsg.b.State.AckExpected {
 			return ErrNoAckExpected
 		}
-		bmsg.State.AckReceived = true
-		return u.Move(bmsg, LimboFolderName, SentFolderName)
+		bmsg.b.State.AckReceived = true
+		return u.Move(bmsg.b, LimboFolderName, SentFolderName)
 	}
 
 	return ErrNoMessageFound

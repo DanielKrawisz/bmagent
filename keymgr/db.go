@@ -6,8 +6,8 @@
 package keymgr
 
 import (
-	"errors"
 	"encoding/json"
+	"errors"
 	"io"
 )
 
@@ -21,35 +21,35 @@ var (
 )
 
 // db is a representation of how data should be encoded.
-type db struct {	
+type db struct {
 	// Version is the version of key manager file.
 	Version int `json:"version"`
-	
+
 	// MasterKey is used to derive all HD encryption and signing keys.
 	MasterKey *MasterKey `json:"masterKey"`
 
 	// NewIDIndex contains the index of the next identity that will be derived
 	// according to BIP-BM01.
 	NewIDIndex uint32 `json:"newIDIndex"`
-	
-	// IDs maps addresses to private ids. 
+
+	// IDs maps addresses to private ids.
 	IDs map[string]*PrivateID `json:"addresses"`
 }
 
 // newDb returns a new db.
 func newDb(key *MasterKey, v int) *db {
 	return &db{
-		MasterKey : key, 
-		Version : v, 
-		IDs : make(map[string]*PrivateID),
+		MasterKey: key,
+		Version:   v,
+		IDs:       make(map[string]*PrivateID),
 	}
 }
 
 func openDb(r io.Reader) (*db, error) {
 	db := &db{
-		IDs : make(map[string]*PrivateID),
+		IDs: make(map[string]*PrivateID),
 	}
-	
+
 	err := json.NewDecoder(r).Decode(db)
 	if err != nil {
 		return nil, err

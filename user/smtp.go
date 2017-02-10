@@ -117,7 +117,7 @@ func (serv *SMTPServer) validateSender(from string) bool {
 		return false
 	}
 
-	bmAddr, err := email.ToBM(addr.Address)
+	bmAddr, err := email.ToBm(addr.Address)
 	if err != nil {
 		return false
 	}

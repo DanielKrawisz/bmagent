@@ -7,9 +7,9 @@ package keymgr_test
 
 import (
 	"bytes"
-	"testing"
-	"io/ioutil"
 	"fmt"
+	"io/ioutil"
+	"testing"
 
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmutil/identity"
@@ -66,7 +66,7 @@ func TestOperation(t *testing.T) {
 	privacyChan := &keymgr.PrivateID{
 		Private: *ids[0],
 		IsChan:  true,
-		Name: "Hyperluminous", 
+		Name:    "Hyperluminous",
 	}
 	// Create an address (export fails without this).
 	privacyChan.CreateAddress(4, 1)
@@ -130,7 +130,7 @@ func TestOperation(t *testing.T) {
 		t.Error("imported key not removed from database")
 	}*/
 
-	// Try to remove a key that doesn't exist in the database. 
+	// Try to remove a key that doesn't exist in the database.
 	// Should not crash the program. (function removed)
 	//mgr1.RemoveImported(privacyChan.Address())
 
@@ -155,32 +155,31 @@ func TestErrors(t *testing.T) {
 	}
 }
 
-
-// Import a key file from pybitmessage or bmagent. 
+// Import a key file from pybitmessage or bmagent.
 func testImportKeyFile(t *testing.T, testID int, file string, addresses map[string]string) {
-	// First load the test file. 
+	// First load the test file.
 	b, err := ioutil.ReadFile(file)
 	if err != nil {
 		t.Error(testID, err)
 		return
 	}
 
-	// Create new key manager. 
+	// Create new key manager.
 	seed := []byte(fmt.Sprintf("Another secure seed: %s", testID))
 	mgr, err := keymgr.New(seed)
 	if err != nil {
 		t.Error(testID, err)
 		return
 	}
-	
-	// Finally import the test file. 
+
+	// Finally import the test file.
 	keys := mgr.ImportKeys(b)
 	if keys == nil {
 		t.Error(testID, "could not read keys!")
 		return
 	}
-	
-	// Test that the expected values are there. 
+
+	// Test that the expected values are there.
 	for addr, name := range addresses {
 		if n, ok := keys[addr]; !ok {
 			if n != name {
@@ -194,27 +193,27 @@ func testImportKeyFile(t *testing.T, testID int, file string, addresses map[stri
 
 func TestImportKeyFile(t *testing.T) {
 	expected := map[string]string{
-		"BM-2cUfDTJXLeMxAVe7pWXBEneBjDuQ783VSq" : "unused deterministic address", 
-		"BM-2cVauKd3h2FK3dK1FVjahhAk3n95qnVWEU" : "unused deterministic address", 
-		"BM-2cUyqf27vaFmc723VWZhFwdqpQBqEfKtQ2" : "Green Jimmy", 
-		"BM-NB1QmZrQSEtJpqLPAMigQNdi5iMiuXQW" : "Copenhagen Sun Tsu", 
-		"BM-2cX8ubaVMkrTuAkSNtPgUDYUERbG3gSmYh" : "Nothing could be more true.",
+		"BM-2cUfDTJXLeMxAVe7pWXBEneBjDuQ783VSq": "unused deterministic address",
+		"BM-2cVauKd3h2FK3dK1FVjahhAk3n95qnVWEU": "unused deterministic address",
+		"BM-2cUyqf27vaFmc723VWZhFwdqpQBqEfKtQ2": "Green Jimmy",
+		"BM-NB1QmZrQSEtJpqLPAMigQNdi5iMiuXQW":   "Copenhagen Sun Tsu",
+		"BM-2cX8ubaVMkrTuAkSNtPgUDYUERbG3gSmYh": "Nothing could be more true.",
 	}
-	
-	testCases := []struct{
-		file string
+
+	testCases := []struct {
+		file     string
 		expected map[string]string
 	}{
 		{
-			file: "test/keysPyBitmessage_test.dat",
-			expected: expected, 
+			file:     "test/keysPyBitmessage_test.dat",
+			expected: expected,
 		},
 		{
-			file: "test/keysBmagent_test.dat",
-			expected: expected, 
+			file:     "test/keysBmagent_test.dat",
+			expected: expected,
 		},
 	}
-	
+
 	for i, test := range testCases {
 		testImportKeyFile(t, i, test.file, nil)
 	}
