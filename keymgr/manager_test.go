@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmutil/identity"
 )
 
@@ -34,7 +35,7 @@ func TestOperation(t *testing.T) {
 	}
 
 	// Generate first identity and check if everything works as expected.
-	gen1 := mgr.NewHDIdentity(1, "Seven Anvil")
+	gen1 := mgr.New("Seven Anvil", 1, 0)
 	if gen1.IsChan != false {
 		t.Error("generated identity not a channel")
 	}
@@ -48,7 +49,7 @@ func TestOperation(t *testing.T) {
 	}
 
 	// Generate second identity and check if everything works as expected.
-	gen2 := mgr.NewHDIdentity(1, "Intelligent Glue")
+	gen2 := mgr.New("Intelligent Glue", 1, 0)
 	if gen2.IsChan != false {
 		t.Error("generated identity not a channel")
 	}
@@ -63,7 +64,7 @@ func TestOperation(t *testing.T) {
 
 	// Import a channel and check if it's imported as expected.
 	ids, _ := identity.NewDeterministic("privacy", 1, 1)
-	privacyChan := &keymgr.PrivateID{
+	privacyChan := &keys.PrivateID{
 		Private: *ids[0],
 		IsChan:  true,
 		Name:    "Hyperluminous",
@@ -83,9 +84,9 @@ func TestOperation(t *testing.T) {
 
 	// Try to retrieve private identity from address.
 	privacyAddr := privacyChan.Address()
-	privacyRetrieved := mgr.LookupByAddress(privacyAddr)
+	privacyRetrieved := mgr.Get(privacyAddr)
 	if privacyRetrieved == nil {
-		t.Errorf("LookupByAddress returned nil address")
+		t.Errorf("Get returned nil address")
 	}
 	if !bytes.Equal(privacyRetrieved.Private.Address.Ripe[:], privacyChan.Private.Address.Ripe[:]) {
 		t.Errorf("got different ripe, expected %v got %v",
@@ -135,7 +136,7 @@ func TestOperation(t *testing.T) {
 	//mgr1.RemoveImported(privacyChan.Address())
 
 	// Try to retrieve non-existant private identity from address.
-	privacyRetrieved = mgr1.LookupByAddress("BM-2cUfDTJXLeMxAVe7pWXBEneBjDuQ783VSq")
+	privacyRetrieved = mgr1.Get("BM-2cUfDTJXLeMxAVe7pWXBEneBjDuQ783VSq")
 	if privacyRetrieved != nil {
 		t.Errorf("expected nil id")
 	}
@@ -165,7 +166,7 @@ func testImportKeyFile(t *testing.T, testID int, file string, addresses map[stri
 	}
 
 	// Create new key manager.
-	seed := []byte(fmt.Sprintf("Another secure seed: %s", testID))
+	seed := []byte(fmt.Sprintf("Another secure seed: %d", testID))
 	mgr, err := keymgr.New(seed)
 	if err != nil {
 		t.Error(testID, err)

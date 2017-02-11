@@ -29,6 +29,9 @@ const (
 	bmAddrPattern = "BM-[123456789abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ]+"
 
 	commandPattern = "[a-z]+"
+
+	// Broadcast is the email address used to send broadcasts.
+	Broadcast = "broadcast@bm.addr"
 )
 
 var (
@@ -68,6 +71,9 @@ var (
 
 // BmToEmail converts a Bitmessage address to an e-mail address.
 func BmToEmail(bmAddr string) string {
+	if bmAddr == "" {
+		return Broadcast
+	}
 	return fmt.Sprintf("%s@bm.addr", bmAddr)
 }
 
@@ -76,6 +82,10 @@ func ToBm(emailAddr string) (string, error) {
 	addr, err := mail.ParseAddress(emailAddr)
 	if err != nil {
 		return "", err
+	}
+
+	if emailAddr == Broadcast {
+		return "", nil
 	}
 
 	if !emailRegex.Match([]byte(addr.Address)) {
@@ -186,7 +196,7 @@ func BroadcastRead(msg *cipher.Broadcast) (*Bmail, error) {
 	}
 
 	return &Bmail{
-		From:       "broadcast@bm.agent",
+		From:       Broadcast,
 		To:         BmToEmail(fromAddress),
 		Expiration: header.Expiration(),
 		Content:    data.Content,
@@ -215,11 +225,7 @@ func (m *Bmail) ToEmail() (*IMAPEmail, error) {
 
 	headers["From"] = []string{m.From}
 
-	if m.To == "" {
-		headers["To"] = []string{"broadcast@bm.agent"}
-	} else {
-		headers["To"] = []string{m.To}
-	}
+	headers["To"] = []string{m.To}
 
 	headers["Date"] = []string{m.ImapData.TimeReceived.Format(DateFormat)}
 	headers["Expires"] = []string{m.Expiration.Format(DateFormat)}
@@ -327,11 +333,7 @@ func NewBitmessageFromSMTP(smtp *data.Content) (*Bmail, error) {
 			Subject: subject,
 			Body:    body,
 		},
-		State: &MessageState{
-			// false if broadcast; Code for setting it false if sending to
-			// channel/self is in GenerateObject.
-			AckExpected: to != "",
-		},
+		State: &MessageState{},
 	}, nil
 }
 

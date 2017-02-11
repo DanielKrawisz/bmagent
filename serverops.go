@@ -8,7 +8,9 @@ package main
 import (
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmagent/user/email"
+	"github.com/DanielKrawisz/bmagent/user"
 	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
@@ -27,7 +29,16 @@ type serverOps struct {
 // GetOrRequestPublic attempts to retreive a public identity for the given
 // address. If the function returns nil with no error, that means that a pubkey
 // request was successfully queued for proof-of-work.
-func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) {
+func (s *serverOps) GetOrRequestPublicID(emailAddress string) (*identity.Public, error) {
+	addr, err := email.ToBm(emailAddress)
+	if err != nil {
+		return nil, err
+	}
+	
+	if addr == email.Broadcast {
+		return user.Broadcast, nil
+	}
+	
 	serverLog.Debug("GetOrRequestPublicID for ", addr)
 
 	// Check the map of cached identities.
@@ -48,7 +59,7 @@ func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) 
 		return nil, err
 	}
 	if pubID == nil && err == nil { // Getpubkey request sent.
-		return nil, nil
+		return nil, email.ErrGetPubKeySent
 	}
 
 	s.pubIDs[addr] = pubID
@@ -57,13 +68,13 @@ func (s *serverOps) GetOrRequestPublicID(addr string) (*identity.Public, error) 
 
 // GetPrivateID queries the key manager for the right private key for the given
 // address.
-func (s *serverOps) GetPrivateID(addr string) *keymgr.PrivateID {
-	return s.user.Keys.LookupByAddress(addr)
+func (s *serverOps) GetPrivateID(addr string) *keys.PrivateID {
+	return s.user.Keys.Get(addr)
 }
 
-// GetObjectExpiry returns the time duration after which an object of the
+// ObjectExpiration returns the time duration after which an object of the
 // given type will expire on the network. It's used for POW calculations.
-func (s *serverOps) GetObjectExpiry(objType wire.ObjectType) time.Duration {
+func ObjectExpiration(objType wire.ObjectType) time.Duration {
 	switch objType {
 	case wire.ObjectTypeMsg:
 		return cfg.MsgExpiry

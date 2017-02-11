@@ -3,10 +3,10 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-// Package keymgr is a key manager for use with bmclient. However, it is meant
-// to be used independently and handles hierarchically deterministic keys,
-// imported keys (from PyBitmessage or other legacy systems), as well as
-// channels.
+// Package keymgr is a key manager designed for use with bmagent, but which
+// can also be used independently. It handles and handles hierarchically
+// deterministic keys, imported keys (from PyBitmessage or other legacy
+// systems), as well as channels.
 //
 // The file format for storage is a JSON document encrypted with SalsaX20 and
 // MAC'd with Poly1305. The scheme used is byte compatible with secretbox from

@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/rpc"
 	"github.com/DanielKrawisz/bmagent/store"
@@ -103,10 +103,7 @@ func newServer(rpcc *rpc.ClientConfig, u *User, s *store.Store, pk *store.PKRequ
 	}
 
 	// Create an user.User from the store.
-	imapUser, err := user.NewUser(u.Username, so, u.Keys)
-	if cfg.GenKeys > 0 {
-		imapUser.GenerateKey(uint16(cfg.GenKeys))
-	}
+	imapUser, err := user.NewUser(u.Username, u.Keys, ObjectExpiration, so)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +246,7 @@ func (s *server) newMessage(counter uint64, object []byte) {
 
 	// Try decrypting with all available identities.
 	for uid, user := range s.users {
-		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
+		err = user.Keys.ForEach(func(id *keys.PrivateID) error {
 			var decryptErr error
 			message, decryptErr = cipher.TryDecryptAndVerifyMessage(msg, &id.Private)
 			if decryptErr == nil {
@@ -383,12 +380,12 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 		return // Ignore message.
 	}
 
-	var privID *keymgr.PrivateID
+	var privID *keys.PrivateID
 	header := msg.Header()
 
 	// Check if the getpubkey request corresponds to any of our identities.
 	for _, user := range s.users {
-		err = user.Keys.ForEach(func(id *keymgr.PrivateID) error {
+		err = user.Keys.ForEach(func(id *keys.PrivateID) error {
 			if id.Disabled || id.IsChan { // We don't care about these.
 				return nil
 			}

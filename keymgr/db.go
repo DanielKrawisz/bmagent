@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 )
 
 // dbInitSize is the size of the ImportedIDs and DerivedIDs slices.
@@ -26,28 +28,28 @@ type db struct {
 	Version int `json:"version"`
 
 	// MasterKey is used to derive all HD encryption and signing keys.
-	MasterKey *MasterKey `json:"masterKey"`
+	MasterKey *keys.MasterKey `json:"masterKey"`
 
 	// NewIDIndex contains the index of the next identity that will be derived
 	// according to BIP-BM01.
 	NewIDIndex uint32 `json:"newIDIndex"`
 
 	// IDs maps addresses to private ids.
-	IDs map[string]*PrivateID `json:"addresses"`
+	IDs map[string]*keys.PrivateID `json:"addresses"`
 }
 
 // newDb returns a new db.
-func newDb(key *MasterKey, v int) *db {
+func newDb(key *keys.MasterKey, v int) *db {
 	return &db{
 		MasterKey: key,
 		Version:   v,
-		IDs:       make(map[string]*PrivateID),
+		IDs:       make(map[string]*keys.PrivateID),
 	}
 }
 
 func openDb(r io.Reader) (*db, error) {
 	db := &db{
-		IDs: make(map[string]*PrivateID),
+		IDs: make(map[string]*keys.PrivateID),
 	}
 
 	err := json.NewDecoder(r).Decode(db)

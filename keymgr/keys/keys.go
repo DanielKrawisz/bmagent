@@ -3,7 +3,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package keymgr
+package keys
 
 import (
 	"encoding/json"
@@ -41,6 +41,22 @@ type PrivateID struct {
 	Name string
 }
 
+// Manager represents a private key manager.
+type Manager interface {
+	// Get retrieves the private key given the address.
+	Get(address string) *PrivateID
+
+	// New creates a new key.
+	New(name string, stream uint32, behavior uint32) *PrivateID
+
+	// NewUnnamed creates a new key with no name.
+	NewUnnamed(stream uint32, behavior uint32) *PrivateID
+
+	// Names returns the map of addresses to names.
+	Names() map[string]string
+}
+
+// Address generates the bitmessage address string.
 func (p *PrivateID) Address() string {
 	str, err := p.Private.Address.Encode()
 	if err != nil {
@@ -72,22 +88,22 @@ func (k *MasterKey) UnmarshalJSON(in []byte) error {
 }
 
 // MarshalJSON marshals the object into JSON. Part of json.Marshaller interface.
-func (id *PrivateID) MarshalJSON() ([]byte, error) {
-	addr, err := id.Private.Address.Encode()
+func (p *PrivateID) MarshalJSON() ([]byte, error) {
+	addr, err := p.Private.Address.Encode()
 	if err != nil {
 		return nil, err
 	}
 
 	return json.Marshal(map[string]interface{}{
 		"address":            addr,
-		"nonceTrialsPerByte": id.NonceTrialsPerByte,
-		"extraBytes":         id.ExtraBytes,
-		"signingKey":         bmutil.EncodeWIF(id.SigningKey),
-		"encryptionKey":      bmutil.EncodeWIF(id.DecryptionKey),
-		"isChan":             id.IsChan,
-		"disabled":           id.Disabled,
-		"imported":           id.Imported,
-		"name":               id.Name,
+		"nonceTrialsPerByte": p.NonceTrialsPerByte,
+		"extraBytes":         p.ExtraBytes,
+		"signingKey":         bmutil.EncodeWIF(p.SigningKey),
+		"encryptionKey":      bmutil.EncodeWIF(p.DecryptionKey),
+		"isChan":             p.IsChan,
+		"disabled":           p.Disabled,
+		"imported":           p.Imported,
+		"name":               p.Name,
 	})
 }
 
@@ -106,7 +122,7 @@ type privateIDStore struct {
 
 // UnmarshalJSON unmarshals the object from JSON. Part of json.Unmarshaller
 // interface.
-func (id *PrivateID) UnmarshalJSON(in []byte) error {
+func (p *PrivateID) UnmarshalJSON(in []byte) error {
 	stored := &privateIDStore{}
 	err := json.Unmarshal(in, stored)
 	if err != nil {
@@ -131,15 +147,15 @@ func (id *PrivateID) UnmarshalJSON(in []byte) error {
 		return err
 	}
 
-	id.Private.Address = *addr
-	id.SigningKey = signKey
-	id.DecryptionKey = encKey
-	id.NonceTrialsPerByte = stored.NonceTrialsPerByte
-	id.ExtraBytes = stored.ExtraBytes
-	id.IsChan = stored.IsChan
-	id.Disabled = stored.Disabled
-	id.Imported = stored.Imported
-	id.Name = stored.Name
+	p.Private.Address = *addr
+	p.SigningKey = signKey
+	p.DecryptionKey = encKey
+	p.NonceTrialsPerByte = stored.NonceTrialsPerByte
+	p.ExtraBytes = stored.ExtraBytes
+	p.IsChan = stored.IsChan
+	p.Disabled = stored.Disabled
+	p.Imported = stored.Imported
+	p.Name = stored.Name
 
 	return nil
 }

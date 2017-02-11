@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -83,7 +84,7 @@ func New(seed []byte) (*Manager, error) {
 	}
 
 	mgr := &Manager{
-		db:          newDb((*MasterKey)(mKey), latestFileVersion),
+		db:          newDb((*keys.MasterKey)(mKey), latestFileVersion),
 		importedIDs: make([]string, 0, dbInitSize),
 		derivedIDs:  make([]string, 0, dbInitSize),
 	}
@@ -126,7 +127,7 @@ func FromEncrypted(enc, pass []byte) (*Manager, error) {
 	return FromPlaintext(bytes.NewReader(contents))
 }
 
-// Imports a key manager from plaintext.
+// FromPlaintext imports a key manager from plaintext.
 func FromPlaintext(r io.Reader) (*Manager, error) {
 	db, err := openDb(r)
 	if err != nil {
@@ -196,7 +197,7 @@ func (mgr *Manager) ExportPlaintext() ([]byte, error) {
 
 // ImportIdentity imports an existing identity into the key manager. It's useful
 // for users who have existing identities or want to subscribe to channels.
-func (mgr *Manager) ImportIdentity(privID PrivateID) {
+func (mgr *Manager) ImportIdentity(privID keys.PrivateID) {
 
 	// Encode as string.
 	str := privID.Address()
@@ -241,10 +242,10 @@ func (mgr *Manager) ImportIdentity(privID PrivateID) {
 	}
 }*/
 
-// NewHDIdentity generates a new HD identity and numbers it based on previously
+// New generates a new HD identity and numbers it based on previously
 // derived identities. If 2^32 identities have already been generated, new
 // identities would be duplicates because of overflow problems.
-func (mgr *Manager) NewHDIdentity(stream uint32, name string) *PrivateID {
+func (mgr *Manager) New(name string, stream uint32, behavior uint32) *keys.PrivateID {
 	mgr.mutex.Lock()
 	defer mgr.mutex.Unlock()
 
@@ -255,14 +256,14 @@ func (mgr *Manager) NewHDIdentity(stream uint32, name string) *PrivateID {
 	// may be extremely small.
 	for i := uint32(0); true; i++ {
 		privID, err = identity.NewHD((*hdkeychain.ExtendedKey)(mgr.db.MasterKey),
-			mgr.db.NewIDIndex+i, stream)
+			mgr.db.NewIDIndex+i, stream, behavior)
 		if err == nil {
 			mgr.db.NewIDIndex += i + 1
 			break
 		}
 	}
 
-	id := &PrivateID{
+	id := &keys.PrivateID{
 		Private: *privID,
 		IsChan:  false,
 		Name:    name,
@@ -283,11 +284,12 @@ func (mgr *Manager) NewHDIdentity(stream uint32, name string) *PrivateID {
 	return id
 }
 
-func (mgr *Manager) NewHDUnnamedIdentity(stream uint32) *PrivateID {
-	return mgr.NewHDIdentity(stream, "")
+// NewUnnamed returns a new unnamed key.
+func (mgr *Manager) NewUnnamed(stream uint32, behavior uint32) *keys.PrivateID {
+	return mgr.New("", stream, behavior)
 }
 
-func (mgr *Manager) forEach(f func(*PrivateID) error) error {
+func (mgr *Manager) forEach(f func(*keys.PrivateID) error) error {
 	// Go through HD identities first.
 	for _, id := range mgr.db.IDs {
 		err := f(id)
@@ -301,17 +303,17 @@ func (mgr *Manager) forEach(f func(*PrivateID) error) error {
 // ForEach runs the specified function for all the identities stored in the key
 // manager. It does not return until the function has been invoked for all keys
 // and breaks early on error.
-func (mgr *Manager) ForEach(f func(*PrivateID) error) error {
+func (mgr *Manager) ForEach(f func(*keys.PrivateID) error) error {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
 
 	return mgr.forEach(f)
 }
 
-// LookupByAddress looks up a private identity in the key manager by its
+// Get looks up a private identity in the key manager by its
 // address. If no matching identity can be found, ErrNonexistentIdentity is
 // returned.
-func (mgr *Manager) LookupByAddress(address string) *PrivateID {
+func (mgr *Manager) Get(address string) *keys.PrivateID {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
 
@@ -338,6 +340,7 @@ func (mgr *Manager) NumDeterministic() int {
 	return len(mgr.derivedIDs)
 }
 
+// Size returns the size of the key manager.
 func (mgr *Manager) Size() int {
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
@@ -345,15 +348,15 @@ func (mgr *Manager) Size() int {
 	return len(mgr.db.IDs)
 }
 
-// GetAddresses returns the set of addresses in the key manager.
+// Addresses returns the set of addresses in the key manager.
 func (mgr *Manager) Addresses() []string {
 	addresses := make([]string, len(mgr.db.IDs))
 
 	mgr.mutex.RLock()
 	defer mgr.mutex.RUnlock()
 
-	var i int = 0
-	for address, _ := range mgr.db.IDs {
+	var i int
+	for address := range mgr.db.IDs {
 		addresses[i] = address
 		i++
 	}
@@ -366,12 +369,14 @@ func (mgr *Manager) NameAddress(address, name string) error {
 	defer mgr.mutex.RUnlock()
 
 	// Does the address exist in the database?
-	if id, ok := mgr.db.IDs[address]; !ok {
+	id, ok := mgr.db.IDs[address]
+	
+	if !ok {
 		return ErrNonexistentIdentity
-	} else {
-		id.Name = name
-		mgr.db.IDs[address] = id
 	}
+
+	id.Name = name
+	mgr.db.IDs[address] = id
 
 	return nil
 }
@@ -382,16 +387,19 @@ func (mgr *Manager) UnnameAddress(address string) error {
 	defer mgr.mutex.RUnlock()
 
 	// Does the address exist in the database?
-	if id, ok := mgr.db.IDs[address]; !ok {
+	id, ok := mgr.db.IDs[address]
+	
+	if !ok {
 		return ErrNonexistentIdentity
-	} else {
-		id.Name = ""
-		mgr.db.IDs[address] = id
 	}
+
+	id.Name = ""
+	mgr.db.IDs[address] = id
+
 	return nil
 }
 
-// Get the map of addresses to names.
+// Names returns the map of addresses to names.
 func (mgr *Manager) Names() map[string]string {
 
 	mgr.mutex.RLock()
@@ -406,7 +414,7 @@ func (mgr *Manager) Names() map[string]string {
 	return names
 }
 
-// Import keys from Pybitmessage or another bmagent identity.
+// ImportKeys import skeys from Pybitmessage or another bmagent identity.
 // Returns a map containing the imported addresses and names.
 func (mgr *Manager) ImportKeys(data []byte) map[string]string {
 
@@ -424,7 +432,7 @@ func (mgr *Manager) ImportKeys(data []byte) map[string]string {
 
 	addresses := make(map[string]string)
 
-	m.ForEach(func(p *PrivateID) error {
+	m.ForEach(func(p *keys.PrivateID) error {
 		addresses[p.Address()] = p.Name
 		mgr.ImportIdentity(*p)
 		return nil
@@ -433,7 +441,7 @@ func (mgr *Manager) ImportKeys(data []byte) map[string]string {
 	return addresses
 }
 
-// Given an ini file like that created by PyBitmessage,
+// ImportKeysFromPyBitmessage given an ini file like that created by PyBitmessage,
 // import into the key manager.
 func (mgr *Manager) ImportKeysFromPyBitmessage(f ini.File) map[string]string {
 
@@ -467,7 +475,7 @@ func (mgr *Manager) ImportKeysFromPyBitmessage(f ini.File) map[string]string {
 			continue
 		}
 
-		p := PrivateID{
+		p := keys.PrivateID{
 			Private:  *id,
 			IsChan:   isChan,
 			Disabled: !enabled,

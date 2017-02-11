@@ -11,11 +11,14 @@ import (
 type Pattern uint32
 
 const (
+	// PatternBoolean represents a boolean.
+	PatternBoolean Pattern = Pattern(0)
+
 	// PatternNatural represents a natural number.
-	PatternNatural Pattern = Pattern(0)
+	PatternNatural Pattern = Pattern(1)
 
 	// PatternString represents a string delimeted by "
-	PatternString Pattern = Pattern(1)
+	PatternString Pattern = Pattern(2)
 )
 
 var (
@@ -26,6 +29,10 @@ var (
 	// ErrInvalidStringPattern is returned when a string is expected but
 	// the given input does not match the string pattern.
 	ErrInvalidStringPattern = errors.New("Invalid string pattern. Should be delimited by \" ")
+
+	// ErrInvalidBooleanPattern is returned when a boolean is expected but
+	// the given input does not match boolean type.
+	ErrInvalidBooleanPattern = errors.New("Boolean should be 'true' or 'false'")
 
 	regexNatural = regexp.MustCompile("[0-9]+")
 	regexString  = regexp.MustCompile("\\\".*\\\"")
@@ -65,21 +72,29 @@ func (err *ErrValueTooBig) Error() string {
 
 // ReadPattern attempts to return a type corresponding to the given pattern
 // which is read from the given string.
-func ReadPattern(str string, pattern Pattern) (uint64, string, error) {
+func ReadPattern(str string, pattern Pattern) (bool, uint64, string, error) {
 	switch pattern {
 	default:
-		return 0, "", ErrUnknownPattern
+		return false, 0, "", ErrUnknownPattern
+	case PatternBoolean:
+		if str == "true" {
+			return true, 0, "", nil
+		} else if str == "false" {
+			return false, 0, "", nil
+		} else {
+			return false, 0, "", ErrInvalidBooleanPattern
+		}
 	case PatternNatural:
 		n, err := strconv.ParseUint(str, 10, 64)
 		if err != nil {
-			return 0, "", err
+			return false, 0, "", err
 		}
 
-		return n, "", nil
+		return false, n, "", nil
 	case PatternString:
 		if !regexString.Match([]byte(str)) {
-			return 0, "", ErrInvalidStringPattern
+			return false, 0, "", ErrInvalidStringPattern
 		}
-		return 0, str[1 : len(str)-1], nil
+		return false, 0, str[1 : len(str)-1], nil
 	}
 }

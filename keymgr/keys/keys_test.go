@@ -3,18 +3,18 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package keymgr_test
+package keys_test
 
 import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmutil/identity"
 )
 
 func TestMasterKey(t *testing.T) {
-	var mKey keymgr.MasterKey
+	var mKey keys.MasterKey
 
 	// Unexpected format
 	err := json.Unmarshal([]byte(`{"key": 546}`), &mKey)
@@ -41,7 +41,7 @@ func TestMasterKey(t *testing.T) {
 
 func TestPrivateID(t *testing.T) {
 	// Unmarshalling errors
-	var id keymgr.PrivateID
+	var id keys.PrivateID
 
 	// Invalid format
 	err := json.Unmarshal([]byte(`{"address": 4}`), &id)
@@ -101,7 +101,7 @@ func TestPrivateID(t *testing.T) {
 	// This test fails because the address cannot be encoded (unknown version,
 	// stream).
 	ids, _ := identity.NewDeterministic("privacy", 1, 1)
-	privacyChan := &keymgr.PrivateID{
+	privacyChan := &keys.PrivateID{
 		Private: *ids[0],
 		IsChan:  true,
 	}

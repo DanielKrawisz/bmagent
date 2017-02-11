@@ -9,8 +9,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/user/command"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/jordwest/imap-server/mailstore"
@@ -39,14 +40,16 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 
 // Initialize initializes the store by creating the default mailboxes and
 // inserting the welcome message.
-func Initialize(u *store.UserData, keys *keymgr.Manager, GenKeys int16) error {
+func Initialize(u *store.UserData, k keys.Manager, genkeys uint32) error {
+	// Get all keys from key manager.
+	tags := k.Names()
 
 	// Create Inbox.
 	mbox, err := u.NewFolder(InboxFolderName)
 	if err != nil {
 		return err
 	}
-	inbox, err := newMailbox(mbox, keys.Names())
+	inbox, err := newMailbox(mbox, tags)
 	if err != nil {
 		return err
 	}
@@ -76,35 +79,16 @@ func Initialize(u *store.UserData, keys *keymgr.Manager, GenKeys int16) error {
 		return err
 	}
 
-	// Determine how many new keys to produce. Default is 0, unless
-	// the keymanager is empty, in which case it is 1.
-	var genkeys uint16
-
-	if GenKeys < 0 || keys.Size() == 0 {
-		genkeys = 1
-	} else {
-		genkeys = uint16(GenKeys)
-	}
-
-	var i uint16
+	var i uint32
 	for i = 0; i < genkeys; i++ {
-		keys.NewHDIdentity(1, "")
+		k.NewUnnamed(command.DefaultStream, command.DefaultBehavior)
 	}
-
-	// Get all keys from key manager.
-	addresses := keys.Addresses()
-	tags := keys.Names()
 
 	// For each key, create a mailbox.
 	var toAddr string
 	keyList := ""
 
-	for _, addr := range addresses {
-		toAddr = addr
-		var tag string
-		if t, ok := tags[addr]; ok {
-			tag = t
-		}
+	for addr, tag := range tags {
 		keyList = fmt.Sprint(keyList, fmt.Sprintf("\t%s@bm.addr %s\n", addr, tag))
 	}
 

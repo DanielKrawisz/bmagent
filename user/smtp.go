@@ -122,7 +122,7 @@ func (serv *SMTPServer) validateSender(from string) bool {
 		return false
 	}
 
-	if serv.user.server.GetPrivateID(bmAddr) == nil {
+	if serv.user.keys.Get(bmAddr) == nil {
 		return false
 	}
 	return true

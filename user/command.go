@@ -9,10 +9,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmagent/user/command"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/format"
+	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/jordwest/imap-server/types"
 )
 
@@ -61,12 +62,18 @@ func (u *User) executeCommand(name, params string) error {
 }
 
 // GenerateKey creates n new keys for the user.
-func (u *User) GenerateKey(n uint16) []*keymgr.PrivateID {
+func (u *User) GenerateKey(n uint16, sendAck bool) []*keys.PrivateID {
+	var behavior uint32
+
+	if sendAck {
+		behavior = identity.BehaviorAck
+	}
+
 	// first generate the new keys.
 	var i uint16
-	keyList := make([]*keymgr.PrivateID, 0, n)
+	keyList := make([]*keys.PrivateID, 0, n)
 	for i = 0; i < n; i++ {
-		keyList = append(keyList, u.keys.NewHDIdentity(command.DefaultStream, ""))
+		keyList = append(keyList, u.keys.NewUnnamed(command.DefaultStream, behavior))
 	}
 
 	return keyList
@@ -82,14 +89,27 @@ type generateKeyResponse struct {
 func generateKeyCommand(u *User, params []string) (command.Response, error) {
 	var n uint64
 	var err error
+	var sendAck bool
+
+	if len(params) > 2 {
+		return nil, &command.ErrTooManyParameters{2}
+	}
+
+	// Use default value for sendAck.
+	if len(params) < 2 {
+		sendAck = true
+	} else {
+		sendAck, _, _, err = command.ReadPattern(params[0], command.PatternNatural)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// Use default value if no parameter given.
-	if len(params) == 0 {
+	if len(params) < 1 {
 		n = 1
-	} else if len(params) > 1 {
-		return nil, &command.ErrTooManyParameters{1}
 	} else {
-		n, _, err = command.ReadPattern(params[0], command.PatternNatural)
+		_, n, _, err = command.ReadPattern(params[0], command.PatternNatural)
 		if err != nil {
 			return nil, err
 		}
@@ -101,7 +121,7 @@ func generateKeyCommand(u *User, params []string) (command.Response, error) {
 
 	// generate the text containing the list of keys.
 	addrs := make([]string, 0, n)
-	for _, addr := range u.GenerateKey(uint16(n)) {
+	for _, addr := range u.GenerateKey(uint16(n), sendAck) {
 		addrs = append(addrs, fmt.Sprintf("\t%s@bm.addr\n", addr))
 	}
 

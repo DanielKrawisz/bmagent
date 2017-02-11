@@ -491,6 +491,10 @@ func LoadConfig(appName string, args []string) (*Config, []string, error) {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
 		}
+		
+		if cfg.GenKeys == 0 {
+			cfg.GenKeys = 1
+		}
 
 		// Create databases.
 		if err := createDatabases(&cfg); err != nil {
