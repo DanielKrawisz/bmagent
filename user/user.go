@@ -147,7 +147,7 @@ func (u *User) DeliverFromSMTP(smtp *data.Content) error {
 		return nil
 	}
 
-	return u.process(&bmail{b: bmsg})
+	return u.process(bmsg)
 }
 
 // DeliverPublicKey takes a public key and attempts to match it with a message.
@@ -162,17 +162,17 @@ func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
 	}
 
 	outbox := u.boxes[OutboxFolderName]
-	var bms []*bmail
+	var bms []*email.Bmail
 
 	// Go through all messages in the Outbox and get IDs of all the matches.
 	err := outbox.mbox.ForEachMessage(0, 0, 2, func(id, _ uint64, msg []byte) error {
-		bmsg, err := decodeBitmessage(msg)
+		bmsg, _, err := decodeBitmessage(msg)
 		if err != nil { // (Almost) impossible error.
 			return err
 		}
 
 		// We have a match!
-		if bmsg.b.State.PubkeyRequestOutstanding && strings.Contains(bmsg.b.To, bmaddr) {
+		if bmsg.State.PubkeyRequestOutstanding && strings.Contains(bmsg.To, bmaddr) {
 			bms = append(bms, bmsg)
 		}
 		return nil
@@ -208,7 +208,7 @@ func (u *User) Move(bmsg *email.Bmail, from, to string) error {
 		return err
 	}
 
-	b.b.ImapData = nil
+	b.ImapData = nil
 	return toBox.addNew(b, types.FlagSeen)
 }
 
@@ -224,11 +224,11 @@ func (u *User) DeliverAckReply(hash *wire.ShaHash) error {
 
 	// Move the message to the sent folder.
 	if bmsg != nil {
-		if !bmsg.b.State.AckExpected {
+		if !bmsg.State.AckExpected {
 			return ErrNoAckExpected
 		}
-		bmsg.b.State.AckReceived = true
-		return u.Move(bmsg.b, LimboFolderName, SentFolderName)
+		bmsg.State.AckReceived = true
+		return u.Move(bmsg, LimboFolderName, SentFolderName)
 	}
 
 	return ErrNoMessageFound

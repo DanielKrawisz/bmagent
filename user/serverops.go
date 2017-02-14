@@ -15,6 +15,7 @@ import (
 	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/cipher"
+	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
@@ -41,7 +42,7 @@ type ServerOps interface {
 }
 
 // generateBroadcast generates a wire.MsgBroadcast from a Bitmessage.
-func (m *bmail) generateBroadcast(from *identity.Private, expiry time.Duration) (obj.Object, *obj.PubKeyData, error) {
+func generateBroadcast(content format.Encoding, from *identity.Private, expiry time.Duration) (obj.Object, *obj.PubKeyData, error) {
 	pkd := from.ToPubKeyData()
 
 	var tag wire.ShaHash
@@ -53,7 +54,7 @@ func (m *bmail) generateBroadcast(from *identity.Private, expiry time.Duration) 
 		SigningKey:         pkd.VerificationKey,
 		EncryptionKey:      pkd.EncryptionKey,
 		Pow:                pkd.Pow,
-		Content:            m.b.Content,
+		Content:            content,
 	}
 
 	var broadcast *cipher.Broadcast
@@ -77,7 +78,7 @@ func (m *bmail) generateBroadcast(from *identity.Private, expiry time.Duration) 
 }
 
 // generateMsg generates a cipher.Message from a Bitmessage.
-func (m *bmail) generateMessage(from *identity.Private, to *identity.Public, expiry time.Duration) (obj.Object, *obj.PubKeyData, error) {
+func generateMessage(content format.Encoding, ack []byte, from *identity.Private, to *identity.Public, expiry time.Duration) (obj.Object, *obj.PubKeyData, error) {
 	pkd := from.ToPubKeyData()
 
 	var destination wire.RipeHash
@@ -90,10 +91,10 @@ func (m *bmail) generateMessage(from *identity.Private, to *identity.Public, exp
 		SigningKey:         pkd.VerificationKey,
 		EncryptionKey:      pkd.EncryptionKey,
 		Pow:                pkd.Pow,
-		Content:            m.b.Content,
+		Content:            content,
 	}
 
-	message, err := cipher.SignAndEncryptMessage(time.Now().Add(expiry), from.Address.Stream, data, m.b.Ack, from, to)
+	message, err := cipher.SignAndEncryptMessage(time.Now().Add(expiry), from.Address.Stream, data, ack, from, to)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,9 +103,9 @@ func (m *bmail) generateMessage(from *identity.Private, to *identity.Public, exp
 }
 
 // GenerateObject generates the wire.MsgObject form of the message.
-func (u *User) generateObject(m *bmail) (object obj.Object, data *obj.PubKeyData, genErr error) {
+func (u *User) generateObject(m *email.Bmail, box *mailbox) (obj.Object, *obj.PubKeyData, error) {
 
-	fromAddr, err := email.ToBm(m.b.From)
+	fromAddr, err := email.ToBm(m.From)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -115,18 +116,19 @@ func (u *User) generateObject(m *bmail) (object obj.Object, data *obj.PubKeyData
 	}
 	from := &(fromID.Private)
 
-	// If a wire.Object already exists, just use that.
-	if m.object != nil {
-		return m.object, from.ToPubKeyData(), nil
+	// check for cached object.
+	o := box.getObject(m)
+	if o != nil {
+		return o, from.ToPubKeyData(), nil
 	}
 
-	email.SMTPLog.Debug("GenerateObject: about to serialize bmsg from " + m.b.From + " to " + m.b.To)
-	to, err := u.server.GetOrRequestPublicID(m.b.To)
+	email.SMTPLog.Debug("GenerateObject: about to serialize bmsg from " + m.From + " to " + m.To)
+	to, err := u.server.GetOrRequestPublicID(m.To)
 
 	// If a pubkey request was sent, set the bmail's new state.
 	if err != nil {
 		if err == email.ErrGetPubKeySent {
-			m.b.State.PubkeyRequestOutstanding = true
+			m.State.PubkeyRequestOutstanding = true
 		}
 
 		return nil, nil, err
@@ -134,46 +136,36 @@ func (u *User) generateObject(m *bmail) (object obj.Object, data *obj.PubKeyData
 
 	// This is a brodcast.
 	if to == Broadcast {
-		object, data, genErr = m.generateBroadcast(from, u.expiration(wire.ObjectTypeBroadcast))
-	} else {
-		id := u.keys.Get(m.b.To)
-		if id != nil {
-			m.b.OfChannel = id.IsChan
-			// We're sending to ourselves/chan so don't bother with ack.
-			m.b.State.AckExpected = false
-		} else if to.Behavior&identity.BehaviorAck == identity.BehaviorAck {
-			// Set AckExpected if the flag is set in the public key.
-			m.b.State.AckExpected = true
-		}
-
-		// Check for ack.
-		if m.b.Ack == nil && m.b.State.AckExpected {
-			return nil, nil, email.ErrAckMissing
-		}
-
-		object, data, genErr = m.generateMessage(from, to, u.expiration(wire.ObjectTypeMsg))
+		return generateBroadcast(m.Content, from, u.expiration(wire.ObjectTypeBroadcast))
 	}
 
-	if genErr != nil {
-		email.SMTPLog.Error("GenerateObject: ", genErr)
-		return nil, nil, genErr
+	id := u.keys.Get(m.To)
+	if id != nil {
+		m.OfChannel = id.IsChan
+		// We're sending to ourselves/chan so don't bother with ack.
+		m.State.AckExpected = false
+	} else if to.Behavior&identity.BehaviorAck == identity.BehaviorAck {
+		// Set AckExpected if the flag is set in the public key.
+		m.State.AckExpected = true
 	}
 
-	m.object = object
-	// TODO put a save state here too.
+	// Check for ack.
+	if m.Ack == nil && m.State.AckExpected {
+		return nil, nil, email.ErrAckMissing
+	}
 
-	return object, data, nil
+	return generateMessage(m.Content, m.Ack, from, to, u.expiration(wire.ObjectTypeMsg))
 }
 
 // GenerateAck creates an Ack message
-func (u *User) generateAck(m *bmail) (ack obj.Object, powData *pow.Data, err error) {
+func (u *User) generateAck(m *email.Bmail) (ack obj.Object, powData *pow.Data, err error) {
 	// If this is a broadcast message, no ack is expected.
-	if m.b.To == "broadcast@bm.agent" {
+	if m.To == "broadcast@bm.agent" {
 		return nil, nil, errors.New("No acks on broadcast messages.")
 	}
 
 	// Get our private key.
-	fromAddr, err := email.ToBm(m.b.From)
+	fromAddr, err := email.ToBm(m.From)
 	if err != nil {
 		return nil, nil, err
 	}

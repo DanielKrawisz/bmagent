@@ -17,24 +17,13 @@ import (
 // Broadcast represents a broadcast message, which doesn't require a public id.
 var Broadcast = &identity.Public{}
 
-// bmail is a representation of a bitmessage that can contain a hidden
-// field which stores the message as an Object
-type bmail struct {
-	// The
-	b *email.Bmail
-
-	// The encoded form of the message as a bitmessage object. Required
-	// for messages that are waiting to be sent or have pow done on them.
-	object obj.Object
-}
-
 // decodeBitmessage takes the protobuf encoding of a Bitmessage and converts it
 // back to a Bitmessage.
-func decodeBitmessage(data []byte) (*bmail, error) {
+func decodeBitmessage(data []byte) (*email.Bmail, obj.Object, error) {
 	msg := &serialize.Message{}
 	err := proto.Unmarshal(data, msg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var q format.Encoding
@@ -43,7 +32,7 @@ func decodeBitmessage(data []byte) (*bmail, error) {
 		r := &format.Encoding1{}
 
 		if msg.Encoding.Body == nil {
-			return nil, errors.New("Body required in encoding format 1")
+			return nil, nil, errors.New("Body required in encoding format 1")
 		}
 		r.Body = string(msg.Encoding.Body)
 
@@ -58,13 +47,13 @@ func decodeBitmessage(data []byte) (*bmail, error) {
 		}
 
 		if msg.Encoding.Body == nil {
-			return nil, errors.New("Body required in encoding format 2")
+			return nil, nil, errors.New("Body required in encoding format 2")
 		}
 		r.Body = string(msg.Encoding.Body)
 
 		q = r
 	default:
-		return nil, errors.New("Unsupported encoding")
+		return nil, nil, errors.New("Unsupported encoding")
 	}
 
 	l := &email.Bmail{}
@@ -83,7 +72,7 @@ func decodeBitmessage(data []byte) (*bmail, error) {
 	if msg.ImapData != nil {
 		timeReceived, err := time.Parse(email.DateFormat, msg.ImapData.TimeReceived)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		l.ImapData = &email.ImapData{
@@ -95,7 +84,7 @@ func decodeBitmessage(data []byte) (*bmail, error) {
 	if msg.State != nil {
 		lastSend, err := time.Parse(email.DateFormat, msg.State.LastSend)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		l.State = &email.MessageState{
@@ -108,62 +97,59 @@ func decodeBitmessage(data []byte) (*bmail, error) {
 		}
 	}
 
-	b := &bmail{
-		b: l,
-	}
-
+	var o obj.Object
 	if msg.Object != nil {
-		b.object, err = obj.ReadObject(msg.Object)
+		o, err = obj.ReadObject(msg.Object)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return b, nil
+	return l, o, nil
 }
 
-// serialize encodes the message in a protobuf format.
-func (m *bmail) serialize() ([]byte, error) {
-	expr := m.b.Expiration.Format(email.DateFormat)
+// serializeBitmessage encodes the message in a protobuf format.
+func serializeBitmessage(m *email.Bmail, o obj.Object) ([]byte, error) {
+	expr := m.Expiration.Format(email.DateFormat)
 
 	var imapData *serialize.ImapData
-	if m.b.ImapData != nil {
-		t := m.b.ImapData.TimeReceived.Format(email.DateFormat)
+	if m.ImapData != nil {
+		t := m.ImapData.TimeReceived.Format(email.DateFormat)
 
 		imapData = &serialize.ImapData{
 			TimeReceived: t,
-			Flags:        int32(m.b.ImapData.Flags),
+			Flags:        int32(m.ImapData.Flags),
 		}
 	}
 
 	var object []byte
-	if m.object != nil {
-		object = wire.Encode(m.object)
+	if o != nil {
+		object = wire.Encode(o)
 	}
 
 	var state *serialize.MessageState
-	if m.b.State != nil {
-		lastsend := m.b.State.LastSend.Format(email.DateFormat)
+	if m.State != nil {
+		lastsend := m.State.LastSend.Format(email.DateFormat)
 		state = &serialize.MessageState{
-			SendTries:       m.b.State.SendTries,
-			AckExpected:     m.b.State.AckExpected,
-			AckReceived:     m.b.State.AckReceived,
-			PubkeyRequested: m.b.State.PubkeyRequestOutstanding,
+			SendTries:       m.State.SendTries,
+			AckExpected:     m.State.AckExpected,
+			AckReceived:     m.State.AckReceived,
+			PubkeyRequested: m.State.PubkeyRequestOutstanding,
 			LastSend:        lastsend,
-			Received:        m.b.State.Received,
+			Received:        m.State.Received,
 		}
 	}
 
-	email.SMTPLog.Trace("Serializing Bitmessage from " + m.b.From + " to " + m.b.To)
+	email.SMTPLog.Trace("Serializing Bitmessage from " + m.From + " to " + m.To)
 
 	encode := &serialize.Message{
-		From:       m.b.From,
-		To:         m.b.To,
-		OfChannel:  m.b.OfChannel,
+		From:       m.From,
+		To:         m.To,
+		OfChannel:  m.OfChannel,
 		Expiration: expr,
-		Ack:        m.b.Ack,
+		Ack:        m.Ack,
 		ImapData:   imapData,
-		Encoding:   m.b.Content.ToProtobuf(),
+		Encoding:   m.Content.ToProtobuf(),
 		Object:     object,
 		State:      state,
 	}
