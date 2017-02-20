@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/store/data"
 )
 
 func TestPKRequests(t *testing.T) {
@@ -34,7 +35,7 @@ func TestPKRequests(t *testing.T) {
 
 	// Check if a non-existing address returns correct error.
 	_, err = pk.LastRequestTime(addr1)
-	if err != store.ErrNotFound {
+	if err != data.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
 
@@ -43,7 +44,7 @@ func TestPKRequests(t *testing.T) {
 
 	// Check if a non-existing address returns correct error.
 	_, err = pk.LastRequestTime(addr2)
-	if err != store.ErrNotFound {
+	if err != data.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
 
@@ -81,11 +82,11 @@ func TestPKRequests(t *testing.T) {
 
 	// Check if they are there anymore.
 	_, err = pk.LastRequestTime(addr1)
-	if err != store.ErrNotFound {
+	if err != data.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
 	_, err = pk.LastRequestTime(addr2)
-	if err != store.ErrNotFound {
+	if err != data.ErrNotFound {
 		t.Error("Expected ErrNotFound, got", err)
 	}
 

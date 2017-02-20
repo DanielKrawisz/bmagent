@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/DanielKrawisz/bmutil/wire"
+	"github.com/boltdb/bolt"
 	"golang.org/x/crypto/nacl/secretbox"
 	"golang.org/x/crypto/pbkdf2"
 )
@@ -53,7 +53,7 @@ var (
 
 	// Bucket is a sub-bucket of "folders"
 	folderDataBucket = []byte("data")
-	
+
 	userPrefix = []byte("user:")
 
 	// Used for storing the encrypted master key used for encryption/decryption.
@@ -73,15 +73,11 @@ var (
 	// powQueueLatestIDKey contains the index of the last element in the POW
 	// queue.
 	powQueueLatestIDKey = []byte("powQueueLatestID")
-	
+
 	usersLatestIDKey = []byte("usersLatestIDKey")
 )
 
 var (
-	// ErrNotFound is returned when a record matching the query or no record at
-	// all is found in the database.
-	ErrNotFound = errors.New("record not found")
-
 	// ErrDecryptionFailed is returned when decryption of the master key fails.
 	// This could be due to invalid passphrase or corrupt/tampered data.
 	ErrDecryptionFailed = errors.New("invalid passphrase")
@@ -91,10 +87,9 @@ var (
 	ErrDuplicateMailbox = errors.New("duplicate mailbox")
 )
 
-// Type for transforming underlying database into Store. (used to abstract
-// the details of the underlying bolt db).
+// Loader transforms underlying database into Store. 
 type Loader struct {
-	db        *bolt.DB
+	db *bolt.DB
 }
 
 // Open creates a new Store from the given file.
@@ -103,7 +98,7 @@ func Open(file string) (*Loader, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &Loader{
 		db: db,
 	}, nil
@@ -114,7 +109,7 @@ func (l *Loader) Close() error {
 	if l.db == nil {
 		return nil
 	}
-	
+
 	defer func() {
 		l.db = nil
 	}()
@@ -124,10 +119,15 @@ func (l *Loader) Close() error {
 // Store persists all information about public key requests, pending POW,
 // incoming/outgoing/pending messages to disk.
 type Store struct {
-	masterKey   *[keySize]byte      // can be nil.
-	db          *bolt.DB
-	mutex       sync.RWMutex        // For protecting the map.
-	Users       map[string]*UserData
+	masterKey *[keySize]byte // can be nil.
+	db        *bolt.DB
+	mutex     sync.RWMutex // For protecting the map.
+	users     map[string]*User
+}
+
+// Users returns the map of users in the Store. 
+func (s *Store) Users() map[string]*User {
+	return s.users
 }
 
 // deriveKey is used to derive a 32 byte key for encryption/decryption
@@ -140,40 +140,41 @@ func deriveKey(pass, salt []byte) *[keySize]byte {
 	return &key
 }
 
+// IsEncrypted returns whether the store is encrypted. 
 func (l *Loader) IsEncrypted() bool {
 	if l.db == nil {
 		return false
 	}
-	
+
 	tx, err := l.db.Begin(false)
 	if err != nil {
 		l.Close()
 		return false
 	}
-	
+
 	defer tx.Rollback()
-	
+
 	bucket := tx.Bucket(miscBucket)
-	
+
 	return bucket != nil && bucket.Get(dbMasterKeyEnc) != nil
 }
 
 // Construct creates a new Store from the given file.
 func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
-	
+
 	if l.db == nil {
-		return nil, nil, errors.New("Closed database.");
+		return nil, nil, errors.New("Closed database.")
 	}
-	
+
 	if pass == nil {
 		clientLog.Warn("Unencrypted database opened.")
 	}
-	
+
 	var masterKey [keySize]byte
-	
+
 	// Verify passphrase, or create it if necessary.
 	err := l.db.Update(func(tx *bolt.Tx) error {
-		
+
 		misc, err := tx.CreateBucketIfNotExists(miscBucket)
 		if err != nil {
 			return err
@@ -182,31 +183,31 @@ func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
 		if err != nil {
 			return err
 		}
-		
+
 		_, err = tx.CreateBucketIfNotExists(usersBucket)
 		if err != nil {
 			return err
 		}
-		
+
 		bVersion := misc.Get(versionKey)
 		if bVersion == nil { // This is a new database.
-			if (pass != nil) {
-				
+			if pass != nil {
+
 				// Generate master key.
 				_, err := rand.Read(masterKey[:])
 				if err != nil {
 					return err
 				}
-	
+
 				// Encrypt master key.
 				salt, v, err := encryptKey(masterKey, pass)
-	
+
 				// Store salt in database.
 				err = misc.Put(saltKey, salt)
 				if err != nil {
 					return err
 				}
-	
+
 				// Store encrypted master key in database.
 				err = misc.Put(dbMasterKeyEnc, v)
 				if err != nil {
@@ -225,16 +226,16 @@ func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
 			if err != nil {
 				return err
 			}
-			
+
 			return misc.Put(usersLatestIDKey, []byte{0, 0, 0, 0, 0, 0, 0, 0})
-		
+
 		}
-		
-		// Check if upgrade is required. 
+
+		// Check if upgrade is required.
 		if bVersion[0] != latestStoreVersion {
 			err = upgrade(tx)
 			if err != nil {
-				return err;
+				return err
 			}
 		}
 
@@ -247,37 +248,37 @@ func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
 			if pass == nil {
 				return errors.New("No password supplied for encrypted database.")
 			}
-			
+
 			var nonce [nonceSize]byte
-		
+
 			if len(v) < nonceSize+keySize+secretbox.Overhead {
 				return errors.New("Encrypted master key too short.")
 			}
-			
+
 			copy(nonce[:], v[:nonceSize])
 			salt := misc.Get(saltKey)
 			key := deriveKey(pass, salt)
-	
+
 			mKey, success := secretbox.Open(nil, v[nonceSize:], &nonce, key)
 			if !success {
 				return ErrDecryptionFailed
 			}
-	
+
 			// Store decrypted master key in memory.
 			copy(masterKey[:], mKey)
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		l.Close()
 		return nil, nil, err
 	}
-	
+
 	store := &Store{
 		db:        l.db,
-		Users: make(map[string]*UserData),
+		users:     make(map[string]*User),
 		masterKey: &masterKey,
 	}
 
@@ -286,16 +287,16 @@ func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
 		l.Close()
 		return nil, nil, err
 	}
-	
+
 	if err != nil {
 		l.Close()
 		return nil, nil, err
 	}
-	
+
 	// Load existing users.
-	users := make([]string, 0)
+	var users []string
 	err = l.db.View(func(tx *bolt.Tx) error {
-		
+
 		return tx.Bucket(usersBucket).ForEach(func(name, _ []byte) error {
 			users = append(users, string(name))
 			return nil
@@ -305,76 +306,70 @@ func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
 		l.Close()
 		return nil, nil, err
 	}
-	
+
 	for _, name := range users {
 		store.addUser(name)
 	}
 
-	return store, &PKRequests{db:l.db}, nil
+	return store, &PKRequests{db: l.db}, nil
 }
 
-func (s *Store) addUser(username string) (*UserData, error) {
+func (s *Store) addUser(username string) (*User, error) {
 	uname := append(userPrefix, []byte(username)...)
-	
-	folders, err := s.initializeFolders(username, uname)
-	if err != nil {
-		return nil, err
-	}
-		
+
 	broadcast, err := newBroadcastsStore(s.db, username)
 	if err != nil {
 		s.Close()
 		return nil, err
 	}
-	
-	user := newUserData(
-		s.masterKey, 
-		s.db, 
-		uname, 
-		username, 
-		broadcast, 
-		folders)
-	
-	s.Users[username] = user
-	
+
+	user := newUser(
+		s.masterKey,
+		s.db,
+		uname,
+		username,
+		broadcast)
+
+	s.users[username] = user
+
 	return user, nil
 }
 
-func (s *Store) initializeFolders(username string, uname []byte) (map[string]struct{}, error) {
+func initializeFolders(db *bolt.DB, username string, bucketID []byte) ([]string, error) {
 
 	// Verify passphrase, or create it if necessary.
-	err := s.db.Update(func(tx *bolt.Tx) error {
-		
+	err := db.Update(func(tx *bolt.Tx) error {
+
 		newUser := false
 		var err error
-		
-		userBucket := tx.Bucket(uname)
+
+		userBucket := tx.Bucket(bucketID)
 		if userBucket == nil {
-			
-			userBucket, err = tx.CreateBucket(uname)
+
+			userBucket, err = tx.CreateBucket(bucketID)
 			if err != nil {
 				return err
 			}
-			
-			users, err := tx.CreateBucketIfNotExists(usersBucket)		
+
+			users, err := tx.CreateBucketIfNotExists(usersBucket)
 			if err != nil {
 				return err
-			}	
+			}
 			misc, err := tx.CreateBucketIfNotExists(miscBucket)
 			if err != nil {
 				return err
 			}
-			
+
 			index := binary.BigEndian.Uint64(misc.Get(usersLatestIDKey)) + 1
 			k := make([]byte, 8)
 			binary.BigEndian.PutUint64(k, index)
-			
+
 			users.Put([]byte(username), k)
 			misc.Put(usersLatestIDKey, k)
-			
-			newUser = true	
+
+			newUser = true
 		}
-		
+
 		misc, err := userBucket.CreateBucketIfNotExists(miscBucket)
 		if err != nil {
 			return err
@@ -383,7 +378,7 @@ func (s *Store) initializeFolders(username string, uname []byte) (map[string]str
 		if err != nil {
 			return err
 		}
-		
+
 		if newUser { // This is a new user.
 			// Set ID for messages to 0.
 			// Only one id is used for the entire set of mailboxes for a given user.
@@ -392,49 +387,51 @@ func (s *Store) initializeFolders(username string, uname []byte) (map[string]str
 				return err
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
-		s.Close()
+		db.Close()
 		return nil, err
 	}
 
 	// Load existing mailboxes.
-	folders := make(map[string]struct{})
-	err = s.db.View(func(tx *bolt.Tx) error {
-		
-		return tx.Bucket(uname).Bucket(foldersBucket).ForEach(func(name, _ []byte) error {
-			folders[string(name)] = struct{}{}
+	var folders []string
+	err = db.View(func(tx *bolt.Tx) error {
+
+		return tx.Bucket(bucketID).Bucket(foldersBucket).ForEach(func(name, _ []byte) error {
+			folders = append(folders, string(name))
 			return nil
 		})
 	})
 	if err != nil {
-		s.Close()
+		db.Close()
 		return nil, err
 	}
-	
+
 	return folders, nil
 }
 
-func (s *Store) GetUser(name string) (*UserData, error) {
-	u, ok := s.Users[name]
+// GetUser returns the User object for the given name. 
+func (s *Store) GetUser(name string) (*User, error) {
+	u, ok := s.users[name]
 	if !ok || u == nil {
 		return nil, errors.New("No such user.")
 	}
 	return u, nil
 }
 
-func (s *Store) NewUser(name string) (*UserData, error) {
-	_, ok := s.Users[name]
+// NewUser creates a new user. 
+func (s *Store) NewUser(name string) (*User, error) {
+	_, ok := s.users[name]
 	if ok {
 		return nil, errors.New("Duplicate user.")
 	}
-	
+
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	return s.addUser(name)
 }
 
@@ -457,10 +454,10 @@ func upgrade(tx *bolt.Tx) error {
 // protect against a previous compromise of the data file. Refer to package docs
 // for more details.
 func (s *Store) ChangePassphrase(pass []byte) error {
-	if (s.masterKey == nil) {
+	if s.masterKey == nil {
 		return errors.New("Database is not encrypted.")
 	}
-	
+
 	// Encrypt master key.
 	salt, v, err := encryptKey(*s.masterKey, pass)
 
@@ -549,10 +546,10 @@ func encryptKey(masterKey [keySize]byte, pass []byte) ([]byte, []byte, error) {
 // encrypt encrypts the data using nacl.Secretbox with the master key. It
 // generates a random nonce and prepends to the output.
 func encrypt(masterKey *[keySize]byte, db *bolt.DB, data []byte) ([]byte, error) {
-	if (masterKey == nil) {
+	if masterKey == nil {
 		return data, nil
 	}
-	
+
 	// Generate a random nonce
 	var nonce [nonceSize]byte
 	_, err := rand.Read(nonce[:])
@@ -569,10 +566,10 @@ func encrypt(masterKey *[keySize]byte, db *bolt.DB, data []byte) ([]byte, error)
 // decrypt undoes the operation done by encrypt. It takes the prepended nonce
 // and decrypts what follows with the master key.
 func decrypt(masterKey *[keySize]byte, db *bolt.DB, data []byte) ([]byte, bool) {
-	if (masterKey == nil) {
+	if masterKey == nil {
 		return data, true
 	}
-	
+
 	// Read nonce
 	var nonce [nonceSize]byte
 	copy(nonce[:], data[:nonceSize])

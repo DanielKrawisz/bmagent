@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmutil"
 )
 
@@ -29,7 +30,7 @@ func TestBroadcastAddresses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	
+
 	u, err := s.NewUser(uname)
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +42,7 @@ func TestBroadcastAddresses(t *testing.T) {
 
 	// Remove non-existing address.
 	err = u.BroadcastAddresses.Remove(addr1)
-	if err != store.ErrNotFound {
+	if err != data.ErrNotFound {
 		t.Error("Expected ErrNotFound got ", err)
 	}
 

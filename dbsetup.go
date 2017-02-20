@@ -310,7 +310,11 @@ func createDatabases(cfg *Config) error {
 		return err
 	}
 
-	err = user.Initialize(u, kmgr, uint32(cfg.GenKeys))
+	f, err := u.Folders()
+	if err != nil {
+		return err
+	}
+	err = user.Initialize(f, kmgr, uint32(cfg.GenKeys))
 	if err != nil {
 		return err
 	}

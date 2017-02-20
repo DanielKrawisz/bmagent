@@ -78,6 +78,7 @@ func newServer(rpcc *rpc.ClientConfig, u *User, s *store.Store, pk *store.PKRequ
 		imapListeners: make([]net.Listener, 0, len(cfg.IMAPListeners)),
 		quit:          make(chan struct{}),
 		imapUser:      make(map[uint32]*user.User),
+		pow:           powmgr.New(cfg.powHandler),
 	}
 
 	var err error
@@ -99,11 +100,14 @@ func newServer(rpcc *rpc.ClientConfig, u *User, s *store.Store, pk *store.PKRequ
 		id:     1,
 		user:   u,
 		server: srvr,
-		data:   userData,
 	}
 
 	// Create an user.User from the store.
-	imapUser, err := user.NewUser(u.Username, u.Keys, ObjectExpiration, so)
+	folders, err := userData.Folders()
+	if err != nil {
+		return nil, err
+	}
+	imapUser, err := user.NewUser(u.Username, u.Keys, ObjectExpiration, folders, srvr.pow, so)
 	if err != nil {
 		return nil, err
 	}
@@ -157,9 +161,6 @@ func newServer(rpcc *rpc.ClientConfig, u *User, s *store.Store, pk *store.PKRequ
 	if err != nil {
 		serverLog.Critical("Failed to get getpubkey counter:", err)
 	}
-
-	// Setup pow manager.
-	srvr.pow = powmgr.New(cfg.powHandler)
 
 	return srvr, nil
 }
@@ -333,7 +334,7 @@ func (s *server) newBroadcast(counter uint64, object []byte) {
 		return
 	}
 
-	for _, user := range s.store.Users {
+	for _, user := range s.store.Users() {
 
 		err := user.BroadcastAddresses.ForEach(func(addr *bmutil.Address) error {
 			var fromAddress string

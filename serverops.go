@@ -9,11 +9,9 @@ import (
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
-	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmagent/user"
-	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/identity"
-	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
 )
 
@@ -22,7 +20,6 @@ type serverOps struct {
 	pubIDs map[string]*identity.Public // a cache
 	id     uint32
 	user   *User
-	data   *store.UserData
 	server *server
 }
 
@@ -34,11 +31,11 @@ func (s *serverOps) GetOrRequestPublicID(emailAddress string) (*identity.Public,
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if addr == email.Broadcast {
 		return user.Broadcast, nil
 	}
-	
+
 	serverLog.Debug("GetOrRequestPublicID for ", addr)
 
 	// Check the map of cached identities.
@@ -89,16 +86,6 @@ func ObjectExpiration(objType wire.ObjectType) time.Duration {
 	}
 }
 
-// PowQueue returns the store.PowQueue associated with the server.
-func (s *serverOps) RunPow(target uint64, obj []byte, done func(n pow.Nonce)) {
-	s.server.pow.Run(target, obj, done)
-}
-
 func (s *serverOps) Send(obj []byte) { // Send the object out on the network.
 	s.server.Send(obj)
-}
-
-// Folders returns the set of folders for a given user.
-func (s *serverOps) Folders() []store.Folder {
-	return s.data.Folders()
 }

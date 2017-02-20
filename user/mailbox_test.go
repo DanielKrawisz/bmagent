@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/store/mem"
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/jordwest/imap-server/mailstore"
@@ -252,9 +252,13 @@ func (tc *MailboxTestContext) T() *testing.T {
 
 func (tc *MailboxTestContext) MakeMailbox(name string, emails []uint64, nextID uint64) email.Mailbox {
 
-	mb, err := newMailbox(mem.NewFolder(name), make(map[string]string))
+	f, err := data.NewMemFolders().New(name)
 	if err != nil {
 		fmt.Println("Err constructing Mailbox: ", err)
+		return nil
+	}
+	mb, err := newMailbox(f, make(map[string]string))
+	if err != nil {
 		return nil
 	}
 

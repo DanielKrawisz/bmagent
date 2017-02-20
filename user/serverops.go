@@ -12,7 +12,6 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/cipher"
 	"github.com/DanielKrawisz/bmutil/format"
@@ -30,12 +29,6 @@ type ServerOps interface {
 	// address. If the function returns nil with no error, that means that a
 	// pubkey request was successfully queued for proof-of-work.
 	GetOrRequestPublicID(string) (*identity.Public, error)
-
-	// RunPow submits some data to have the pow calculated and submitted to the network.
-	RunPow(uint64, []byte, func(n pow.Nonce))
-
-	// Mailboxes returns the set of mailboxes in the store.
-	Folders() []store.Folder
 
 	// Send sends a message out into the network.
 	Send(obj []byte)

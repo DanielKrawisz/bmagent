@@ -8,27 +8,28 @@ package store
 import (
 	"bytes"
 
-	"github.com/boltdb/bolt"
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmutil"
+	"github.com/boltdb/bolt"
 )
 
 // BroadcastAddresses keeps track of the broadcasts that the user is listening
 // to. It provides functionality for adding, removal and running a function for
 // each address.
 type BroadcastAddresses struct {
-	db *bolt.DB
+	db       *bolt.DB
 	username []byte
-	addrs []bmutil.Address // All broadcast addresses.
+	addrs    []bmutil.Address // All broadcast addresses.
 }
 
 // newBroadcastsStore creates a new BroadcastAddresses object after doing the
 // necessary initialization.
 func newBroadcastsStore(db *bolt.DB, username string) (*BroadcastAddresses, error) {
-	
+
 	b := &BroadcastAddresses{
-		db : db,
-		username : []byte(username), 
-		addrs: make([]bmutil.Address, 0),
+		db:       db,
+		username: []byte(username),
+		addrs:    make([]bmutil.Address, 0),
 	}
 
 	err := db.Update(func(tx *bolt.Tx) error {
@@ -36,7 +37,7 @@ func newBroadcastsStore(db *bolt.DB, username string) (*BroadcastAddresses, erro
 		if err != nil {
 			return err
 		}
-		
+
 		bucket, err := userbucket.CreateBucketIfNotExists(broadcastAddressesBucket)
 		if err != nil {
 			return err
@@ -91,7 +92,7 @@ func (b *BroadcastAddresses) Remove(address string) error {
 
 	err = b.db.Update(func(tx *bolt.Tx) error {
 		if tx.Bucket(b.username).Bucket(broadcastAddressesBucket).Get(k) == nil {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
 
 		return tx.Bucket(broadcastAddressesBucket).Delete(k)

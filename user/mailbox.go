@@ -13,12 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/wire/obj"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
-	"github.com/mailhog/data"
+	smtp "github.com/mailhog/data"
 )
 
 // MessageSequence represents a sequence of uids contained in this mailbox.
@@ -97,7 +97,8 @@ func (uids MessageSequence) Swap(i, j int) {
 // mailstore.Mailbox interface. Only public functions take care of
 // locking/unlocking the embedded RWMutex.
 type mailbox struct {
-	mbox store.Folder
+	mbox data.Folder
+	name string
 
 	// Used to define a subfolder, in which only those messages
 	// which return true belong to the mailbox. Can be nil.
@@ -147,7 +148,7 @@ func (box *mailbox) getObject(b *email.Bmail) obj.Object {
 // Name returns the name of the mailbox.
 // This is part of the mailstore.Mailbox interface.
 func (box *mailbox) Name() string {
-	return box.mbox.Name()
+	return box.name
 }
 
 // updateMailboxStats updates the mailbox data like number of recent/unseen
@@ -775,13 +776,13 @@ func (box *mailbox) NewMessage() mailstore.Message {
 	return &email.IMAPEmail{
 		ImapFlags: types.FlagRecent,
 		Mailbox:   box,
-		Content:   &data.Content{},
+		Content:   &smtp.Content{},
 		Date:      time.Now(),
 	}
 }
 
 // newMailbox returns a new mailbox.
-func newMailbox(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
+func newMailbox(mbox data.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}
@@ -799,7 +800,7 @@ func newMailbox(mbox store.Folder, addresses map[string]string) (*mailbox, error
 }
 
 // newDrafts returns a new Drafts folder.
-func newDrafts(mbox store.Folder, addresses map[string]string) (*mailbox, error) {
+func newDrafts(mbox data.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}

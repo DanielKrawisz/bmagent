@@ -10,7 +10,7 @@ import (
 	"fmt"
 
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
-	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmagent/user/command"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/format"
@@ -40,12 +40,12 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 
 // Initialize initializes the store by creating the default mailboxes and
 // inserting the welcome message.
-func Initialize(u *store.UserData, k keys.Manager, genkeys uint32) error {
+func Initialize(u data.Folders, k keys.Manager, genkeys uint32) error {
 	// Get all keys from key manager.
 	tags := k.Names()
 
 	// Create Inbox.
-	mbox, err := u.NewFolder(InboxFolderName)
+	mbox, err := u.New(InboxFolderName)
 	if err != nil {
 		return err
 	}
@@ -54,27 +54,27 @@ func Initialize(u *store.UserData, k keys.Manager, genkeys uint32) error {
 		return err
 	}
 
-	_, err = u.NewFolder(OutboxFolderName)
+	_, err = u.New(OutboxFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = u.NewFolder(SentFolderName)
+	_, err = u.New(SentFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = u.NewFolder(LimboFolderName)
+	_, err = u.New(LimboFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = u.NewFolder(TrashFolderName)
+	_, err = u.New(TrashFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = u.NewFolder(CommandsFolderName)
+	_, err = u.New(CommandsFolderName)
 	if err != nil {
 		return err
 	}
-	_, err = u.NewFolder(DraftsFolderName)
+	_, err = u.New(DraftsFolderName)
 	if err != nil {
 		return err
 	}

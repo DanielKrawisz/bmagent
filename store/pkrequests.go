@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"time"
 
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/boltdb/bolt"
 )
 
@@ -20,7 +21,7 @@ import (
 // removes them if bmd has received them. Thus, PKRequests serves as a
 // watchlist.
 type PKRequests struct {
-	db    *bolt.DB
+	db *bolt.DB
 }
 
 // initializePKRequestStore initializes the database for pub key requests.
@@ -46,7 +47,7 @@ func initializePKRequestStore(db *bolt.DB) error {
 func (r *PKRequests) New(addr string) (uint32, error) {
 	k := []byte(addr)
 	var count uint32
-	
+
 	clientLog.Debug("New pk request recorded for ", addr)
 
 	err := r.db.Update(func(tx *bolt.Tx) error {
@@ -86,7 +87,7 @@ func (r *PKRequests) LastRequestTime(addr string) (time.Time, error) {
 	err := r.db.View(func(tx *bolt.Tx) error {
 		t := tx.Bucket(pkRequestsBucket).Get(k)
 		if t == nil { // Entry doesn't exist.
-			return ErrNotFound
+			return data.ErrNotFound
 		}
 		return v.UnmarshalBinary(t[4:])
 	})

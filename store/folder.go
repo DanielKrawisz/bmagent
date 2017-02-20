@@ -9,9 +9,11 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"time"
 	"fmt"
+	"sync"
+	"time"
 
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/boltdb/bolt"
 )
 
@@ -19,121 +21,224 @@ import (
 var (
 	// folderCreatedOnKey contains the time of creation of mailbox.
 	folderCreatedOnKey = []byte("createdOn")
-
-	// ErrDuplicateID is returned by InsertMessage when the a message with the
-	// specified ID already exists in the folder.
-	ErrDuplicateID = errors.New("duplicate ID")
-
-	// ErrInvaidID is returned when an invalid id is provided. 
-	ErrInvalidID = errors.New("invalid ID")
 )
 
-type Folder interface {
-	// Name returns the user-friendly name of the folder.
-	Name() string
+type folders struct {
+	user    *User
+	mutex   sync.RWMutex // For protecting the map.
+	folders map[string]data.Folder
+}
 
-	// SetName changes the name of the folder.
-	SetName(name string) error 
+func newFolders(user *User) (*folders, error) {
 
-	// InsertNewMessage inserts a new message with the specified suffix and
-	// id into the folder and returns the ID. For normal folders, suffix
-	// could be the encoding type. For special use folders like "Pending",
-	// suffix could be used as a 'key', like a reason code (why the message is
-	// marked as Pending).
-	InsertNewMessage(msg []byte, suffix uint64) (uint64, error)
+	folderNames, err := initializeFolders(user.db, user.username, user.bucketID)
+	if err != nil {
+		return nil, err
+	}
 
-	// InsertMessage inserts a new message with the specified suffix and id
-	// into the folder and returns the ID. If input id is 0 or >= NextID,
-	// ErrInvalidID is returned. 
-	InsertMessage(id uint64, msg []byte, suffix uint64) error
+	fld := make(map[string]data.Folder)
 
-	// GetMessage retrieves a message from the folder by its index. It returns the
-	// suffix and the message. An error is returned if the message with the given
-	// index doesn't exist in the database.
-	GetMessage(id uint64) (uint64, []byte, error)
+	for _, name := range folderNames {
+		fld[name] = nil
+	}
 
-	// DeleteMessage deletes a message with the given index from the store. An error
-	// is returned if the message doesn't exist in the store.
-	DeleteMessage(id uint64) error 
+	return &folders{
+		user:    user,
+		folders: fld,
+	}, nil
+}
 
-	// ForEachMessage runs the given function for messages that have IDs between
-	// lowID and highID with the given suffix. If lowID is 0, it starts from the
-	// first message. If highID is 0, it returns all messages with id >= lowID with
-	// the given suffix. If suffix is zero, it returns all messages between lowID
-	// and highID, irrespective of the suffix. Note that any combination of lowID,
-	// highID and suffix can be zero for the desired results. Both lowID and highID
-	// are inclusive.
-	//
-	// Suffix is useful for getting all messages of a particular type. For example,
-	// retrieving all messages with encoding type 2.
-	//
-	// The function terminates early if an error occurs and iterates in the
-	// increasing order of index. Make sure it doesn't take long to execute. DO NOT
-	// execute any other database operations in it.
-	ForEachMessage(lowID, highID, suffix uint64,
-		fn func(id, suffix uint64, msg []byte) error) error
-	
-	// NextID returns the next index value that will be assigned in the mailbox..
-	NextID() uint64
+// NewFolder creates a new mailbox. Name must
+// be unique.
+func (f *folders) New(name string) (data.Folder, error) {
 
-	// LastID returns the highest index value in the mailbox, followed by a
-	// map containing the last indices for each suffix. 
-	LastID() (uint64, map[uint64]uint64)
+	// Check if mailbox exists.
+	_, ok := f.folders[name]
+	if ok {
+		return nil, ErrDuplicateMailbox
+	}
+
+	// We're good, so create the mailbox.
+	// Save mailbox in the local map.
+	f.mutex.Lock()
+	defer f.mutex.Unlock()
+
+	folder, err := newFolder(f.user.masterKey, f.user.db, f.user.username, name)
+	if err != nil {
+		return nil, err
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	f.folders[name] = folder
+
+	return folder, nil
+}
+
+// Get retrieves the folder associated with the name. If the
+// folder doesn't exist, an error is returned.
+func (f *folders) Get(name string) (data.Folder, error) {
+	f.mutex.RLock()
+	defer f.mutex.RUnlock()
+
+	flr, ok := f.folders[name]
+	if !ok {
+		return nil, data.ErrNotFound
+	}
+	if flr != nil {
+		return flr, nil
+	}
+
+	var err error
+	flr, err = newFolder(f.user.masterKey, f.user.db, f.user.username, name)
+	if err != nil {
+		return nil, err
+	}
+	f.folders[name] = flr
+
+	return flr, nil
+}
+
+// Names returns a map containing pointers to all folders
+// for a given user.
+func (f *folders) Names() []string {
+
+	names := make([]string, 0, len(f.folders))
+
+	for name := range names {
+		names = append(names, string(name))
+	}
+
+	return names
+}
+
+// Delete deletes the folder. Any operations after a Delete are invalid.
+func (f *folders) Delete(name string) error {
+	return f.user.db.Update(func(tx *bolt.Tx) error {
+		// Delete the mailbox and associated data.
+		bucket := tx.Bucket(f.user.bucketID)
+		if bucket == nil {
+			return data.ErrNotFound
+		}
+
+		f.mutex.Lock()
+		defer f.mutex.Unlock()
+
+		err := bucket.Bucket(foldersBucket).DeleteBucket([]byte(name))
+		if err != nil {
+			return err
+		}
+
+		// Delete mailbox from store.
+		delete(f.folders, name)
+
+		return nil
+	})
+}
+
+// Rename renames a folder.
+func (f *folders) Rename(name, newname string) error {
+	return f.user.db.Update(func(tx *bolt.Tx) error {
+		// Delete the mailbox and associated data.
+		bucket := tx.Bucket(f.user.bucketID)
+		if bucket == nil {
+			return data.ErrNotFound
+		}
+
+		f.mutex.Lock()
+		defer f.mutex.Unlock()
+
+		folders := bucket.Bucket(foldersBucket)
+
+		oldBucket := folders.Bucket([]byte(name))
+		if oldBucket == nil {
+			return data.ErrNotFound
+		}
+
+		if bucket.Bucket([]byte(newname)) != nil {
+			return data.ErrDuplicateID
+		}
+
+		// create the new bucket.
+		_, err := newFolder(f.user.masterKey, f.user.db, f.user.username, newname)
+		if err != nil {
+			return err
+		}
+
+		// copy all items from oldBucket into newBucket
+		newBucket := bucket.Bucket([]byte(newname))
+		err = oldBucket.ForEach(func(k, v []byte) error {
+			newBucket.Put(k, v)
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+
+		err = bucket.Bucket(foldersBucket).DeleteBucket([]byte(name))
+		if err != nil {
+			return err
+		}
+
+		// Delete mailbox from store.
+		delete(f.folders, name)
+
+		return nil
+	})
 }
 
 // folder is a folder of messages corresponding to a private identity or
 // broadcast. It's designed such that any kind of message (not just text
 // based) can be stored in the data store.
 type folder struct {
-	masterKey      *[keySize]byte      // can be nil.
-	db             *bolt.DB
-	username       string
-	userId         []byte
-	name           string
-	nextId         uint64
+	masterKey *[keySize]byte // can be nil.
+	db        *bolt.DB
+	userID    []byte
+	nextID    uint64
+	name      string
 }
 
 func newFolder(masterKey *[keySize]byte, db *bolt.DB, username string, name string) (*folder, error) {
 	if db == nil {
 		return nil, errors.New("Nil database given.")
 	}
-	
+
 	if name == "" {
 		return nil, errors.New("Folder name cannot be empty.")
 	}
-	
-	f := &folder {
-		masterKey      : masterKey,
-		db             : db,
-		userId         : append(userPrefix, []byte(username)...),  
-		username       : username, 
-		name           : name, 
-		nextId         : 1, 
+
+	f := &folder{
+		masterKey: masterKey,
+		db:        db,
+		userID:    append(userPrefix, []byte(username)...),
+		nextID:    1,
+		name:      name,
 	}
-	
-	err := f.initialize()
+
+	err := f.initialize(name)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return f, nil
 }
 
 // initializes a folder.
-func (f *folder) initialize() error {
+func (f *folder) initialize(name string) error {
 
 	err := f.db.Update(func(tx *bolt.Tx) error {
 		// Get bucket for mailbox.
-		bucket := tx.Bucket(f.userId).Bucket(foldersBucket).Bucket([]byte(f.name))
+		bucket := tx.Bucket(f.userID).Bucket(foldersBucket).Bucket([]byte(name))
 
 		if bucket == nil {
 			// New mailbox so initialize it.
-			folders, err := tx.Bucket(f.userId).CreateBucketIfNotExists(foldersBucket)
+			folders, err := tx.Bucket(f.userID).CreateBucketIfNotExists(foldersBucket)
 			if err != nil {
 				return err
 			}
-			
-			newMailbox, err := folders.CreateBucket([]byte(f.name))
+
+			newMailbox, err := folders.CreateBucket([]byte(name))
 			if err != nil {
 				return err
 			}
@@ -152,39 +257,39 @@ func (f *folder) initialize() error {
 			if err != nil {
 				return err
 			}
-			
+
 			next := make([]byte, 8)
 			binary.BigEndian.PutUint64(next, 1)
 			data.Put(folderNextIDKey, next)
 		} else {
-			// TODO get all the folder data here. 
+			// TODO get all the folder data here.
 			data := bucket.Bucket(folderDataBucket)
-			f.nextId = binary.BigEndian.Uint64(data.Get(folderNextIDKey))
-			
+			f.nextID = binary.BigEndian.Uint64(data.Get(folderNextIDKey))
+
 			/*cursor := bucket.Cursor()
-	
+
 			// Loop from the end, returning the first found match.
-			for k, _ := cursor.Last(); k != nil; k, _ = cursor.Prev() {				
+			for k, _ := cursor.Last(); k != nil; k, _ = cursor.Prev() {
 				if len(k) != 16 { // Don't want to loop over buckets.
 					continue
 				}
-				
-				if f.lastId == 0 {
-					f.lastId = binary.BigEndian.Uint64(k[:8])
+
+				if f.lastID == 0 {
+					f.lastID = binary.BigEndian.Uint64(k[:8])
 				}
-				
+
 				sfx := binary.BigEndian.Uint64(k[8:])
-				if _, ok := f.lastIdBySuffix[sfx]; !ok {
-					f.lastIdBySuffix[sfx] = binary.BigEndian.Uint64(k[:8])
+				if _, ok := f.lastIDBySuffix[sfx]; !ok {
+					f.lastIDBySuffix[sfx] = binary.BigEndian.Uint64(k[:8])
 				}
 			}*/
-			
+
 		}
 		return nil
 	})
 	if err != nil {
 		return fmt.Errorf("Failed to create/load mailbox %s: %v",
-			f.name, err)
+			name, err)
 	}
 
 	return nil
@@ -192,44 +297,44 @@ func (f *folder) initialize() error {
 
 // NextID returns the next index value that will be assigned in the mailbox..
 func (f *folder) NextID() uint64 {
-	return f.nextId
+	return f.nextID
 }
 
 // LastID returns the highest index value in the mailbox.
 func (f *folder) LastID() (uint64, map[uint64]uint64) {
-	var lastId uint64 = 0
-	lastIdBySuffix := make(map[uint64]uint64)
-	
+	var lastID uint64
+	lastIDBySuffix := make(map[uint64]uint64)
+
 	f.db.Update(func(tx *bolt.Tx) error {
 		// Get bucket for mailbox.
-		bucket := tx.Bucket(f.userId).Bucket(foldersBucket).Bucket([]byte(f.name))
-			
+		bucket := tx.Bucket(f.userID).Bucket(foldersBucket).Bucket([]byte(f.name))
+
 		cursor := bucket.Cursor()
-	
-		for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {				
+
+		for k, _ := cursor.First(); k != nil; k, _ = cursor.Next() {
 			if len(k) != 16 { // Don't want to loop over buckets.
 				continue
 			}
 			suffix := binary.BigEndian.Uint64(k[8:])
-				
-			if v, ok := lastIdBySuffix[suffix]; ok && v > suffix {
+
+			if v, ok := lastIDBySuffix[suffix]; ok && v > suffix {
 				continue
 			}
-				
-			var id uint64 = binary.BigEndian.Uint64(k[:8])
-			lastIdBySuffix[suffix] = id
-				
-			if id < lastId {
+
+			id := binary.BigEndian.Uint64(k[:8])
+			lastIDBySuffix[suffix] = id
+
+			if id < lastID {
 				continue
 			}
-				
-			lastId = id
+
+			lastID = id
 		}
-			
+
 		return nil
 	})
 
-	return lastId, lastIdBySuffix
+	return lastID, lastIDBySuffix
 }
 
 // InsertNewMessage inserts a new message with the specified suffix into a
@@ -238,22 +343,22 @@ func (f *folder) InsertNewMessage(msg []byte, suffix uint64) (uint64, error) {
 	if msg == nil {
 		return 0, errors.New("Nil message inserted.")
 	}
-	
+
 	enc, err := encrypt(f.masterKey, f.db, msg)
 	if err != nil {
 		return 0, err
 	}
 
 	err = f.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(f.userId)
+		bucket := tx.Bucket(f.userID)
 		if bucket == nil {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
 		bf := bucket.Bucket(foldersBucket).Bucket([]byte(f.name))
 
 		// Increment folderLatestID.
 		idB := make([]byte, 8)
-		binary.BigEndian.PutUint64(idB, f.nextId + 1)
+		binary.BigEndian.PutUint64(idB, f.nextID+1)
 
 		err = bf.Bucket(folderDataBucket).Put(folderNextIDKey, idB)
 		if err != nil {
@@ -263,13 +368,13 @@ func (f *folder) InsertNewMessage(msg []byte, suffix uint64) (uint64, error) {
 		// Insert message using ID as the first 8 bytes and suffix as the
 		// latter 8 bytes of the key.
 		k := make([]byte, 16)
-		binary.BigEndian.PutUint64(k[:8], f.nextId)     // first half
-		binary.BigEndian.PutUint64(k[8:], suffix) // second half
+		binary.BigEndian.PutUint64(k[:8], f.nextID) // first half
+		binary.BigEndian.PutUint64(k[8:], suffix)   // second half
 
 		// Check if a message with the given ID already exists.
 		kk, _ := bf.Cursor().Seek(k[:8])
 		if kk != nil && len(kk) >= 8 && bytes.Equal(kk[:8], k[:8]) {
-			return ErrDuplicateID
+			return data.ErrDuplicateID
 		}
 
 		return bf.Put(k, enc)
@@ -277,34 +382,34 @@ func (f *folder) InsertNewMessage(msg []byte, suffix uint64) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	
+
 	defer func() {
-		f.nextId ++
-	} ()
-	
-	return f.nextId, nil
+		f.nextID++
+	}()
+
+	return f.nextID, nil
 }
 
 // InsertMessage inserts a new message with the specified suffix and id into the
-// folder and returns the ID. 
+// folder and returns the ID.
 func (f *folder) InsertMessage(id uint64, msg []byte, suffix uint64) error {
-	if id == 0 || id >= f.nextId {
-		return ErrInvalidID
+	if id == 0 || id >= f.nextID {
+		return data.ErrInvalidID
 	}
-	
+
 	if msg == nil {
 		return errors.New("Nil message inserted.")
 	}
-	
+
 	enc, err := encrypt(f.masterKey, f.db, msg)
 	if err != nil {
 		return err
 	}
 
 	err = f.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(f.userId)
+		bucket := tx.Bucket(f.userID)
 		if bucket == nil {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
 		m := bucket.Bucket(foldersBucket).Bucket([]byte(f.name))
 
@@ -317,7 +422,7 @@ func (f *folder) InsertMessage(id uint64, msg []byte, suffix uint64) error {
 		// Check if a message with the given ID already exists.
 		kk, _ := m.Cursor().Seek(k[:8])
 		if kk != nil && len(kk) >= 8 && bytes.Equal(kk[:8], k[:8]) {
-			return ErrDuplicateID
+			return data.ErrDuplicateID
 		}
 
 		return m.Put(k, enc)
@@ -342,22 +447,22 @@ func (f *folder) GetMessage(id uint64) (uint64, []byte, error) {
 	binary.BigEndian.PutUint64(idBytes, id)
 
 	err := f.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(f.userId)
+		bucket := tx.Bucket(f.userID)
 		if bucket == nil {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
-		
+
 		bucket = bucket.Bucket(foldersBucket)
 		if bucket == nil {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
-		
+
 		cursor := bucket.Bucket([]byte(f.name)).Cursor()
 		k, v := cursor.Seek(idBytes)
 
 		// Check if the first 8 bytes match the index.
 		if k == nil || v == nil || !bytes.Equal(k[:8], idBytes) {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
 
 		suffix = binary.BigEndian.Uint64(k[8:])
@@ -399,9 +504,9 @@ func (f *folder) ForEachMessage(lowID, highID, suffix uint64,
 	binary.BigEndian.PutUint64(bLowID, lowID)
 
 	return f.db.View(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(f.userId)
-		if (bucket == nil) {
-			return ErrNotFound
+		bucket := tx.Bucket(f.userID)
+		if bucket == nil {
+			return data.ErrNotFound
 		}
 		cursor := bucket.Bucket(foldersBucket).Bucket([]byte(f.name)).Cursor()
 
@@ -441,18 +546,18 @@ func (f *folder) ForEachMessage(lowID, highID, suffix uint64,
 
 // DeleteMessage deletes a message with the given index from the store. An error
 // is returned if the message doesn't exist in the store.
-func (f *folder) DeleteMessage(id uint64) error {	
-	if id == 0 || id >= f.nextId {
-		return ErrInvalidID
+func (f *folder) DeleteMessage(id uint64) error {
+	if id == 0 || id >= f.nextID {
+		return data.ErrInvalidID
 	}
-	
+
 	idxBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idxBytes, id)
-	
+
 	err := f.db.Update(func(tx *bolt.Tx) error {
-		bucket := tx.Bucket(f.userId)
+		bucket := tx.Bucket(f.userID)
 		if bucket == nil {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
 		bucket = bucket.Bucket(foldersBucket).Bucket([]byte(f.name))
 		cursor := bucket.Cursor()
@@ -460,39 +565,34 @@ func (f *folder) DeleteMessage(id uint64) error {
 
 		// Check if the first 8 bytes match the index.
 		if k == nil || v == nil || !bytes.Equal(k[:8], idxBytes) {
-			return ErrNotFound
+			return data.ErrNotFound
 		}
 
 		err := bucket.Delete(k)
-		
+
 		if err != nil {
 			return err
 		}
-		
+
 		return nil
 	})
-	
+
 	if err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
-// Name returns the user-friendly name of the mailbox.
-func (f *folder) Name() string {
-	return f.name
-}
-
-// SetName changes the name of the mailbox.
-func (f *folder) SetName(name string) error {
+// setName changes the name of the folders.
+func (f *folder) setName(name string) error {
 	if name == "" {
 		return errors.New("Name cannot be empty.")
 	}
 
 	err := f.db.Update(func(tx *bolt.Tx) error {
 		// Check if some other mailbox has the same name.
-		err := tx.Bucket(f.userId).Bucket(foldersBucket).ForEach(func(k, _ []byte) error {
+		err := tx.Bucket(f.userID).Bucket(foldersBucket).ForEach(func(k, _ []byte) error {
 			if string(k) == name {
 				return ErrDuplicateMailbox
 			}
@@ -503,13 +603,13 @@ func (f *folder) SetName(name string) error {
 		}
 
 		// Create the new mailbox.
-		b, err := tx.Bucket(f.userId).Bucket(foldersBucket).CreateBucket([]byte(name))
+		b, err := tx.Bucket(f.userID).Bucket(foldersBucket).CreateBucket([]byte(name))
 		if err != nil {
 			return err
 		}
 
 		// Copy everything.
-		oldB := tx.Bucket(f.userId).Bucket(foldersBucket).Bucket([]byte(f.name))
+		oldB := tx.Bucket(f.userID).Bucket(foldersBucket).Bucket([]byte(f.name))
 		oldB.ForEach(func(k, v []byte) error {
 			if v == nil { // It's a bucket.
 				b1, err := b.CreateBucket(k)
@@ -526,7 +626,7 @@ func (f *folder) SetName(name string) error {
 		})
 
 		// Delete old mailbox.
-		return tx.Bucket(f.userId).Bucket(foldersBucket).DeleteBucket([]byte(f.name))
+		return tx.Bucket(f.userID).Bucket(foldersBucket).DeleteBucket([]byte(f.name))
 	})
 	if err != nil {
 		return err

@@ -11,12 +11,14 @@ import (
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmagent/powmgr"
+	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/wire"
 	"github.com/jordwest/imap-server/mailstore"
 	"github.com/jordwest/imap-server/types"
-	"github.com/mailhog/data"
+	smtp "github.com/mailhog/data"
 )
 
 var (
@@ -42,22 +44,27 @@ type ObjectExpiration func(wire.ObjectType) time.Duration
 // User implements the mailstore.User interface and represents
 // a collection of imap folders belonging to a single user.
 type User struct {
-	username   string
-	boxes      map[string]*mailbox
+	username string
+	boxes    map[string]*mailbox
+
+	// A map from ack strings to message uids. When an ack is received,
+	// we mark off a message as having been received by the recipient.
 	acks       map[wire.ShaHash]uint64
 	expiration ObjectExpiration
-	keys       keys.Manager
-	server     ServerOps
+
+	// The set of all private keys for this user.
+	keys keys.Manager
+
+	// A proof-of-work manager.
+	pm     *powmgr.Pow
+	server ServerOps
 }
 
 // NewUser creates a User object from the store.
-func NewUser(username string, privateIds keys.Manager, expiration ObjectExpiration, server ServerOps) (*User, error) {
+func NewUser(username string, privateIds keys.Manager, expiration ObjectExpiration,
+	folders data.Folders, pm *powmgr.Pow, server ServerOps) (*User, error) {
 
-	mboxes := server.Folders()
-
-	if mboxes == nil {
-		return nil, errors.New("Invalid user.")
-	}
+	folderNames := folders.Names()
 
 	u := &User{
 		username: username,
@@ -68,15 +75,18 @@ func NewUser(username string, privateIds keys.Manager, expiration ObjectExpirati
 	}
 
 	// The user is allowed to save in some mailboxes but not others.
-	for _, mbox := range mboxes {
-		var name = mbox.Name()
+	for _, name := range folderNames {
 		var mb *mailbox
 		var err error
+		folder, err := folders.Get(name)
+		if err != nil {
+			return nil, err
+		}
 		switch name {
 		case DraftsFolderName:
-			mb, err = newDrafts(mbox, u.keys.Names())
+			mb, err = newDrafts(folder, u.keys.Names())
 		default:
-			mb, err = newMailbox(mbox, u.keys.Names())
+			mb, err = newMailbox(folder, u.keys.Names())
 		}
 		if err != nil {
 			return nil, err
@@ -125,7 +135,7 @@ func (u *User) DeliverFromBMNet(bm *email.Bmail) error {
 
 // DeliverFromSMTP adds a message received via SMTP to the POW queue, if needed,
 // and the outbox.
-func (u *User) DeliverFromSMTP(smtp *data.Content) error {
+func (u *User) DeliverFromSMTP(smtp *smtp.Content) error {
 	bmsg, err := email.NewBitmessageFromSMTP(smtp)
 	if err != nil {
 		email.SMTPLog.Error("NewBitmessageFromSMTP gave error: ", err)

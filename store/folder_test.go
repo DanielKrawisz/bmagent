@@ -12,16 +12,17 @@ import (
 	"testing"
 
 	"github.com/DanielKrawisz/bmagent/store"
+	"github.com/DanielKrawisz/bmagent/store/data"
 )
 
 func TestFolder(t *testing.T) {
 	// Open store.
-	f, err := ioutil.TempFile("", "tempstore")
+	x, err := ioutil.TempFile("", "tempstore")
 	if err != nil {
 		t.Fatal(err)
 	}
-	fName := f.Name()
-	f.Close()
+	fName := x.Name()
+	x.Close()
 
 	pass := []byte("password")
 	l, err := store.Open(fName)
@@ -35,32 +36,30 @@ func TestFolder(t *testing.T) {
 	if err != nil {
 		t.Error(" could not create user: ", err)
 	}
-	
+
 	// Start.
 	name := "INBOX/Test Mailbox"
+	f, err := u.Folders()
+	if err != nil {
+		t.Error("Could not create folders: ", err)
+	}
 
 	// Try to get a mailbox that doesn't yet exist.
-	_, err = u.FolderByName(name)
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	_, err = f.Get(name)
+	if err != data.ErrNotFound {
+		t.Error("Expected data.ErrNotFound got", err)
 	}
 
 	// Try to create a mailbox.
-	mbox, err := u.NewFolder(name)
+	mbox, err := f.New(name)
 	if err != nil {
 		t.Fatal("Got error", err)
 	}
 
-	// Check name.
-	testName := mbox.Name()
-	if name != testName {
-		t.Errorf("Name, expected %s got %s", name, testName)
-	}
-
 	// Try getting non-existant message.
 	_, _, err = mbox.GetMessage(1)
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	if err != data.ErrNotFound {
+		t.Error("Expected data.ErrNotFound got", err)
 	}
 
 	// Try getting last IDs when mailbox is empty.
@@ -75,7 +74,7 @@ func TestFolder(t *testing.T) {
 
 	// Try deleting non-existant message.
 	err = mbox.DeleteMessage(1)
-	if err != store.ErrInvalidID {
+	if err != data.ErrInvalidID {
 		t.Error("Expected ErrInvalidID got", err)
 	}
 
@@ -99,12 +98,17 @@ func TestFolder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mbox, err = u.FolderByName(name)
+	f, err = u.Folders()
 	if err != nil {
 		t.Fatal(err)
 	}
-	
-	tc := &boltFolderTestContext{t:t, u:u, name:name}
+
+	mbox, err = f.Get(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tc := &boltFolderTestContext{t: t, folders: f, name: name}
 
 	// Test ForEachMessage.
 
@@ -176,21 +180,21 @@ func TestFolder(t *testing.T) {
 	}
 
 	// Try adding mailbox with a duplicate name.
-	_, err = u.NewFolder(name)
+	_, err = f.New(name)
 	if err != store.ErrDuplicateMailbox {
 		t.Error("Expected ErrDuplicateMailbox got", err)
 	}
 
 	// Try deleting mailbox.
-	err = u.DeleteFolder(name)
+	err = f.Delete(name)
 	if err != nil {
 		t.Error("Got error", err)
 	}
 
 	// Check if mailbox was actually removed.
-	_, err = u.FolderByName(name)
-	if err != store.ErrNotFound {
-		t.Error("Expected ErrNotFound got", err)
+	_, err = f.Get(name)
+	if err != data.ErrNotFound {
+		t.Error("Expected data.ErrNotFound got", err)
 	}
 
 	// Close database.
@@ -201,7 +205,7 @@ func TestFolder(t *testing.T) {
 	os.Remove(fName)
 }
 
-func NewUserData(t *testing.T) *store.UserData {
+func NewUser(t *testing.T) *store.User {
 	// Open store.
 	f, err := ioutil.TempFile("", "tempstore")
 	if err != nil {
@@ -226,7 +230,7 @@ func NewUserData(t *testing.T) *store.UserData {
 	return u
 }
 
-func testInsertMessage(mbox store.Folder, msg []byte, suffix uint64,
+func testInsertMessage(mbox data.Folder, msg []byte, suffix uint64,
 	expectedID uint64, t *testing.T) {
 	// Try inserting a new message.
 	id, err := mbox.InsertNewMessage(msg, suffix)
@@ -237,14 +241,14 @@ func testInsertMessage(mbox store.Folder, msg []byte, suffix uint64,
 		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", expectedID,
 			id)
 	}
-	
+
 	last, _ := mbox.LastID()
 	next := mbox.NextID()
 	if last != id {
 		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", id, last)
 	}
-	if next != id + 1 {
-		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", id + 1, next)
+	if next != id+1 {
+		t.Errorf("For message #%[1]d expected id %[1]d got %[2]d", id+1, next)
 	}
 
 	// Try retrieving the same message.
@@ -263,12 +267,12 @@ func testInsertMessage(mbox store.Folder, msg []byte, suffix uint64,
 
 	// Try inserting message with the same ID but different suffix.
 	err = mbox.InsertMessage(id, msg, suffix+1)
-	if err != store.ErrDuplicateID {
+	if err != data.ErrDuplicateID {
 		t.Errorf("For message #%d expected ErrDuplicateID got %v", expectedID, err)
 	}
 }
 
-func testForEachMessage(mbox store.Folder, lowID, highID, suffix,
+func testForEachMessage(mbox data.Folder, lowID, highID, suffix,
 	expectedCount uint64, t *testing.T) {
 
 	counter := uint64(0)
@@ -287,26 +291,26 @@ func testForEachMessage(mbox store.Folder, lowID, highID, suffix,
 	}
 }
 
-func testDeleteMessage(tc testContext, mbox store.Folder, id uint64, note string) {
+func testDeleteMessage(tc testContext, mbox data.Folder, id uint64, note string) {
 	err := mbox.DeleteMessage(id)
-	if err != nil {		
+	if err != nil {
 		tc.T().Errorf("%s, %s: For id %d got error %v", tc.Context(), note, id, err)
 	}
 	_, _, err = mbox.GetMessage(id)
 	if err == nil {
-		tc.T().Errorf("%s, %s: for id %d expected ErrNotFound got nil", tc.Context(), note, id)
-	} else if err != store.ErrNotFound {
+		tc.T().Errorf("%s, %s: for id %d expected data.ErrNotFound got nil", tc.Context(), note, id)
+	} else if err != data.ErrNotFound {
 		tc.T().Errorf("%s, %s: For id %d got error %v", tc.Context(), note, id, err)
 	}
 }
 
 func testLastIDBySuffix(
-	tc testContext, mbox store.Folder, suffix, expectedID uint64, note string) {
-		
+	tc testContext, mbox data.Folder, suffix, expectedID uint64, note string) {
+
 	_, lastIdBySfx := mbox.LastID()
-	id  := lastIdBySfx[suffix]
+	id := lastIdBySfx[suffix]
 	if expectedID != id {
-		tc.T().Errorf("%s, %s: For suffix %d, expected ID %d got %d", 
+		tc.T().Errorf("%s, %s: For suffix %d, expected ID %d got %d",
 			tc.Context(), note, suffix, expectedID, id)
 	}
 }
