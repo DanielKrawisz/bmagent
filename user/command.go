@@ -5,7 +5,6 @@
 package user
 
 import (
-	"errors"
 	"fmt"
 	"strings"
 
@@ -17,15 +16,13 @@ import (
 	"github.com/jordwest/imap-server/types"
 )
 
-// MaxGenerateKeys is the maximum number of keys to be generated in one
-// command at a time.
-const MaxGenerateKeys = 4000
+const (
+	// MaxGenerateKeys is the maximum number of keys to be generated in one
+	// command at a time.
+	MaxGenerateKeys = 4000
+)
 
 var commands = make(map[string]func(*User, []string) (command.Response, error))
-
-// ErrMissingInbox is returned by executeCommand if it does not recognize
-// the command issued.
-var ErrMissingInbox = errors.New("Could not find inbox.")
 
 func init() {
 	commands["generatekey"] = generateKeyCommand
@@ -33,27 +30,31 @@ func init() {
 
 // executeCommand executes an external command puts the result in
 // our inbox as an email.
-func (u *User) executeCommand(name, params string) error {
+func (u *User) executeCommand(from, name, params string) error {
 	// Get the inbox.
-	inbox := u.boxes[InboxFolderName]
-	if inbox == nil {
-		return ErrMissingInbox
-	}
+	commandFolder := u.boxes[CommandsFolderName]
+
+	var r command.Response
+	var err error
 
 	// Check if such a command exists.
 	cmd, ok := commands[name]
 	if !ok {
-		return &command.ErrUnknown{name}
-	}
-
-	// Run the command.
-	r, err := cmd(u, strings.Fields(params))
-	if err != nil {
-		return err
+		r = command.ErrorResponse(name, params, &command.ErrUnknown{name})
+	} else { // Run the command.
+		r, err = cmd(u, strings.Fields(params))
+		if err != nil {
+			r = command.ErrorResponse(name, params, err)
+		}
 	}
 
 	// Email ourselves the response.
-	err = inbox.AddNew(r.Email(), types.FlagRecent)
+	err = commandFolder.AddNew(
+		&email.Bmail{
+			From:    "command@bm.agent",
+			To:      from,
+			Content: r.Email(),
+		}, types.FlagRecent)
 	if err != nil {
 		return err
 	}
@@ -73,7 +74,7 @@ func (u *User) GenerateKey(n uint16, sendAck bool) []*keys.PrivateID {
 	var i uint16
 	keyList := make([]*keys.PrivateID, 0, n)
 	for i = 0; i < n; i++ {
-		keyList = append(keyList, u.keys.NewUnnamed(command.DefaultStream, behavior))
+		keyList = append(keyList, u.keys.NewUnnamed(DefaultStream, behavior))
 	}
 
 	return keyList
@@ -99,7 +100,7 @@ func generateKeyCommand(u *User, params []string) (command.Response, error) {
 	if len(params) < 2 {
 		sendAck = true
 	} else {
-		sendAck, _, _, err = command.ReadPattern(params[0], command.PatternNatural)
+		err = command.ReadPattern(params[1], &sendAck)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +110,7 @@ func generateKeyCommand(u *User, params []string) (command.Response, error) {
 	if len(params) < 1 {
 		n = 1
 	} else {
-		_, n, _, err = command.ReadPattern(params[0], command.PatternNatural)
+		err = command.ReadPattern(params[0], &n)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +132,7 @@ func generateKeyCommand(u *User, params []string) (command.Response, error) {
 }
 
 // Email converts the response to an email.
-func (r *generateKeyResponse) Email() *email.Bmail {
+func (r *generateKeyResponse) Email() *format.Encoding2 {
 	// generate the text containing the list of keys.
 	keyList := ""
 	for _, addr := range r.addrs {
@@ -139,17 +140,13 @@ func (r *generateKeyResponse) Email() *email.Bmail {
 	}
 
 	// Create the message.
-	return &email.Bmail{
-		From: "addresses@bm.agent",
-		To:   "", /*send to all new addresses*/
-		Content: &format.Encoding2{
-			Subject: "New addresses generated.",
-			Body:    fmt.Sprintf(newAddressesMsg, keyList),
-		},
+	return &format.Encoding2{
+		Subject: "New addresses generated.",
+		Body:    fmt.Sprintf(newAddressesMsg, keyList),
 	}
 }
 
-// JSON assumes a form that can be marshalled into a JSON string.
-func (r *generateKeyResponse) JSON() interface{} {
+// RPC is the response formated as an RPC response.
+func (r *generateKeyResponse) RPC() interface{} {
 	return nil // Not yet implemented.
 }

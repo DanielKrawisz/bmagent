@@ -38,18 +38,8 @@ var (
 	regexString  = regexp.MustCompile("\\\".*\\\"")
 )
 
-// ErrTooManyParameters implements the error interface and represents
-// a command given with too many parameters.
-type ErrTooManyParameters struct {
-	MaxAllowed uint32
-}
-
-func (err *ErrTooManyParameters) Error() string {
-	return fmt.Sprintf("Too many parameters; expected max %d.", err.MaxAllowed)
-}
-
-// ErrUnknown implements the error interface and represents
-// an unknown command string.
+// ErrUnknown implements the error interface
+// and is returned when a user calls an unknown command.
 type ErrUnknown struct {
 	Command string
 }
@@ -58,8 +48,18 @@ func (err *ErrUnknown) Error() string {
 	return fmt.Sprintf("Unknown command %s.", err.Command)
 }
 
-// ErrValueTooBig implements the error interface and represents
-// a command given with too many parameters.
+// ErrTooManyParameters implements the error interface
+// and is returned when a command is given with too many parameters.
+type ErrTooManyParameters struct {
+	MaxAllowed uint32
+}
+
+func (err *ErrTooManyParameters) Error() string {
+	return fmt.Sprintf("Too many parameters; expected max %d.", err.MaxAllowed)
+}
+
+// ErrValueTooBig implements the error interface and is returned when
+// a command is given with a parameter that is too big.
 type ErrValueTooBig struct {
 	Index uint32
 	Value uint64
@@ -72,29 +72,32 @@ func (err *ErrValueTooBig) Error() string {
 
 // ReadPattern attempts to return a type corresponding to the given pattern
 // which is read from the given string.
-func ReadPattern(str string, pattern Pattern) (bool, uint64, string, error) {
-	switch pattern {
+func ReadPattern(str string, elem interface{}) error {
+	switch e := elem.(type) {
 	default:
-		return false, 0, "", ErrUnknownPattern
-	case PatternBoolean:
+		return ErrUnknownPattern
+	case *bool:
 		if str == "true" {
-			return true, 0, "", nil
+			*e = true
+			return nil
 		} else if str == "false" {
-			return false, 0, "", nil
+			*e = false
+			return nil
 		} else {
-			return false, 0, "", ErrInvalidBooleanPattern
+			return ErrInvalidBooleanPattern
 		}
-	case PatternNatural:
+	case *uint64:
 		n, err := strconv.ParseUint(str, 10, 64)
 		if err != nil {
-			return false, 0, "", err
+			return err
 		}
-
-		return false, n, "", nil
-	case PatternString:
+		*e = n
+		return nil
+	case *string:
 		if !regexString.Match([]byte(str)) {
-			return false, 0, "", ErrInvalidStringPattern
+			return ErrInvalidStringPattern
 		}
-		return false, 0, str[1 : len(str)-1], nil
+		*e = str[1 : len(str)-1]
+		return nil
 	}
 }

@@ -146,7 +146,7 @@ func (u *User) DeliverFromSMTP(smtp *smtp.Content) error {
 
 	// Check for command.
 	if email.CommandRegex.Match([]byte(bmsg.To)) {
-		return u.executeCommand(smtp.Headers["Subject"][0], smtp.Body)
+		return u.executeCommand(bmsg.From, smtp.Headers["Subject"][0], smtp.Body)
 	}
 
 	outbox := u.boxes[OutboxFolderName]
