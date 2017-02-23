@@ -12,11 +12,13 @@ import:
 - package: github.com/DanielKrawisz/runner
 - package: github.com/boltdb/bolt
 - package: github.com/btcsuite/btcd
+  repo: git@github.com:btcsuite/btcd.git
   subpackages:
   - btcec
   - chaincfg
 - package: github.com/btcsuite/btclog
 - package: github.com/btcsuite/btcutil
+  repo: git@github.com:btcsuite/btcutil.git
   subpackages:
   - hdkeychain
 - package: github.com/btcsuite/golangcrypto

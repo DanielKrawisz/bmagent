@@ -1,0 +1,179 @@
+syntax = "proto2";
+
+package rpc;
+option optimize_for = LITE_RUNTIME;
+
+enum BitmessageRPCType {
+    BMRPC_ERROR = 0;
+    BMRPC_REQUEST = 1;
+    BMRPC_REPLY = 2;
+    BMRPC_PUSHNOTIFY = 3;
+}
+
+enum RequestType {
+    ERROR = 0;
+	HELP = 1;
+    NEWADDRESS = 2;
+    GETMESSAGES = 3;
+    DELETEMESSAGES = 4;
+	SUBSCRIBE = 5;
+	SEND = 6;
+}
+
+enum BitmessageReplyStatus {
+    BMRPCSTATUS_ERROR = 0;
+    BMRPCSTATUS_SUCCESS = 1;
+    BMRPCSTATUS_UNAUTHORIZED = 2;
+    BMRPCSTATUS_INVALID = 3;
+}
+
+enum BitmessageType {
+    BITMESSAGE_ERROR = 0;
+    BITMESSAGE_MESSAGE = 1;
+    BITMESSAGE_BROADCAST = 2;
+}
+
+enum MessageSelector {
+    MESSAGESELECTOR_ERROR = 0;
+    MESSAGESELECTOR_INDIVIDUAL = 1;
+    MESSAGESELECTOR_UNREAD = 2;
+    MESSAGESELECTOR_READ = 3;
+    MESSAGESELECTOR_INCOMING = 4;
+    MESSAGESELECTOR_SENT = 5;
+    MESSAGESELECTOR_ACKNOWLEDGED = 6;
+    MESSAGESELECTOR_OUTGOING = 7;
+}
+
+enum ReplySelector {
+    REPLYSELECTOR_ERROR = 0;
+    REPLYSELECTOR_INDEX = 1;
+    REPLYSELECTOR_FULL = 2;
+}
+
+message BitmessageRPC {
+    optional uint32 version = 1;
+    optional BitmessageRPCType type = 2;
+    oneof payload {
+        BMRPCRequest request = 3;
+        BMRPCReply reply = 4;
+        BMRPCPush push = 5;
+    }
+}
+
+message BMRPCRequest {
+	optional uint32 version = 1;
+	optional string id = 2;
+	optional bytes cookie = 3;
+	optional bytes pubkey = 4;
+	optional RequestType type = 5;
+	oneof request {
+		NewAddressRequest newaddress = 9;
+		BitmessageSelector messageselector = 10;
+    	SendBitmessage sendbitmessage = 11;
+		HelpRequest help = 12;
+		ListAddressesRequest listaddresses = 13;
+    }
+}
+
+message BMRPCReply {
+    optional uint32 version = 1;
+    optional string id = 2;
+    optional string requestid = 3;
+    optional RequestType type = 4;
+    optional BitmessageReplyStatus status = 5;
+    oneof reply {
+        NewAddressReply newaddress = 9;
+		ListAddressesReply listaddresses = 10;
+    }
+    repeated string messageID = 17;
+    repeated Bitmessage message = 18;
+}
+
+message BMRPCPush {
+    optional uint32 version = 1;
+    repeated Bitmessage message = 8;
+}
+
+message NewAddressRequest {
+    optional uint32 version = 1;
+    optional uint32 addressversion = 2;
+    optional string label = 3;
+    optional uint32 stream = 4;
+    optional uint32 pow = 5;
+    optional uint32 extrabytes = 6;
+    optional bool dml = 7;
+    optional bool deterministic = 8;
+    optional bytes seed = 9;
+    optional bytes ack = 10;
+}
+
+message BitmessageSelector {
+    optional uint32 version = 1;
+    optional string address = 2;
+    repeated string id = 3;
+    optional ReplySelector type = 4;
+    optional MessageSelector selector = 5;
+}
+
+message SendBitmessage {
+    optional uint32 version = 1;
+    optional string sender = 2;
+    repeated string recipient = 3;
+    optional bool broadcast = 4;
+    optional uint64 ttl = 5;
+    oneof contents {
+         TextBitmessage text = 6;
+    }
+}
+
+message ListAddressesRequest {
+	optional uint32 version = 1;
+}
+
+message NewAddressReply {
+    optional uint32 version = 1;
+    repeated string address = 2;
+}
+
+message ListAddressesReply {
+	optional uint32 version = 1;
+	repeated BitmessageAddress addresses = 2;
+}
+
+message BitmessageAddress {
+	optional uint32 version = 1;
+	optional string address = 2;
+	optional string tag = 3;
+	optional uint64 addressversion = 4;
+	optional uint64 stream = 5;
+	optional uint32 behavior = 6;
+	optional uint64 noncetrialsperbyte = 7;
+	optional uint64 extrabytes = 8;
+}
+
+message Bitmessage {
+    optional uint32 version = 1;
+    optional string id = 2;
+    optional string sender = 3;
+    optional string recipient = 4;
+    optional BitmessageType type = 5;
+    oneof body {
+        TextBitmessage text = 6;
+    }
+}
+
+message TextBitmessage {
+    optional uint32 version = 1;
+    optional string subject = 2;
+    optional string contents = 3;
+}
+
+message HelpRequest {
+	optional uint32 version = 1;
+	repeated RequestType requests = 2;
+}
+
+message HelpResponse {
+	optional uint32 version = 1;
+	repeated string instructions = 2;
+}

@@ -16,9 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	rpc "github.com/DanielKrawisz/bmagent/bmrpc"
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmagent/powmgr"
-	"github.com/DanielKrawisz/bmagent/rpc"
 	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmagent/user"
 	"github.com/DanielKrawisz/bmagent/user/email"

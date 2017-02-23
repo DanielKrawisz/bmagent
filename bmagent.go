@@ -16,7 +16,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/rpc"
+	rpc "github.com/DanielKrawisz/bmagent/bmrpc"
 )
 
 var (

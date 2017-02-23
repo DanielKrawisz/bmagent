@@ -12,8 +12,8 @@ import (
 	"fmt"
 	"os"
 
+	rpc "github.com/DanielKrawisz/bmagent/bmrpc"
 	"github.com/DanielKrawisz/bmagent/powmgr"
-	"github.com/DanielKrawisz/bmagent/rpc"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
