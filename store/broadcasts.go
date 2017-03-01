@@ -49,7 +49,7 @@ func newBroadcastsStore(db *bolt.DB, username string) (*BroadcastAddresses, erro
 				return err
 			}
 
-			b.addrs = append(b.addrs, *addr)
+			b.addrs = append(b.addrs, addr)
 			return nil
 		})
 	})
@@ -77,7 +77,7 @@ func (b *BroadcastAddresses) Add(address string) error {
 		return err
 	}
 
-	b.addrs = append(b.addrs, *addr)
+	b.addrs = append(b.addrs, addr)
 	return nil
 }
 
@@ -102,7 +102,7 @@ func (b *BroadcastAddresses) Remove(address string) error {
 	}
 
 	for i, t := range b.addrs {
-		if bytes.Equal(t.Ripe[:], addr.Ripe[:]) {
+		if bytes.Equal(t.RipeHash()[:], addr.RipeHash()[:]) {
 			// Delete.
 			b.addrs = append(b.addrs[:i], b.addrs[i+1:]...)
 			return nil
@@ -113,9 +113,9 @@ func (b *BroadcastAddresses) Remove(address string) error {
 
 // ForEach runs the specified function for each broadcast address, breaking
 // early if an error occurs.
-func (b *BroadcastAddresses) ForEach(f func(address *bmutil.Address) error) error {
+func (b *BroadcastAddresses) ForEach(f func(address bmutil.Address) error) error {
 	for _, addr := range b.addrs {
-		err := f(&addr)
+		err := f(addr)
 		if err != nil {
 			return err
 		}

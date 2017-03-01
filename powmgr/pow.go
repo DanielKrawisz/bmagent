@@ -7,7 +7,7 @@ package powmgr
 import (
 	"sync"
 
-	"github.com/DanielKrawisz/bmutil"
+	"github.com/DanielKrawisz/bmutil/hash"
 	"github.com/DanielKrawisz/bmutil/pow"
 )
 
@@ -15,7 +15,7 @@ import (
 // along with a function to call when the work is done.
 type powOrder struct {
 	// target difficulty
-	target uint64
+	target pow.Target
 
 	// The data on which to perform the proof-of-work.
 	object []byte
@@ -24,32 +24,32 @@ type powOrder struct {
 	donePowFunc func(u pow.Nonce)
 }
 
-type PowNode struct {
+type powNode struct {
 	order *powOrder
-	next  *PowNode
+	next  *powNode
 }
 
 // Pow is the proof-of-work manager.
 type Pow struct {
 	// powFunc is the function that calculates the pow.
-	powFunc func(target uint64, hash []byte) pow.Nonce
+	powFunc func(target pow.Target, hash []byte) pow.Nonce
 
 	mtx  sync.Mutex
-	head *PowNode
-	tail **PowNode
+	head *powNode
+	tail **powNode
 }
 
 // New creates a new PowManager.
-func New(powFunc func(target uint64, hash []byte) pow.Nonce) *Pow {
+func New(powFunc func(target pow.Target, hash []byte) pow.Nonce) *Pow {
 	return &Pow{
 		powFunc: powFunc,
 	}
 }
 
-// Pow adds an object message with a target value for PoW to the end of the
+// Run adds an object message with a target value for PoW to the end of the
 // pow queue. It returns the index value of the stored element. If the
 // PowManager is running, then a signal is sent to start running hashes immediately.
-func (q *Pow) Run(target uint64, obj []byte, donePowFunc func(u pow.Nonce)) {
+func (q *Pow) Run(target pow.Target, obj []byte, donePowFunc func(u pow.Nonce)) {
 	q.enqueue(&powOrder{target, obj, donePowFunc})
 }
 
@@ -57,12 +57,12 @@ func (q *Pow) enqueue(p *powOrder) {
 	q.mtx.Lock()
 	defer q.mtx.Unlock()
 
-	node := &PowNode{
+	node := &powNode{
 		order: p,
 		next:  nil,
 	}
 
-	if q.head == nil {		
+	if q.head == nil {
 		q.tail = &node.next
 		q.head = node
 
@@ -84,7 +84,7 @@ func (q *Pow) dequeue() *powOrder {
 	if q.head == nil {
 		return nil
 	}
-	
+
 	p := q.head.order
 
 	q.head = q.head.next
@@ -102,7 +102,7 @@ func (q *Pow) work() {
 			return
 		}
 
-		hash := bmutil.Sha512(order.object)
+		hash := hash.Sha512(order.object)
 
 		// run POW for the next object in the queue.
 		n := q.powFunc(order.target, hash)

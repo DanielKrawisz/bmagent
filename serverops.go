@@ -17,7 +17,7 @@ import (
 
 // serverOps implements the email.ServerOps interface.
 type serverOps struct {
-	pubIDs map[string]*identity.Public // a cache
+	pubIDs map[string]identity.Public // a cache
 	id     uint32
 	user   *User
 	server *server
@@ -26,7 +26,7 @@ type serverOps struct {
 // GetOrRequestPublic attempts to retreive a public identity for the given
 // address. If the function returns nil with no error, that means that a pubkey
 // request was successfully queued for proof-of-work.
-func (s *serverOps) GetOrRequestPublicID(emailAddress string) (*identity.Public, error) {
+func (s *serverOps) GetOrRequestPublicID(emailAddress string) (identity.Public, error) {
 	addr, err := email.ToBm(emailAddress)
 	if err != nil {
 		return nil, err
@@ -48,7 +48,7 @@ func (s *serverOps) GetOrRequestPublicID(emailAddress string) (*identity.Public,
 	// Check the private identities, just in case.
 	private := s.GetPrivateID(addr)
 	if private != nil {
-		return private.ToPublic(), nil
+		return private.Public(), nil
 	}
 
 	pubID, err := s.server.getOrRequestPublicIdentity(s.id, addr)

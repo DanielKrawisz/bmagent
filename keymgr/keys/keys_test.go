@@ -11,6 +11,7 @@ import (
 
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
 )
 
 func TestMasterKey(t *testing.T) {
@@ -102,7 +103,7 @@ func TestPrivateID(t *testing.T) {
 	// stream).
 	ids, _ := identity.NewDeterministic("privacy", 1, 1)
 	privacyChan := &keys.PrivateID{
-		Private: *ids[0],
+		Private: identity.NewPrivateID(identity.NewPrivateAddress(ids[0], 0, 0), 0, &pow.Default),
 		IsChan:  true,
 	}
 	_, err = json.Marshal(privacyChan)

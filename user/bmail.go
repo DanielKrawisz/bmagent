@@ -5,17 +5,47 @@ import (
 	"time"
 
 	"github.com/DanielKrawisz/bmagent/user/email"
+	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/DanielKrawisz/bmutil/format/serialize"
 	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
 	"github.com/DanielKrawisz/bmutil/wire/obj"
 	"github.com/golang/protobuf/proto"
 	"github.com/jordwest/imap-server/types"
 )
 
+// broadcastID is a type that is used to represent a b-mail without a
+// from address.
+type broadcastID struct{}
+
+func (*broadcastID) Address() bmutil.Address {
+	return nil
+}
+
+func (*broadcastID) Key() *identity.PublicKey {
+	return nil
+}
+
+func (*broadcastID) Data() *obj.PubKeyData {
+	return nil
+}
+
+func (*broadcastID) Behavior() uint32 {
+	return 0
+}
+
+func (*broadcastID) Pow() *pow.Data {
+	return nil
+}
+
+func (*broadcastID) String() string {
+	return "broadcastID"
+}
+
 // Broadcast represents a broadcast message, which doesn't require a public id.
-var Broadcast = &identity.Public{}
+var Broadcast = identity.Public(&broadcastID{})
 
 // decodeBitmessage takes the protobuf encoding of a Bitmessage and converts it
 // back to a Bitmessage.

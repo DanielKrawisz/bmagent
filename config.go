@@ -109,7 +109,7 @@ type Config struct {
 
 	GenKeys int16 `long:"genkeys" description:"number of new keys to generate."`
 
-	powHandler func(target uint64, hash []byte) pow.Nonce
+	powHandler func(target pow.Target, hash []byte) pow.Nonce
 	storePath  string
 
 	// TODO there should not be a global path for a single key file.
@@ -463,7 +463,7 @@ func LoadConfig(appName string, args []string) (*Config, []string, error) {
 			fmt.Fprintln(os.Stderr, err)
 			return nil, nil, err
 		}
-		cfg.powHandler = func(target uint64, hash []byte) pow.Nonce {
+		cfg.powHandler = func(target pow.Target, hash []byte) pow.Nonce {
 			return pow.DoParallel(target, hash, cfg.PowThreads)
 		}
 	default:

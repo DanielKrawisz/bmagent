@@ -1,9 +1,11 @@
 package: github.com/DanielKrawisz/bmagent
 import:
 - package: github.com/DanielKrawisz/bmd
+  version: 8c05cafb853f1945f79778dd5e643267300db144
   subpackages:
   - rpcproto
 - package: github.com/DanielKrawisz/bmutil
+  version: c1546fcf5b88b9711a496b830cbf7c7c3235f07c
   subpackages:
   - cipher
   - identity

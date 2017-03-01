@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/btcsuite/btcd/chaincfg"
@@ -200,7 +201,7 @@ func (mgr *Manager) ExportPlaintext() ([]byte, error) {
 func (mgr *Manager) ImportIdentity(privID keys.PrivateID) {
 
 	// Encode as string.
-	str := privID.Address()
+	str := privID.Address().String()
 
 	mgr.mutex.Lock()
 	defer mgr.mutex.Unlock()
@@ -245,18 +246,18 @@ func (mgr *Manager) ImportIdentity(privID keys.PrivateID) {
 // New generates a new HD identity and numbers it based on previously
 // derived identities. If 2^32 identities have already been generated, new
 // identities would be duplicates because of overflow problems.
-func (mgr *Manager) New(name string, stream uint32, behavior uint32) *keys.PrivateID {
+func (mgr *Manager) New(name string, stream uint64, behavior uint32) *keys.PrivateID {
 	mgr.mutex.Lock()
 	defer mgr.mutex.Unlock()
 
-	var privID *identity.Private
+	var privHD *identity.PrivateKey
 	var err error
 
 	// We use a loop because identity generation might fail, although the odds
 	// may be extremely small.
 	for i := uint32(0); true; i++ {
-		privID, err = identity.NewHD((*hdkeychain.ExtendedKey)(mgr.db.MasterKey),
-			mgr.db.NewIDIndex+i, stream, behavior)
+		privHD, err = identity.NewHD((*hdkeychain.ExtendedKey)(mgr.db.MasterKey),
+			mgr.db.NewIDIndex+i, stream)
 		if err == nil {
 			mgr.db.NewIDIndex += i + 1
 			break
@@ -264,16 +265,15 @@ func (mgr *Manager) New(name string, stream uint32, behavior uint32) *keys.Priva
 	}
 
 	id := &keys.PrivateID{
-		Private: *privID,
-		IsChan:  false,
-		Name:    name,
+		Private: identity.NewPrivateID(
+			identity.NewPrivateAddress(privHD, bmutil.DefaultAddressVersion, stream),
+			behavior, nil),
+		IsChan: false,
+		Name:   name,
 	}
 
 	// Encode address as string.
-	str, err := privID.Address.Encode()
-	if err != nil {
-		return nil
-	}
+	str := id.Address().String()
 
 	// Add to derived ids.
 	mgr.derivedIDs = append(mgr.derivedIDs, str)
@@ -285,7 +285,7 @@ func (mgr *Manager) New(name string, stream uint32, behavior uint32) *keys.Priva
 }
 
 // NewUnnamed returns a new unnamed key.
-func (mgr *Manager) NewUnnamed(stream uint32, behavior uint32) *keys.PrivateID {
+func (mgr *Manager) NewUnnamed(stream uint64, behavior uint32) *keys.PrivateID {
 	return mgr.New("", stream, behavior)
 }
 
@@ -370,7 +370,7 @@ func (mgr *Manager) NameAddress(address, name string) error {
 
 	// Does the address exist in the database?
 	id, ok := mgr.db.IDs[address]
-	
+
 	if !ok {
 		return ErrNonexistentIdentity
 	}
@@ -388,7 +388,7 @@ func (mgr *Manager) UnnameAddress(address string) error {
 
 	// Does the address exist in the database?
 	id, ok := mgr.db.IDs[address]
-	
+
 	if !ok {
 		return ErrNonexistentIdentity
 	}
@@ -433,7 +433,7 @@ func (mgr *Manager) ImportKeys(data []byte) map[string]string {
 	addresses := make(map[string]string)
 
 	m.ForEach(func(p *keys.PrivateID) error {
-		addresses[p.Address()] = p.Name
+		addresses[p.Address().String()] = p.Name
 		mgr.ImportIdentity(*p)
 		return nil
 	})
@@ -443,6 +443,7 @@ func (mgr *Manager) ImportKeys(data []byte) map[string]string {
 
 // ImportKeysFromPyBitmessage given an ini file like that created by PyBitmessage,
 // import into the key manager.
+// TODO test this function with a more current PyBitmessage file format.
 func (mgr *Manager) ImportKeysFromPyBitmessage(f ini.File) map[string]string {
 
 	addresses := make(map[string]string)
@@ -470,19 +471,23 @@ func (mgr *Manager) ImportKeysFromPyBitmessage(f ini.File) map[string]string {
 		name := v["label"]
 
 		// Now that we have read everything related to the identity, create it.
-		id, err := identity.ImportWIF(address, signingKey, encKey, nonceTrials, extraBytes)
+		pr, err := identity.ImportWIF(address, signingKey, encKey)
 		if err != nil {
 			continue
 		}
 
+		// TODO figure out how to get the behavior field.
 		p := keys.PrivateID{
-			Private:  *id,
+			Private: identity.NewPrivateID(pr, 0,
+				&pow.Data{
+					NonceTrialsPerByte: nonceTrials,
+					ExtraBytes:         extraBytes}),
 			IsChan:   isChan,
 			Disabled: !enabled,
 			Name:     name,
 		}
 
-		addresses[p.Address()] = p.Name
+		addresses[p.Address().String()] = p.Name
 
 		mgr.ImportIdentity(p)
 	}

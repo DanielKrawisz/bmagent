@@ -43,5 +43,5 @@ func (u *User) NewAddress(tag string, sendAck bool) bmutil.Address {
 	}
 
 	// first generate the new keys.
-	return u.keys.NewUnnamed(DefaultStream, behavior).ToPublic().Address
+	return u.keys.NewUnnamed(bmutil.DefaultStream, behavior).Private.Public().Address()
 }

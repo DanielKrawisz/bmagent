@@ -76,8 +76,7 @@ var newAddressCommand = command{
 
 // String writes the help response as a string.
 func (r *newAddressResponse) String() string {
-	addr, _ := r.address.Encode()
-	return addr
+	return r.address.String()
 }
 
 func (r *newAddressResponse) RPC() *rpc.BMRPCReply {

@@ -14,6 +14,7 @@ import (
 	"github.com/DanielKrawisz/bmagent/keymgr"
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
 )
 
 func TestOperation(t *testing.T) {
@@ -65,12 +66,10 @@ func TestOperation(t *testing.T) {
 	// Import a channel and check if it's imported as expected.
 	ids, _ := identity.NewDeterministic("privacy", 1, 1)
 	privacyChan := &keys.PrivateID{
-		Private: *ids[0],
+		Private: identity.NewPrivateID(identity.NewPrivateAddress(ids[0], 4, 1), 0, &pow.Default),
 		IsChan:  true,
 		Name:    "Hyperluminous",
 	}
-	// Create an address (export fails without this).
-	privacyChan.CreateAddress(4, 1)
 
 	mgr.ImportIdentity(*privacyChan)
 	if n := mgr.NumDeterministic(); n != 2 {
@@ -84,13 +83,13 @@ func TestOperation(t *testing.T) {
 
 	// Try to retrieve private identity from address.
 	privacyAddr := privacyChan.Address()
-	privacyRetrieved := mgr.Get(privacyAddr)
+	privacyRetrieved := mgr.Get(privacyAddr.String())
 	if privacyRetrieved == nil {
 		t.Errorf("Get returned nil address")
 	}
-	if !bytes.Equal(privacyRetrieved.Private.Address.Ripe[:], privacyChan.Private.Address.Ripe[:]) {
+	if !bytes.Equal(privacyRetrieved.Private.Address().RipeHash()[:], privacyChan.Private.Address().RipeHash()[:]) {
 		t.Errorf("got different ripe, expected %v got %v",
-			privacyChan.Private.Address.Ripe, privacyRetrieved.Private.Address.Ripe)
+			privacyChan.Private.Address().RipeHash(), privacyRetrieved.Private.Address().RipeHash())
 	}
 
 	// Save and encrypt the private keys held by the key manager.

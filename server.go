@@ -24,6 +24,7 @@ import (
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/cipher"
+	"github.com/DanielKrawisz/bmutil/hash"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/DanielKrawisz/bmutil/wire"
@@ -96,7 +97,7 @@ func newServer(rpcc *rpc.ClientConfig, u *User, s *store.Store, pk *store.PKRequ
 	}
 
 	so := &serverOps{
-		pubIDs: make(map[string]*identity.Public),
+		pubIDs: make(map[string]identity.Public),
 		id:     1,
 		user:   u,
 		server: srvr,
@@ -219,7 +220,7 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	// Is this an ack message we are expecting?
 	if len(object) == cipher.AckLength {
 		for _, u := range s.imapUser {
-			err = u.DeliverAckReply(wire.InventoryHash(object))
+			err = u.DeliverAckReply(hash.InventoryHash(object))
 			if err != user.ErrUnrecognizedAck {
 				if err != nil {
 					serverLog.Errorf("Error returned receiving ack: %v", err)
@@ -249,9 +250,9 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	for uid, user := range s.users {
 		err = user.Keys.ForEach(func(id *keys.PrivateID) error {
 			var decryptErr error
-			message, decryptErr = cipher.TryDecryptAndVerifyMessage(msg, &id.Private)
+			message, decryptErr = cipher.TryDecryptAndVerifyMessage(msg, id.Private)
 			if decryptErr == nil {
-				address = id.Address()
+				address = id.Address().String()
 				ofChan = id.IsChan
 				//id = uid
 				return errSuccessCode
@@ -336,11 +337,11 @@ func (s *server) newBroadcast(counter uint64, object []byte) {
 
 	for _, user := range s.store.Users() {
 
-		err := user.BroadcastAddresses.ForEach(func(addr *bmutil.Address) error {
+		err := user.BroadcastAddresses.ForEach(func(addr bmutil.Address) error {
 			var fromAddress string
 			broadcast, err := cipher.TryDecryptAndVerifyBroadcast(msg, addr)
 			if err == nil {
-				fromAddress, _ = addr.Encode()
+				fromAddress = addr.String()
 			}
 
 			// Read message.
@@ -392,11 +393,12 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 			}
 
 			var cond bool // condition to satisfy
+			address := id.Private.Address()
 			switch header.Version {
 			case obj.SimplePubKeyVersion, obj.ExtendedPubKeyVersion:
-				cond = bytes.Equal(id.Private.Address.Ripe[:], msg.Ripe[:])
+				cond = bytes.Equal(address.RipeHash()[:], msg.Ripe[:])
 			case obj.TagGetPubKeyVersion:
-				cond = bytes.Equal(id.Private.Address.Tag(), msg.Tag[:])
+				cond = bytes.Equal(bmutil.Tag(address)[:], msg.Tag[:])
 			}
 			if cond {
 				privID = id
@@ -416,7 +418,7 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 	serverLog.Infof("Received a getpubkey request for %s, sending out the pubkey.", addr)
 
 	// Generate a pubkey message.
-	pkMsg, err := cipher.GeneratePubKey(&privID.Private, defaultPubkeyExpiry)
+	pkMsg, err := cipher.GeneratePubKey(privID.Private, defaultPubkeyExpiry)
 	if err != nil {
 		serverLog.Errorf("Failed to generate pubkey for %s: %v", addr, err)
 		return
@@ -428,7 +430,7 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 	b := wire.Encode(pkObj)[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
 		uint64(pkHeader.Expiration().Sub(time.Now()).Seconds()),
-		pow.DefaultData)
+		pow.Default)
 
 	s.pow.Run(target, b, func(nonce pow.Nonce) {
 		s.Send(append(nonce.Bytes(), b...))
@@ -449,7 +451,7 @@ func (s *server) pkRequestHandler() {
 			return
 		case <-t.C:
 			var mtx sync.Mutex // Protect the following map
-			addresses := make(map[string]*identity.Public)
+			addresses := make(map[string]identity.Public)
 			var wg sync.WaitGroup
 
 			// Go through our store and check if server has any new public
@@ -496,9 +498,9 @@ func (s *server) pkRequestHandler() {
 				// Process pending messages with this public identity and add
 				// them to pow queue.
 				for _, user := range s.imapUser {
-					err := user.DeliverPublicKey(address, public)
+					err := user.DeliverPublic(address, public)
 					if err != nil {
-						serverLog.Error("DeliverPublicKey failed: ", err)
+						serverLog.Error("DeliverPublic failed: ", err)
 					}
 				}
 
@@ -571,7 +573,7 @@ func (s *server) saveData() {
 // getOrRequestPublicIdentity retrieves the needed public identity from bmd
 // or sends a getpubkey request if it doesn't exist in its database. If both
 // return types are nil, it means a getpubkey request has been queued.
-func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*identity.Public, error) {
+func (s *server) getOrRequestPublicIdentity(user uint32, address string) (identity.Public, error) {
 	serverLog.Debug("getOrRequestPublicIdentity called for ", address)
 	id, err := s.bmd.GetIdentity(address)
 	if err == nil {
@@ -587,17 +589,13 @@ func (s *server) getOrRequestPublicIdentity(user uint32, address string) (*ident
 
 	serverLog.Debug("getOrRequestPublicIdentity: address not found, send pubkey request.")
 	// We don't have the identity so craft a getpubkey request.
-	var tag wire.ShaHash
-	copy(tag[:], addr.Tag())
-
-	msg := obj.NewGetPubKey(0, time.Now().Add(defaultGetpubkeyExpiry),
-		addr.Version, addr.Stream, (*wire.RipeHash)(&addr.Ripe), &tag)
+	msg := obj.NewGetPubKey(0, time.Now().Add(defaultGetpubkeyExpiry), addr)
 
 	// Enqueue the request for proof-of-work.
 	b := wire.Encode(msg)[8:] // exclude nonce
 	target := pow.CalculateTarget(uint64(len(b)),
 		uint64(msg.Header().Expiration().Sub(time.Now()).Seconds()),
-		pow.DefaultData)
+		pow.Default)
 
 	s.pow.Run(target, b, func(nonce pow.Nonce) {
 		err := s.Send(append(nonce.Bytes(), b...))

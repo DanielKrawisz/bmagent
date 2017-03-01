@@ -16,7 +16,6 @@ import (
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/cipher"
 	"github.com/DanielKrawisz/bmutil/format"
-	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/jordwest/imap-server/types"
 	"github.com/mailhog/data"
 )
@@ -159,24 +158,19 @@ type Bmail struct {
 
 // MsgRead creates a Bitmessage object from an unencrypted wire.MsgMsg.
 func MsgRead(msg *cipher.Message, toAddress string, ofChan bool) (*Bmail, error) {
-	data := msg.Bitmessage()
+	bmsg := msg.Bitmessage()
 	object := msg.Object()
 	header := object.Header()
+	from := bmsg.Public
 
-	sign, _ := data.SigningKey.ToBtcec()
-	encr, _ := data.EncryptionKey.ToBtcec()
-	from := identity.NewPublic(sign, encr, data.Pow, data.FromAddressVersion, data.FromStreamNumber)
-	fromAddress, err := from.Address.Encode()
-	if err != nil {
-		return nil, err
-	}
+	fromAddress := from.Address().String()
 
 	return &Bmail{
 		From:       BmToEmail(fromAddress),
 		To:         BmToEmail(toAddress),
 		Expiration: header.Expiration(),
 		OfChannel:  ofChan,
-		Content:    data.Content,
+		Content:    bmsg.Content,
 		Ack:        msg.Ack(),
 	}, nil
 }
@@ -184,22 +178,13 @@ func MsgRead(msg *cipher.Message, toAddress string, ofChan bool) (*Bmail, error)
 // BroadcastRead creates a Bitmessage object from an unencrypted
 // wire.MsgBroadcast.
 func BroadcastRead(msg *cipher.Broadcast) (*Bmail, error) {
-	header := msg.Object().Header()
-	data := msg.Bitmessage()
-
-	sign, _ := data.SigningKey.ToBtcec()
-	encr, _ := data.EncryptionKey.ToBtcec()
-	from := identity.NewPublic(sign, encr, data.Pow, data.FromAddressVersion, data.FromStreamNumber)
-	fromAddress, err := from.Address.Encode()
-	if err != nil {
-		return nil, err
-	}
+	bmsg := msg.Bitmessage()
 
 	return &Bmail{
 		From:       Broadcast,
-		To:         BmToEmail(fromAddress),
-		Expiration: header.Expiration(),
-		Content:    data.Content,
+		To:         BmToEmail(bmsg.Public.Address().String()),
+		Expiration: msg.Object().Header().Expiration(),
+		Content:    bmsg.Content,
 	}, nil
 }
 

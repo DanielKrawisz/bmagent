@@ -87,7 +87,7 @@ var (
 	ErrDuplicateMailbox = errors.New("duplicate mailbox")
 )
 
-// Loader transforms underlying database into Store. 
+// Loader transforms underlying database into Store.
 type Loader struct {
 	db *bolt.DB
 }
@@ -125,7 +125,7 @@ type Store struct {
 	users     map[string]*User
 }
 
-// Users returns the map of users in the Store. 
+// Users returns the map of users in the Store.
 func (s *Store) Users() map[string]*User {
 	return s.users
 }
@@ -140,7 +140,7 @@ func deriveKey(pass, salt []byte) *[keySize]byte {
 	return &key
 }
 
-// IsEncrypted returns whether the store is encrypted. 
+// IsEncrypted returns whether the store is encrypted.
 func (l *Loader) IsEncrypted() bool {
 	if l.db == nil {
 		return false
@@ -413,7 +413,7 @@ func initializeFolders(db *bolt.DB, username string, bucketID []byte) ([]string,
 	return folders, nil
 }
 
-// GetUser returns the User object for the given name. 
+// GetUser returns the User object for the given name.
 func (s *Store) GetUser(name string) (*User, error) {
 	u, ok := s.users[name]
 	if !ok || u == nil {
@@ -422,7 +422,7 @@ func (s *Store) GetUser(name string) (*User, error) {
 	return u, nil
 }
 
-// NewUser creates a new user. 
+// NewUser creates a new user.
 func (s *Store) NewUser(name string) (*User, error) {
 	_, ok := s.users[name]
 	if ok {

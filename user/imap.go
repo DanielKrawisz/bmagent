@@ -12,6 +12,7 @@ import (
 	"github.com/DanielKrawisz/bmagent/keymgr/keys"
 	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmagent/user/email"
+	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/format"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/jordwest/imap-server/mailstore"
@@ -19,10 +20,6 @@ import (
 )
 
 const (
-	// DefaultStream is set as a constant for now until Bitmessage
-	// is popular enough to use more than one stream.
-	DefaultStream = 1
-
 	// DefaultBehavior is the default behavior for a new address.
 	DefaultBehavior = identity.BehaviorAck
 )
@@ -90,7 +87,7 @@ func Initialize(u data.Folders, k keys.Manager, genkeys uint32) error {
 
 	var i uint32
 	for i = 0; i < genkeys; i++ {
-		k.NewUnnamed(DefaultStream, DefaultBehavior)
+		k.NewUnnamed(bmutil.DefaultStream, DefaultBehavior)
 	}
 
 	// For each key, create a mailbox.

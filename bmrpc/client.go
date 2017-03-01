@@ -114,7 +114,7 @@ func NewClient(cfg *ClientConfig, msg, broadcast, getpubkey func(counter uint64,
 
 // GetIdentity returns the public identity corresponding to the given address
 // if it exists.
-func (c *Client) GetIdentity(address string) (*identity.Public, error) {
+func (c *Client) GetIdentity(address string) (identity.Public, error) {
 	addr, err := bmutil.DecodeAddress(address)
 	if err != nil {
 		return nil, fmt.Errorf("Address decode failed: %v", addr)
@@ -129,7 +129,7 @@ func (c *Client) GetIdentity(address string) (*identity.Public, error) {
 		return nil, err
 	}
 
-	signKey, err := btcec.ParsePubKey(res.SigningKey, btcec.S256())
+	verKey, err := btcec.ParsePubKey(res.SigningKey, btcec.S256())
 	if err != nil {
 		return nil, err
 	}
@@ -138,11 +138,16 @@ func (c *Client) GetIdentity(address string) (*identity.Public, error) {
 		return nil, err
 	}
 
-	return identity.NewPublic(signKey, encKey,
+	return identity.NewPublic(
+		&identity.PublicKey{
+			Verification: (*identity.PubKey)(verKey),
+			Encryption:   (*identity.PubKey)(encKey),
+		},
+		addr.Version(), addr.Stream(), res.Behavior,
 		&pow.Data{
 			res.NonceTrials,
 			res.ExtraBytes,
-		}, addr.Version, addr.Stream), nil
+		})
 }
 
 // SendObject sends the given object to bmd so that it can send it out to the

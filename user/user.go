@@ -14,6 +14,7 @@ import (
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmagent/user/email"
+	"github.com/DanielKrawisz/bmutil/hash"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/wire"
 	"github.com/jordwest/imap-server/mailstore"
@@ -49,7 +50,7 @@ type User struct {
 
 	// A map from ack strings to message uids. When an ack is received,
 	// we mark off a message as having been received by the recipient.
-	acks       map[wire.ShaHash]uint64
+	acks       map[hash.Sha]uint64
 	expiration ObjectExpiration
 
 	// The set of all private keys for this user.
@@ -71,7 +72,7 @@ func NewUser(username string, privateIds keys.Manager, expiration ObjectExpirati
 		boxes:    make(map[string]*mailbox),
 		server:   server,
 		keys:     privateIds,
-		acks:     make(map[wire.ShaHash]uint64),
+		acks:     make(map[hash.Sha]uint64),
 	}
 
 	// The user is allowed to save in some mailboxes but not others.
@@ -160,10 +161,10 @@ func (u *User) DeliverFromSMTP(smtp *smtp.Content) error {
 	return u.process(bmsg)
 }
 
-// DeliverPublicKey takes a public key and attempts to match it with a message.
+// DeliverPublic takes a public key and attempts to match it with a message.
 // If a matching message is found, the message is encoded to the wire format
 // and sent to the pow queue.
-func (u *User) DeliverPublicKey(bmaddr string, public *identity.Public) error {
+func (u *User) DeliverPublic(bmaddr string, public identity.Public) error {
 	email.SMTPLog.Debug("Deliver Public Key for address ", bmaddr)
 
 	// Ensure that the address given is in the form of a bitmessage address.
@@ -224,7 +225,7 @@ func (u *User) Move(bmsg *email.Bmail, from, to string) error {
 
 // DeliverAckReply takes a message ack and marks a message as having been
 // received by the recipient.
-func (u *User) DeliverAckReply(hash *wire.ShaHash) error {
+func (u *User) DeliverAckReply(hash *hash.Sha) error {
 	uid, ok := u.acks[*hash]
 	if !ok {
 		return ErrUnrecognizedAck

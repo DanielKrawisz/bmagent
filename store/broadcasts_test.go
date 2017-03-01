@@ -48,7 +48,7 @@ func TestBroadcastAddresses(t *testing.T) {
 
 	// Check if ForEach works correctly with no addresses in store.
 	counter := 0
-	u.BroadcastAddresses.ForEach(func(*bmutil.Address) error {
+	u.BroadcastAddresses.ForEach(func(bmutil.Address) error {
 		counter++
 		return nil
 	})
@@ -68,7 +68,7 @@ func TestBroadcastAddresses(t *testing.T) {
 
 	// Check if both addresses have been correctly added.
 	counter = 0
-	u.BroadcastAddresses.ForEach(func(*bmutil.Address) error {
+	u.BroadcastAddresses.ForEach(func(bmutil.Address) error {
 		counter++
 		return nil
 	})

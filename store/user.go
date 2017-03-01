@@ -9,7 +9,7 @@ import (
 	"github.com/boltdb/bolt"
 )
 
-// User contains all the information relevant for a single user. 
+// User contains all the information relevant for a single user.
 type User struct {
 	masterKey          *[keySize]byte // can be nil.
 	db                 *bolt.DB
