@@ -3,7 +3,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package keymgr
+package idmgr
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmagent/idmgr/keys"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"

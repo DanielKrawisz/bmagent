@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmagent/idmgr/keys"
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/store/data"
 	"github.com/DanielKrawisz/bmagent/user/email"

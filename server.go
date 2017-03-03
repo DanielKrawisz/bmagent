@@ -17,7 +17,7 @@ import (
 	"time"
 
 	rpc "github.com/DanielKrawisz/bmagent/bmrpc"
-	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmagent/idmgr/keys"
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmagent/user"

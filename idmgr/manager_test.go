@@ -3,7 +3,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package keymgr_test
+package idmgr_test
 
 import (
 	"bytes"
@@ -11,8 +11,8 @@ import (
 	"io/ioutil"
 	"testing"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
-	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmagent/idmgr"
+	"github.com/DanielKrawisz/bmagent/idmgr/keys"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/DanielKrawisz/bmutil/pow"
 )
@@ -20,7 +20,7 @@ import (
 func TestOperation(t *testing.T) {
 	// Initialize a new key manager.
 	seed := []byte("a secure psuedorandom seed (clearly not)")
-	mgr, err := keymgr.New(seed)
+	mgr, err := idmgr.New(seed)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestOperation(t *testing.T) {
 
 	// Create a new key manager from the encrypted data and check if it's like
 	// the original.
-	mgr1, err := keymgr.FromEncrypted(encData, pass)
+	mgr1, err := idmgr.FromEncrypted(encData, pass)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestOperation(t *testing.T) {
 		t.Errorf("invalid numImported for no identity, expected %d got %d",
 			0, n)
 	}
-	err = mgr1.ForEach(func(id keymgr.PrivateID) error {
+	err = mgr1.ForEach(func(id idmgr.PrivateID) error {
 		if bytes.Equal(id.Tag(), privacyChan.Tag()) {
 			return errors.New("should not happen")
 		}
@@ -143,13 +143,13 @@ func TestOperation(t *testing.T) {
 
 func TestErrors(t *testing.T) {
 	// Encrypted data is too small.
-	_, err := keymgr.FromEncrypted([]byte{0x00}, []byte{0x00})
+	_, err := idmgr.FromEncrypted([]byte{0x00}, []byte{0x00})
 	if err == nil {
 		t.Error("didn't get error on small ciphertext")
 	}
 
 	// Decryption failure.
-	_, err = keymgr.FromEncrypted(bytes.Repeat([]byte{0x00}, 100), []byte("pass"))
+	_, err = idmgr.FromEncrypted(bytes.Repeat([]byte{0x00}, 100), []byte("pass"))
 	if err == nil {
 		t.Error("decryption failure did not give error")
 	}
@@ -166,7 +166,7 @@ func testImportKeyFile(t *testing.T, testID int, file string, addresses map[stri
 
 	// Create new key manager.
 	seed := []byte(fmt.Sprintf("Another secure seed: %d", testID))
-	mgr, err := keymgr.New(seed)
+	mgr, err := idmgr.New(seed)
 	if err != nil {
 		t.Error(testID, err)
 		return

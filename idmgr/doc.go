@@ -3,7 +3,7 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-// Package keymgr is a key manager designed for use with bmagent, but which
+// Package idmgr is a key manager designed for use with bmagent, but which
 // can also be used independently. It handles and handles hierarchically
 // deterministic keys, imported keys (from PyBitmessage or other legacy
 // systems), as well as channels.
@@ -33,4 +33,4 @@
 //
 // WARNING (again): The key manager is insecure against memory reading malware
 //                  and is at the mercy of Go's garbage collector.
-package keymgr
+package idmgr

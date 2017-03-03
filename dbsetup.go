@@ -19,7 +19,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/idmgr"
 	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmagent/user"
 	"github.com/btcsuite/btcutil/hdkeychain"
@@ -288,7 +288,7 @@ func createDatabases(cfg *Config) error {
 	}
 
 	// Intialize key manager with seed.
-	kmgr, err := keymgr.New(seed)
+	kmgr, err := idmgr.New(seed)
 	if err != nil {
 		return err
 	}
@@ -351,9 +351,9 @@ func createDatabases(cfg *Config) error {
 	return nil
 }
 
-// openDatabases returns an instance of keymgr.Manager, and store.Store based on
+// openDatabases returns an instance of idmgr.Manager, and store.Store based on
 // the configuration.
-func openDatabases(cfg *Config) (*keymgr.Manager, *store.Store, *store.PKRequests, error) {
+func openDatabases(cfg *Config) (*idmgr.Manager, *store.Store, *store.PKRequests, error) {
 
 	// Read key file.
 	keyFile, err := ioutil.ReadFile(cfg.keyfilePath)
@@ -361,11 +361,11 @@ func openDatabases(cfg *Config) (*keymgr.Manager, *store.Store, *store.PKRequest
 		return nil, nil, nil, err
 	}
 
-	var kmgr *keymgr.Manager
+	var kmgr *idmgr.Manager
 
 	if cfg.NoPass { // If allowed, check for plaintext key file.
 		// Attempt to load unencrypted key file.
-		kmgr, err = keymgr.FromPlaintext(bytes.NewBuffer(keyFile))
+		kmgr, err = idmgr.FromPlaintext(bytes.NewBuffer(keyFile))
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -380,7 +380,7 @@ func openDatabases(cfg *Config) (*keymgr.Manager, *store.Store, *store.PKRequest
 		}
 
 		// Create an instance of key manager.
-		kmgr, err = keymgr.FromEncrypted(keyFile, keyfilePass)
+		kmgr, err = idmgr.FromEncrypted(keyFile, keyfilePass)
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("Failed to create key manager: %v", err)
 		}
@@ -418,7 +418,7 @@ func openDatabases(cfg *Config) (*keymgr.Manager, *store.Store, *store.PKRequest
 
 // importKeyfile is used to import a keys.dat file from PyBitmessage. It adds
 // private keys to the key manager.
-func importKeyfile(kmgr *keymgr.Manager, file string) error {
+func importKeyfile(kmgr *idmgr.Manager, file string) error {
 	b, err := ioutil.ReadFile(file)
 	if err != nil {
 		return err

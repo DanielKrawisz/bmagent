@@ -3,14 +3,14 @@
 // Use of this source code is governed by an ISC
 // license that can be found in the LICENSE file.
 
-package keymgr
+package idmgr
 
 import (
 	"encoding/json"
 	"errors"
 	"io"
 
-	"github.com/DanielKrawisz/bmagent/keymgr/keys"
+	"github.com/DanielKrawisz/bmagent/idmgr/keys"
 )
 
 // dbInitSize is the size of the ImportedIDs and DerivedIDs slices.

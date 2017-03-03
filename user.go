@@ -7,13 +7,13 @@ package main
 import (
 	"io/ioutil"
 
-	"github.com/DanielKrawisz/bmagent/keymgr"
+	"github.com/DanielKrawisz/bmagent/idmgr"
 )
 
 // User contains the information relevant from the
 // standpoint of the server that is associated with the individual user.
 type User struct {
-	Keys     *keymgr.Manager
+	Keys     *idmgr.Manager
 	Path     string
 	Username string
 	Pass     []byte
@@ -24,7 +24,7 @@ func (u *User) SaveKeyfile() {
 	saveKeyfile(u.Keys, u.Path, u.Pass)
 }
 
-func saveKeyfile(keys *keymgr.Manager, path string, pass []byte) {
+func saveKeyfile(keys *idmgr.Manager, path string, pass []byte) {
 	var serialized []byte
 	var err error
 
