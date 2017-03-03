@@ -13,15 +13,15 @@ type helpResponse struct {
 	long     bool
 }
 
-type helpRequest struct {
+type helpCommand struct {
 	commands []string
 }
 
 // Execute executes the help request using the given user.
-func (r *helpRequest) Execute(u User) (Response, error) {
+func (r *helpCommand) Execute(u User) (Response, error) {
 	if len(r.commands) == 0 {
 		return &helpResponse{
-			commands: CommandList,
+			commands: Commands,
 			long:     false,
 		}, nil
 	}
@@ -33,11 +33,11 @@ func (r *helpRequest) Execute(u User) (Response, error) {
 }
 
 // RPC transforms the Response into the protobuf reply.
-func (r *helpRequest) RPC() (*rpc.BMRPCRequest, error) {
+func (r *helpCommand) RPC() (*rpc.BMRPCRequest, error) {
 	return nil, nil // TODO
 }
 
-func readHelpRequest(param []string) (Request, error) {
+func readHelpCommand(param []string) (Command, error) {
 	for _, p := range param {
 		_, ok := commands[p]
 		if !ok {
@@ -46,29 +46,29 @@ func readHelpRequest(param []string) (Request, error) {
 	}
 
 	sort.Strings(param)
-	return &helpRequest{
+	return &helpCommand{
 		commands: param,
 	}, nil
 }
 
-func buildHelpRequest(r *rpc.BMRPCRequest) (Request, error) {
+func buildHelpCommand(r *rpc.BMRPCRequest) (Command, error) {
 	return nil, nil // TODO
 }
 
-var helpCommand = command{
+var help = command{
 	help: "provides instructions on commands.",
 	patterns: []Pattern{
 		Pattern{
 			key:   []Key{},
 			help:  "Print instructions for all commands.",
-			read:  readHelpRequest,
-			proto: buildHelpRequest,
+			read:  readHelpCommand,
+			proto: buildHelpCommand,
 		},
 		Pattern{
 			key:   []Key{KeySymbol, KeyRepeated},
 			help:  "Print instructions for specified commands.",
-			read:  readHelpRequest,
-			proto: buildHelpRequest,
+			read:  readHelpCommand,
+			proto: buildHelpCommand,
 		},
 	},
 }

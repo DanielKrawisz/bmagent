@@ -64,8 +64,8 @@ func keyString(key Key) string {
 type Pattern struct {
 	help  string
 	key   []Key
-	read  func([]string) (Request, error)
-	proto func(*rpc.BMRPCRequest) (Request, error)
+	read  func([]string) (Command, error)
+	proto func(*rpc.BMRPCRequest) (Command, error)
 }
 
 func patternString(keys []Key) string {

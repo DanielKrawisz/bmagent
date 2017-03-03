@@ -13,22 +13,22 @@ type newAddressResponse struct {
 	address bmutil.Address
 }
 
-type newAddressRequest struct {
+type newAddressCommand struct {
 	ack bool
 	tag string // Currently unused, but should be used in the future.
 }
 
-func (r *newAddressRequest) Execute(u User) (Response, error) {
+func (r *newAddressCommand) Execute(u User) (Response, error) {
 	return &newAddressResponse{
 		address: u.NewAddress("", r.ack),
 	}, nil
 }
 
-func (r *newAddressRequest) RPC() (*rpc.BMRPCRequest, error) {
+func (r *newAddressCommand) RPC() (*rpc.BMRPCRequest, error) {
 	return nil, nil // TODO
 }
 
-func readNewAddressRequest(param []string) (Request, error) {
+func readNewAddressCommand(param []string) (Command, error) {
 	var sendAck bool
 	var err error
 	switch len(param) {
@@ -46,30 +46,30 @@ func readNewAddressRequest(param []string) (Request, error) {
 		}
 	}
 
-	return &newAddressRequest{
+	return &newAddressCommand{
 		ack: sendAck,
 	}, nil
 }
 
-func buildNewAddressRequest(r *rpc.BMRPCRequest) (Request, error) {
+func buildNewAddressCommand(r *rpc.BMRPCRequest) (Command, error) {
 	// TODO be sure to check that the version is always 4.
 	return nil, nil // TODO
 }
 
-var newAddressCommand = command{
+var newAddress = command{
 	help: "creates a new address.",
 	patterns: []Pattern{
 		Pattern{
 			key:   []Key{},
 			help:  "Create a new unnamed address.",
-			read:  readNewAddressRequest,
-			proto: buildNewAddressRequest,
+			read:  readNewAddressCommand,
+			proto: buildNewAddressCommand,
 		},
 		Pattern{
 			key:   []Key{KeyBoolean},
 			help:  "Create a new unnamed address.",
-			read:  readNewAddressRequest,
-			proto: buildNewAddressRequest,
+			read:  readNewAddressCommand,
+			proto: buildNewAddressCommand,
 		},
 	},
 }

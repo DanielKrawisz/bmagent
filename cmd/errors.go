@@ -23,6 +23,9 @@ var (
 
 	// ErrInvalidType is returned when the type provided cannot be read.
 	ErrInvalidType = errors.New("Cannot read the given type.")
+
+	// ErrInvalidRPCRequest is returned when an rpc request is invalid.
+	ErrInvalidRPCRequest = errors.New("Invalid rpc request.")
 )
 
 // ErrUnknownCommand implements the error interface
@@ -33,7 +36,7 @@ type ErrUnknownCommand struct {
 
 // Error constructs the error message as a string.
 func (err *ErrUnknownCommand) Error() string {
-	return fmt.Sprintf("Unknown command %s.", err.Command)
+	return fmt.Sprintf("Unknown command %s", err.Command)
 }
 
 // ErrUnrecognizedPattern implements the error interface and and
@@ -58,6 +61,17 @@ func newErrUnrecognizedPattern(command string, pattern []Pattern) *ErrUnrecogniz
 		command:            command,
 		recognizedPatterns: recognizedPatterns(pattern),
 	}
+}
+
+// ErrUnimplemented implements the error interface
+// and is returned when a user calls an unimplemented command.
+type ErrUnimplemented struct {
+	Command string
+}
+
+// Error constructs the error message as a string.
+func (err *ErrUnimplemented) Error() string {
+	return fmt.Sprintf("Command %s has not yet been implemented.", err.Command)
 }
 
 // ErrInvalidNumberOfParameters is an error representing an invalid number

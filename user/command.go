@@ -19,14 +19,10 @@ func (u *User) executeCommand(from, name, params string) error {
 	// Get the inbox.
 	commandFolder := u.boxes[CommandsFolderName]
 
-	bm, err := cmd.EmailCommand(u, from, "command@bm.agent", name, strings.Fields(params))
-
-	if err != nil {
-		return err
-	}
+	bm := cmd.EmailCommand(u, from, "command@bm.agent", name, strings.Fields(params))
 
 	// Email ourselves the response.
-	err = commandFolder.AddNew(bm, types.FlagRecent)
+	err := commandFolder.AddNew(bm, types.FlagRecent)
 	if err != nil {
 		return err
 	}
