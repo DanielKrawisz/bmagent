@@ -4,8 +4,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/DanielKrawisz/bmagent/cmd/rpc"
 )
 
 // Key is an element of the patterns used to define command parameters
@@ -62,10 +60,9 @@ func keyString(key Key) string {
 // Pattern represents a valid way of interpreting a command with a set of
 // parameters.
 type Pattern struct {
-	help  string
-	key   []Key
-	read  func([]string) (Command, error)
-	proto func(*rpc.BMRPCRequest) (Command, error)
+	help string
+	key  []Key
+	read func([]string) (Command, error)
 }
 
 func patternString(keys []Key) string {

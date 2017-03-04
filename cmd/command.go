@@ -51,7 +51,9 @@ var Unimplemented = []string{
 //      All protobuf message definitions must include an optional uint32
 //      version.
 //   2. Make a file called dosomething.go in cmd.
-//   3. Make a struct called doSomethingResponse which implements Response.
+//   3. Make a member function called Message in rpc/proto.go for the
+//      protobuf object that I just created.
+//   4. Make a struct called doSomethingResponse which implements Response.
 
 // Response is the type returned by a command. It can be delivered to
 // the user as a json object or as an email.
@@ -60,7 +62,7 @@ type Response interface {
 	RPC() *rpc.BMRPCReply
 }
 
-//   4. Make a struct called doSomethingCommand which implements Command.
+//   5. Make a struct called doSomethingCommand which implements Command.
 
 // Command is the type created from the input through the user interface,
 // either via email or via rpc.
@@ -69,14 +71,14 @@ type Command interface {
 	RPC() (*rpc.BMRPCRequest, error)
 }
 
-//   5. Make a function called readDoSomethingCommand which translates a
+//   6. Make a function called readDoSomethingCommand which translates a
 //      parameter list provided by email into a doSomethingCommand. If there
 //      are multiple patterns of parameter lists which make an acceptable
 //      request, you may make multiple functions called doSomethingCommandX,
 //      where X is the name of the pattern.
-//   6. Make a function called buildDoSomethingCommand which takes an
+//   7. Make a function called buildDoSomethingCommand which takes an
 //      protobuf Command and translates it into a doSomethingCommand.
-//   7. Make an instance of command called doSomething which includes a help
+//   8. Make an instance of command called doSomething which includes a help
 //      message and a list of pattern objects. init() insures that any program
 //      using this package will panic if not all help messages are provided.
 
@@ -86,7 +88,7 @@ type command struct {
 }
 
 //   9. Add dosomething to Commands (see above).
-//   8. In command.go, add a line to init() which adds a dosomething entry to
+//  10. In command.go, add a line to init() which adds a dosomething entry to
 //      commands.
 
 var commands = make(map[string]command)

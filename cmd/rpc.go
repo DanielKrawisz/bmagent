@@ -10,9 +10,22 @@ import (
 	"github.com/DanielKrawisz/bmagent/cmd/rpc"
 )
 
-// BuildCommand translates a rpc request into a Command type.
+// BuildCommand translates an rpc request into a Command type.
 func BuildCommand(r *rpc.BMRPCRequest) (Command, error) {
-	return nil, ErrInvalidRPCRequest // TODO
+	if r == nil || r.Request == nil || r.Version == nil || *r.Version != 1 {
+		return nil, ErrInvalidRPCRequest
+	}
+
+	switch r := r.Request.(type) {
+	default:
+		return nil, ErrInvalidRPCRequest
+	case *rpc.BMRPCRequest_Help:
+		return buildHelpCommand(r.Help)
+	case *rpc.BMRPCRequest_Newaddress:
+		return buildNewAddressCommand(r.Newaddress)
+	case *rpc.BMRPCRequest_Listaddresses:
+		return buildListAddressesCommand(r.Listaddresses)
+	}
 }
 
 // RPCCommand manages a request sent via an rpc interface.
@@ -32,18 +45,29 @@ func RPCCommand(u User, request *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
 	return response.RPC(), nil
 }
 
-type grpcServer struct {
+// RPCServer is a server that can listen and execute rpc commands.
+type RPCServer struct {
 	u User
 }
 
-// GetFeature returns the feature at the given point.
-func (s *grpcServer) BMAgentRequest(ctx context.Context, req *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
+// BMAgentRequest returns the feature at the given point.
+func (s *RPCServer) BMAgentRequest(ctx context.Context, req *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
 	// TODO check signaturee.
 
 	var reply *rpc.BMRPCReply
 	reply, err := RPCCommand(s.u, req)
 	if err != nil {
-		// TODO make error reply for this.
+		v := uint32(1)
+		er := err.Error()
+		return &rpc.BMRPCReply{
+			Version: &v,
+			Reply: &rpc.BMRPCReply_ErrorReply{
+				ErrorReply: &rpc.ErrorReply{
+					Version: &v,
+					Error:   &er,
+				},
+			},
+		}, nil
 	}
 
 	// TODO sign the reply.
@@ -51,25 +75,25 @@ func (s *grpcServer) BMAgentRequest(ctx context.Context, req *rpc.BMRPCRequest) 
 	return reply, nil
 }
 
-func newServer(u User) *grpcServer {
-	s := grpcServer{
+func newServer(u User) *RPCServer {
+	return &RPCServer{
 		u: u,
 	}
-	return &s
 }
 
-// GRPCServe sets up the GRPC server.
-func GRPCServe(u User, port uint32) error {
+// GRPCServer creates and starts a- GRPC server.
+func GRPCServer(u User, port uint32) (*RPCServer, error) {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
-		return fmt.Errorf("failed to listen: %v", err)
+		return nil, fmt.Errorf("failed to listen: %v", err)
 	}
 
+	rpcServer := newServer(u)
 	grpcServer := grpc.NewServer(nil)
-	rpc.RegisterBMAgentRPCServer(grpcServer, newServer(u))
+	rpc.RegisterBMAgentRPCServer(grpcServer, rpcServer)
 	grpcServer.Serve(lis)
 
-	return nil
+	return rpcServer, nil
 }
 
 // ØMQServe sets up the ØMQ Server

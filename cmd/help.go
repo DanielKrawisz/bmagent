@@ -34,7 +34,16 @@ func (r *helpCommand) Execute(u User) (Response, error) {
 
 // RPC transforms the Response into the protobuf reply.
 func (r *helpCommand) RPC() (*rpc.BMRPCRequest, error) {
-	return nil, nil // TODO
+	version := uint32(1)
+	return &rpc.BMRPCRequest{
+		Version: &version,
+		Request: &rpc.BMRPCRequest_Help{
+			Help: &rpc.HelpRequest{
+				Version:  &version,
+				Requests: r.commands,
+			},
+		},
+	}, nil
 }
 
 func readHelpCommand(param []string) (Command, error) {
@@ -51,24 +60,35 @@ func readHelpCommand(param []string) (Command, error) {
 	}, nil
 }
 
-func buildHelpCommand(r *rpc.BMRPCRequest) (Command, error) {
-	return nil, nil // TODO
+func buildHelpCommand(r *rpc.HelpRequest) (Command, error) {
+	if r == nil || r.Version == nil || *r.Version != 1 || r.Requests == nil {
+		return nil, ErrInvalidRPCRequest
+	}
+
+	// Check if the values all correspond to commands.
+	for _, req := range r.Requests {
+		if _, ok := commands[req]; !ok {
+			return nil, &ErrUnknownCommand{req}
+		}
+	}
+
+	return &helpCommand{
+		commands: r.Requests,
+	}, nil
 }
 
 var help = command{
 	help: "provides instructions on commands.",
 	patterns: []Pattern{
 		Pattern{
-			key:   []Key{},
-			help:  "Print instructions for all commands.",
-			read:  readHelpCommand,
-			proto: buildHelpCommand,
+			key:  []Key{},
+			help: "Print instructions for all commands.",
+			read: readHelpCommand,
 		},
 		Pattern{
-			key:   []Key{KeySymbol, KeyRepeated},
-			help:  "Print instructions for specified commands.",
-			read:  readHelpCommand,
-			proto: buildHelpCommand,
+			key:  []Key{KeySymbol, KeyRepeated},
+			help: "Print instructions for specified commands.",
+			read: readHelpCommand,
 		},
 	},
 }
@@ -95,7 +115,22 @@ func (r *helpResponse) String() string {
 
 // RPC transforms the Response into the protobuf reply.
 func (r *helpResponse) RPC() *rpc.BMRPCReply {
-	return nil // TODO
+	instructions := make([]string, len(r.commands))
+
+	for i, cmdName := range r.commands {
+		instructions[i] = commands[cmdName].help
+	}
+
+	version := uint32(1)
+	return &rpc.BMRPCReply{
+		Version: &version,
+		Reply: &rpc.BMRPCReply_HelpReply{
+			HelpReply: &rpc.HelpReply{
+				Version:      &version,
+				Instructions: instructions,
+			},
+		},
+	}
 }
 
 // helpMessageShort writes a short help message for a command.

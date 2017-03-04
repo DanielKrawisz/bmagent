@@ -51,25 +51,23 @@ func readNewAddressCommand(param []string) (Command, error) {
 	}, nil
 }
 
-func buildNewAddressCommand(r *rpc.BMRPCRequest) (Command, error) {
+func buildNewAddressCommand(r *rpc.NewAddressRequest) (Command, error) {
 	// TODO be sure to check that the version is always 4.
-	return nil, nil // TODO
+	return nil, &ErrUnimplemented{"newaddress"}
 }
 
 var newAddress = command{
 	help: "creates a new address.",
 	patterns: []Pattern{
 		Pattern{
-			key:   []Key{},
-			help:  "Create a new unnamed address.",
-			read:  readNewAddressCommand,
-			proto: buildNewAddressCommand,
+			key:  []Key{},
+			help: "Create a new unnamed address.",
+			read: readNewAddressCommand,
 		},
 		Pattern{
-			key:   []Key{KeyBoolean},
-			help:  "Create a new unnamed address.",
-			read:  readNewAddressCommand,
-			proto: buildNewAddressCommand,
+			key:  []Key{KeyBoolean},
+			help: "Create a new unnamed address.",
+			read: readNewAddressCommand,
 		},
 	},
 }

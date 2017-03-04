@@ -14,16 +14,6 @@ enum BitmessageRPCType {
     BMRPC_PUSHNOTIFY = 3;
 }
 
-enum RequestType {
-    ERROR = 0;
-	HELP = 1;
-    NEWADDRESS = 2;
-    GETMESSAGES = 3;
-    DELETEMESSAGES = 4;
-	SUBSCRIBE = 5;
-	SEND = 6;
-}
-
 enum BitmessageReplyStatus {
     BMRPCSTATUS_ERROR = 0;
     BMRPCSTATUS_SUCCESS = 1;
@@ -69,12 +59,9 @@ message BMRPCRequest {
 	optional string id = 2;
 	optional bytes cookie = 3;
 	optional bytes pubkey = 4;
-	optional RequestType type = 5;
 	optional bytes signature = 6;
 	oneof request {
 		NewAddressRequest newaddress = 9;
-		BitmessageSelector messageselector = 10;
-    	SendBitmessage sendbitmessage = 11;
 		HelpRequest help = 12;
 		ListAddressesRequest listaddresses = 13;
     }
@@ -84,13 +71,13 @@ message BMRPCReply {
     optional uint32 version = 1;
     optional string id = 2;
     optional string requestid = 3;
-    optional RequestType type = 4;
     optional BitmessageReplyStatus status = 5;
 	optional bytes signature = 6;
     oneof reply {
 		ErrorReply errorReply = 8;
-        NewAddressReply newaddress = 9;
+		NewAddressReply newaddress = 9;
 		ListAddressesReply listaddresses = 10;
+		HelpReply helpReply = 11;
     }
 }
 
@@ -125,7 +112,7 @@ message BitmessageSelector {
     optional MessageSelector selector = 5;
 }
 
-message SendBitmessage {
+message SendBitmessageRequest {
     optional uint32 version = 1;
     optional string sender = 2;
     repeated string recipient = 3;
@@ -180,10 +167,10 @@ message TextBitmessage {
 
 message HelpRequest {
 	optional uint32 version = 1;
-	repeated RequestType requests = 2;
+	repeated string requests = 2;
 }
 
-message HelpResponse {
+message HelpReply {
 	optional uint32 version = 1;
 	repeated string instructions = 2;
 }
