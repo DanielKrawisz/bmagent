@@ -3,6 +3,10 @@ syntax = "proto2";
 package rpc;
 option optimize_for = LITE_RUNTIME;
 
+service BMAgentRPC {
+	rpc BMAgentRequest(BMRPCRequest) returns (BMRPCReply) {}
+}
+
 enum BitmessageRPCType {
     BMRPC_ERROR = 0;
     BMRPC_REQUEST = 1;
@@ -66,6 +70,7 @@ message BMRPCRequest {
 	optional bytes cookie = 3;
 	optional bytes pubkey = 4;
 	optional RequestType type = 5;
+	optional bytes signature = 6;
 	oneof request {
 		NewAddressRequest newaddress = 9;
 		BitmessageSelector messageselector = 10;
@@ -81,12 +86,17 @@ message BMRPCReply {
     optional string requestid = 3;
     optional RequestType type = 4;
     optional BitmessageReplyStatus status = 5;
+	optional bytes signature = 6;
     oneof reply {
+		ErrorReply errorReply = 8;
         NewAddressReply newaddress = 9;
 		ListAddressesReply listaddresses = 10;
     }
-    repeated string messageID = 17;
-    repeated Bitmessage message = 18;
+}
+
+message ErrorReply {
+	optional uint32 version = 1;
+	optional string error = 2;
 }
 
 message BMRPCPush {
@@ -132,7 +142,7 @@ message ListAddressesRequest {
 
 message NewAddressReply {
     optional uint32 version = 1;
-    repeated string address = 2;
+    optional BitmessageAddress address = 2;
 }
 
 message ListAddressesReply {

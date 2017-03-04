@@ -34,6 +34,7 @@ func run(cmdName string, args []string) error {
 func main() {
 	if len(os.Args) < 2 {
 		println("Put a help message here.")
+		return
 	}
 	
 	name := os.Args[1]
