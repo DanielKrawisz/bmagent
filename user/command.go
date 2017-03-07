@@ -31,7 +31,7 @@ func (u *User) executeCommand(from, name, params string) error {
 }
 
 // NewAddress creates n new keys for the user.
-func (u *User) NewAddress(tag string, sendAck bool) bmutil.Address {
+func (u *User) NewAddress(tag string, sendAck bool) identity.Public {
 	var behavior uint32
 
 	if sendAck {
@@ -39,5 +39,5 @@ func (u *User) NewAddress(tag string, sendAck bool) bmutil.Address {
 	}
 
 	// first generate the new keys.
-	return u.keys.NewUnnamed(bmutil.DefaultStream, behavior).Private.Public().Address()
+	return u.keys.NewUnnamed(bmutil.DefaultStream, behavior).Private.Public()
 }

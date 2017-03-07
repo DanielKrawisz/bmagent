@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"github.com/DanielKrawisz/bmagent/cmd/rpc"
-	"github.com/DanielKrawisz/bmutil"
+	"github.com/DanielKrawisz/bmutil/identity"
 )
 
 // DefaultSendAck is set to true, which means that new addresses by default
@@ -10,7 +10,7 @@ import (
 const DefaultSendAck = true
 
 type newAddressResponse struct {
-	address bmutil.Address
+	address identity.Public
 }
 
 type newAddressCommand struct {
@@ -74,7 +74,7 @@ var newAddress = command{
 
 // String writes the help response as a string.
 func (r *newAddressResponse) String() string {
-	return r.address.String()
+	return r.address.Address().String()
 }
 
 func (r *newAddressResponse) RPC() *rpc.BMRPCReply {

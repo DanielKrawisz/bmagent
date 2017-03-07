@@ -50,5 +50,5 @@ func (r *HelpReply) Message() string {
 		return ""
 	}
 
-	return ""
+	return "You have been helped."
 }

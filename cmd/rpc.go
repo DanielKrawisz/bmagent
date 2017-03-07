@@ -1,17 +1,24 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
-	"net"
+	"sync"
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 
-	"github.com/DanielKrawisz/bmagent/cmd/rpc"
+	"github.com/DanielKrawisz/bmagent/bmrpc"
+	pb "github.com/DanielKrawisz/bmagent/cmd/rpc"
+	rpc "github.com/DanielKrawisz/bmd/rpc"
 )
 
+// ErrServerStopped is returned when an rpc call is made and the server
+// isn't running.
+var ErrServerStopped = errors.New("Server is not running.")
+
 // BuildCommand translates an rpc request into a Command type.
-func BuildCommand(r *rpc.BMRPCRequest) (Command, error) {
+func BuildCommand(r *pb.BMRPCRequest) (Command, error) {
 	if r == nil || r.Request == nil || r.Version == nil || *r.Version != 1 {
 		return nil, ErrInvalidRPCRequest
 	}
@@ -19,17 +26,17 @@ func BuildCommand(r *rpc.BMRPCRequest) (Command, error) {
 	switch r := r.Request.(type) {
 	default:
 		return nil, ErrInvalidRPCRequest
-	case *rpc.BMRPCRequest_Help:
+	case *pb.BMRPCRequest_Help:
 		return buildHelpCommand(r.Help)
-	case *rpc.BMRPCRequest_Newaddress:
+	case *pb.BMRPCRequest_Newaddress:
 		return buildNewAddressCommand(r.Newaddress)
-	case *rpc.BMRPCRequest_Listaddresses:
+	case *pb.BMRPCRequest_Listaddresses:
 		return buildListAddressesCommand(r.Listaddresses)
 	}
 }
 
 // RPCCommand manages a request sent via an rpc interface.
-func RPCCommand(u User, request *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
+func RPCCommand(u User, request *pb.BMRPCRequest) (*pb.BMRPCReply, error) {
 	// Attempt to build a command from the request.
 	command, err := BuildCommand(request)
 	if err != nil {
@@ -47,22 +54,31 @@ func RPCCommand(u User, request *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
 
 // RPCServer is a server that can listen and execute rpc commands.
 type RPCServer struct {
-	u User
+	rpc.Server
+	u     User
+	mutex sync.Mutex
 }
 
 // BMAgentRequest returns the feature at the given point.
-func (s *RPCServer) BMAgentRequest(ctx context.Context, req *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
+func (s *RPCServer) BMAgentRequest(ctx context.Context, req *pb.BMRPCRequest) (*pb.BMRPCReply, error) {
+	s.Server.Lock()
+	defer s.Server.Unlock()
+
+	if s.Server.Running() {
+		return nil, ErrServerStopped
+	}
+
 	// TODO check signaturee.
 
-	var reply *rpc.BMRPCReply
+	var reply *pb.BMRPCReply
 	reply, err := RPCCommand(s.u, req)
 	if err != nil {
 		v := uint32(1)
 		er := err.Error()
-		return &rpc.BMRPCReply{
+		return &pb.BMRPCReply{
 			Version: &v,
-			Reply: &rpc.BMRPCReply_ErrorReply{
-				ErrorReply: &rpc.ErrorReply{
+			Reply: &pb.BMRPCReply_ErrorReply{
+				ErrorReply: &pb.ErrorReply{
 					Version: &v,
 					Error:   &er,
 				},
@@ -75,28 +91,42 @@ func (s *RPCServer) BMAgentRequest(ctx context.Context, req *rpc.BMRPCRequest) (
 	return reply, nil
 }
 
-func newServer(u User) *RPCServer {
+func newServer(u User, server *rpc.Server) *RPCServer {
 	return &RPCServer{
-		u: u,
+		Server: *server,
+		u:      u,
 	}
 }
 
-// GRPCServer creates and starts a- GRPC server.
-func GRPCServer(u User, port uint32) (*RPCServer, error) {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+// GRPCServer creates a grpc GRPC server.
+func GRPCServer(u User, cfg *rpc.Config) (*RPCServer, error) {
+	rpcServer, err := rpc.NewRPCServer(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to listen: %v", err)
+		return nil, err
 	}
 
-	rpcServer := newServer(u)
-	grpcServer := grpc.NewServer(nil)
-	rpc.RegisterBMAgentRPCServer(grpcServer, rpcServer)
-	grpcServer.Serve(lis)
+	bmaServer := newServer(u, rpcServer)
 
-	return rpcServer, nil
+	pb.RegisterBMAgentRPCServer(rpcServer.GRPC(), bmaServer)
+
+	return bmaServer, nil
 }
 
-// ØMQServe sets up the ØMQ Server
-func ØMQServe() {
+// GRPCClient creates the GRPC client.
+func GRPCClient(cfg *bmrpc.ClientConfig) (pb.BMAgentRPCClient, error) {
+	opts := []grpc.DialOption{grpc.WithInsecure()}
+
+	conn, err := grpc.Dial(cfg.ConnectTo, opts...)
+
+	if err != nil {
+		return nil, fmt.Errorf("Failed to dial: %v", err)
+	}
+	bmd := pb.NewBMAgentRPCClient(conn)
+
+	return bmd, err
+}
+
+// ØMQServer sets up the ØMQ Server
+func ØMQServer() {
 	// TODO
 }

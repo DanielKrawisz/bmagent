@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DanielKrawisz/bmd/rpc"
 	"github.com/DanielKrawisz/bmutil/pow"
 	"github.com/btcsuite/btcutil"
 	flags "github.com/jessevdk/go-flags"
@@ -86,8 +87,6 @@ type Config struct {
 	IMAPListeners []string `long:"imaplisten" description:"Listen for IMAP connections on this interface/port (default port: 143)"`
 	SMTPListeners []string `long:"smtplisten" description:"Listen for SMTP connections on this interface/port (default port: 587)"`
 
-	TLSCert          string `long:"rpccert" description:"File containing the certificate file"`
-	TLSKey           string `long:"rpckey" description:"File containing the certificate key"`
 	DisableServerTLS bool   `long:"noservertls" description:"Disable TLS for the RPC, IMAP and SMTP servers -- NOTE: This is only allowed if the servers are all bound to localhost"`
 	DisableClientTLS bool   `long:"noclienttls" description:"Disable TLS for the RPC client -- NOTE: This is only allowed if the RPC client is connecting to localhost"`
 	CAFile           string `long:"cafile" description:"File containing root certificates to authenticate a TLS connection with bmd"`
@@ -97,6 +96,14 @@ type Config struct {
 	Password    string `short:"P" long:"password" default-mask:"-" description:"Password for clients (RPC/IMAP/SMTP) and bmd authorization"`
 	BmdUsername string `long:"bmdusername" description:"Alternative username for bmd authorization"`
 	BmdPassword string `long:"bmdpassword" default-mask:"-" description:"Alternative password for bmd authorization"`
+
+	RPCUser       string `long:"rpcuser" description:"Username for RPC connections"`
+	RPCPass       string `long:"rpcpass" default-mask:"-" description:"Password for RPC connections"`
+	RPCLimitUser  string `long:"rpclimituser" description:"Username for limited RPC connections"`
+	RPCLimitPass  string `long:"rpclimitpass" default-mask:"-" description:"Password for limited RPC connections"`
+	RPCCert       string `long:"rpccert" description:"File containing the certificate file"`
+	RPCKey        string `long:"rpckey" description:"File containing the certificate key"`
+	RPCMaxClients int    `long:"rpcmaxclients" description:"Max number of RPC clients"`
 
 	Profile string `long:"profile" description:"Enable HTTP profiling on given port -- NOTE port must be between 1024 and 65536"`
 
@@ -115,6 +122,21 @@ type Config struct {
 	// TODO there should not be a global path for a single key file.
 	keyfilePath string
 	keyfilePass []byte
+}
+
+// RPCConfig returns an rpc.Config type constructed from the Config.
+func (cfg *Config) RPCConfig() *rpc.Config {
+	return &rpc.Config{
+		DisableTLS: cfg.DisableServerTLS,
+		Key:        cfg.RPCKey,
+		Cert:       cfg.RPCCert,
+		User:       cfg.RPCUser,
+		Pass:       cfg.RPCPass,
+		LimitUser:  cfg.RPCLimitUser,
+		LimitPass:  cfg.RPCLimitPass,
+		MaxClients: uint32(cfg.RPCMaxClients),
+		Listeners:  cfg.RPCListeners,
+	}
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -350,8 +372,8 @@ func LoadConfig(appName string, args []string) (*Config, []string, error) {
 		ConfigFile:      defaultConfigFile,
 		DataDir:         defaultDataDir,
 		LogDir:          defaultLogDir,
-		TLSKey:          defaultTLSKeyFile,
-		TLSCert:         defaultTLSCertFile,
+		RPCKey:          defaultTLSKeyFile,
+		RPCCert:         defaultTLSCertFile,
 		PowThreads:      runtime.NumCPU(),
 		ProofOfWork:     defaultPowHandler,
 		MsgExpiry:       defaultMsgExpiry,
@@ -417,11 +439,11 @@ func LoadConfig(appName string, args []string) (*Config, []string, error) {
 	// relative to the data dir are unchanged, modify each path to be
 	// relative to the new data dir.
 	if cfg.DataDir != defaultDataDir {
-		if cfg.TLSKey == defaultTLSKeyFile {
-			cfg.TLSKey = filepath.Join(cfg.DataDir, "rpc.key")
+		if cfg.RPCKey == defaultTLSKeyFile {
+			cfg.RPCKey = filepath.Join(cfg.DataDir, "rpc.key")
 		}
-		if cfg.TLSCert == defaultTLSCertFile {
-			cfg.TLSCert = filepath.Join(cfg.DataDir, "rpc.cert")
+		if cfg.RPCCert == defaultTLSCertFile {
+			cfg.RPCCert = filepath.Join(cfg.DataDir, "rpc.cert")
 		}
 		cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
 	}

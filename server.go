@@ -17,6 +17,7 @@ import (
 	"time"
 
 	rpc "github.com/DanielKrawisz/bmagent/bmrpc"
+	"github.com/DanielKrawisz/bmagent/cmd"
 	"github.com/DanielKrawisz/bmagent/idmgr/keys"
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/store"
@@ -50,6 +51,7 @@ const (
 // comprises of and would need.
 type server struct {
 	bmd              *rpc.Client
+	rpcServer        *cmd.RPCServer
 	users            map[uint32]*User
 	store            *store.Store
 	pk               *store.PKRequests
@@ -147,6 +149,14 @@ func newServer(rpcc *rpc.ClientConfig, u *User, s *store.Store, pk *store.PKRequ
 		srvr.smtpListeners = append(srvr.smtpListeners, l)
 	}
 
+	// Setup rpc server.
+	if cfg.EnableRPC {
+		srvr.rpcServer, err = cmd.GRPCServer(srvr.imapUser[1], cfg.RPCConfig())
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	// Load counter values from store.
 	srvr.msgCounter, err = s.GetCounter(wire.ObjectTypeMsg)
 	if err != nil {
@@ -189,7 +199,10 @@ func (s *server) Start() {
 		go s.smtp.Serve(l)
 	}
 
-	// TODO Start RPC server.
+	// Start RPC server.
+	if s.rpcServer != nil {
+		s.rpcServer.Start()
+	}
 
 	// Start public key request handler.
 	serverLog.Info("Starting public key request handler.")
@@ -634,6 +647,7 @@ func (s *server) Stop() {
 	s.imapUser = nil // Prevent pointer cycle.
 
 	s.bmd.Stop()
+	s.rpcServer.Stop()
 	close(s.quit)
 }
 
