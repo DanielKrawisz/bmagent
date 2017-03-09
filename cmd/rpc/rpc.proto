@@ -101,7 +101,7 @@ message NewAddressRequest {
     optional bool dml = 7;
     optional bool deterministic = 8;
     optional bytes seed = 9;
-    optional bytes ack = 10;
+    optional bool ack = 10;
 }
 
 message BitmessageSelector {
@@ -129,20 +129,18 @@ message ListAddressesRequest {
 
 message NewAddressReply {
     optional uint32 version = 1;
-    optional BitmessageAddress address = 2;
+    optional BitmessageIdentity address = 2;
 }
 
 message ListAddressesReply {
 	optional uint32 version = 1;
-	repeated BitmessageAddress addresses = 2;
+	repeated BitmessageIdentity addresses = 2;
 }
 
-message BitmessageAddress {
+message BitmessageIdentity {
 	optional uint32 version = 1;
 	optional string address = 2;
-	optional string tag = 3;
-	optional uint64 addressversion = 4;
-	optional uint64 stream = 5;
+	optional string label = 3;
 	optional uint32 behavior = 6;
 	optional uint64 noncetrialsperbyte = 7;
 	optional uint64 extrabytes = 8;

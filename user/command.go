@@ -8,10 +8,20 @@ import (
 	"strings"
 
 	"github.com/DanielKrawisz/bmagent/cmd"
+	"github.com/DanielKrawisz/bmagent/idmgr/keys"
 	"github.com/DanielKrawisz/bmutil"
 	"github.com/DanielKrawisz/bmutil/identity"
 	"github.com/jordwest/imap-server/types"
 )
+
+// PrivateIDToPublicID converts a PrivateID as returned from the key magager
+// to a PublicID as expected by the command system.
+func PrivateIDToPublicID(pi *keys.PrivateID) cmd.PublicID {
+	return cmd.PublicID{
+		ID:    pi.Private.Public(),
+		Label: pi.Name,
+	}
+}
 
 // executeCommand executes an external command puts the result in
 // our inbox as an email.
@@ -31,7 +41,7 @@ func (u *User) executeCommand(from, name, params string) error {
 }
 
 // NewAddress creates n new keys for the user.
-func (u *User) NewAddress(tag string, sendAck bool) identity.Public {
+func (u *User) NewAddress(tag string, sendAck bool) cmd.PublicID {
 	var behavior uint32
 
 	if sendAck {
@@ -39,5 +49,16 @@ func (u *User) NewAddress(tag string, sendAck bool) identity.Public {
 	}
 
 	// first generate the new keys.
-	return u.keys.NewUnnamed(bmutil.DefaultStream, behavior).Private.Public()
+	return PrivateIDToPublicID(u.keys.NewUnnamed(bmutil.DefaultStream, behavior))
+}
+
+// ListAddresses lists all available addresses.
+func (u *User) ListAddresses() []cmd.PublicID {
+	names := u.keys.Names()
+	pi := make([]cmd.PublicID, 0, len(names))
+	for addr := range u.keys.Names() {
+		pi = append(pi, PrivateIDToPublicID(u.keys.Get(addr)))
+	}
+
+	return pi
 }

@@ -2,6 +2,8 @@ package rpc
 
 //go:generate protoc --go_out=plugins=grpc:. rpc.proto
 
+import "bytes"
+
 func Message(r *BMRPCReply) string {
 	if r.Reply == nil {
 		return ""
@@ -34,7 +36,7 @@ func (r *NewAddressReply) Message() string {
 		return ""
 	}
 
-	return ""
+	return r.Address.String()
 }
 
 func (r *ListAddressesReply) Message() string {
@@ -42,7 +44,15 @@ func (r *ListAddressesReply) Message() string {
 		return ""
 	}
 
-	return ""
+	var b bytes.Buffer
+	for i := 0; i < len(r.Addresses); i++ {
+		if i != 0 {
+			b.Write([]byte("\n"))
+		}
+		b.Write([]byte(r.Addresses[i].String()))
+	}
+
+	return b.String()
 }
 
 func (r *HelpReply) Message() string {
@@ -50,5 +60,13 @@ func (r *HelpReply) Message() string {
 		return ""
 	}
 
-	return "You have been helped."
+	var b bytes.Buffer
+	for i := 0; i < len(r.Instructions); i++ {
+		if i != 0 {
+			b.Write([]byte("\n"))
+		}
+		b.Write([]byte(r.Instructions[i]))
+	}
+
+	return b.String()
 }

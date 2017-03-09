@@ -47,12 +47,12 @@ var Unimplemented = []string{
 //   Definitions:
 //     dosomething := the command you want to implement.
 //
-//   1. Define DoSomethingCommand and DoSomethingReply in cmd/rpc/rpc.proto.
+//   1. Define DoSomethingRequest and DoSomethingReply in cmd/rpc/rpc.proto.
 //      All protobuf message definitions must include an optional uint32
 //      version.
 //   2. Make a file called dosomething.go in cmd.
 //   3. Make a member function called Message in rpc/proto.go for the
-//      protobuf object that I just created.
+//      protobuf object that was just created.
 //   4. Make a struct called doSomethingResponse which implements Response.
 
 // Response is the type returned by a command. It can be delivered to
@@ -104,11 +104,11 @@ var unimplementedStub = command{
 func init() {
 	commands["help"] = help
 	commands["newaddress"] = newAddress
+	commands["listaddresses"] = listAddresses
 	commands["getmessages"] = unimplementedStub
 	commands["deletemessages"] = unimplementedStub
 	commands["sendmessage"] = unimplementedStub
 	commands["subscribe"] = unimplementedStub
-	commands["listaddresses"] = unimplementedStub
 
 	// Ensure that Commands is in alphabetical order and every element
 	// in Commands is in commands.
@@ -148,14 +148,14 @@ func init() {
 	}
 
 	// Ensure that every command and every pattern has a help message.
-	for _, command := range commands {
+	for cmdName, command := range commands {
 		if command.help == "" {
-			panic(fmt.Sprint("Command ", command, " has no help message"))
+			panic(fmt.Sprint("Command ", cmdName, " has no help message"))
 		}
 
 		for i, pattern := range command.patterns {
 			if pattern.help == "" {
-				panic(fmt.Sprint("Command ", command, ", pattern ", i, " has no help message"))
+				panic(fmt.Sprint("Command ", cmdName, ", pattern ", i, " has no help message"))
 			}
 		}
 	}

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"github.com/DanielKrawisz/bmagent/cmd/rpc"
 	"github.com/DanielKrawisz/bmutil/identity"
 )
@@ -9,23 +10,39 @@ import (
 // return ack messages.
 const DefaultSendAck = true
 
+// PublicID is a public identity with a name.
+type PublicID struct {
+	ID    identity.Public
+	Label string
+}
+
 type newAddressResponse struct {
-	address identity.Public
+	address PublicID
 }
 
 type newAddressCommand struct {
-	ack bool
-	tag string // Currently unused, but should be used in the future.
+	ack   bool
+	label string // Currently unused, but should be used in the future.
 }
 
 func (r *newAddressCommand) Execute(u User) (Response, error) {
+	addr := u.NewAddress("", r.ack)
 	return &newAddressResponse{
-		address: u.NewAddress("", r.ack),
+		address: addr,
 	}, nil
 }
 
 func (r *newAddressCommand) RPC() (*rpc.BMRPCRequest, error) {
-	return nil, nil // TODO
+	version := uint32(1)
+	return &rpc.BMRPCRequest{
+		Version: &version,
+		Request: &rpc.BMRPCRequest_Newaddress{
+			Newaddress: &rpc.NewAddressRequest{
+				Version: &version,
+				Label:   &r.label,
+			},
+		},
+	}, nil
 }
 
 func readNewAddressCommand(param []string) (Command, error) {
@@ -52,8 +69,14 @@ func readNewAddressCommand(param []string) (Command, error) {
 }
 
 func buildNewAddressCommand(r *rpc.NewAddressRequest) (Command, error) {
-	// TODO be sure to check that the version is always 4.
-	return nil, &ErrUnimplemented{"newaddress"}
+	if *r.Addressversion != uint32(4) {
+		return nil, errors.New("Address version must be 4")
+	}
+
+	return &newAddressCommand{
+		ack:   *r.Ack,
+		label: *r.Label,
+	}, nil
 }
 
 var newAddress = command{
@@ -74,9 +97,35 @@ var newAddress = command{
 
 // String writes the help response as a string.
 func (r *newAddressResponse) String() string {
-	return r.address.Address().String()
+	return rpc.Message(r.RPC())
 }
 
+// RPC converts the response into an RPC protobuf message.
 func (r *newAddressResponse) RPC() *rpc.BMRPCReply {
-	return nil // TODO
+	version := uint32(1)
+	return &rpc.BMRPCReply{
+		Version: &version,
+		Reply: &rpc.BMRPCReply_Newaddress{
+			Newaddress: &rpc.NewAddressReply{
+				Version: &version,
+				Address: PublicToRPC(r.address),
+			},
+		},
+	}
+}
+
+// PublicToRPC converts an identity.Public to a BitmessageIdentity
+func PublicToRPC(ip PublicID) *rpc.BitmessageIdentity {
+	version := uint32(1)
+	str := ip.ID.Address().String()
+	b := ip.ID.Behavior()
+	pow := ip.ID.Pow()
+	return &rpc.BitmessageIdentity{
+		Version:            &version,
+		Address:            &str,
+		Behavior:           &b,
+		Noncetrialsperbyte: &pow.NonceTrialsPerByte,
+		Extrabytes:         &pow.ExtraBytes,
+		Label:              &ip.Label,
+	}
 }
