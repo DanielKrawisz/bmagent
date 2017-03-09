@@ -1,38 +1,54 @@
 package main
 
 import (
+	"net"
 	"os"
+	"time"
 
+	"github.com/DanielKrawisz/bmagent/bmrpc"
 	"github.com/DanielKrawisz/bmagent/cmd"
 	"github.com/DanielKrawisz/bmagent/cmd/rpc"
 )
 
-func run(cmdName string, args []string) (*rpc.BMRPCReply, error) {
-	// Check if the command exists.
-	command, err := cmd.ReadCommand(cmdName, args)
+func request(req *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
+	// Create an rpc connection to bmagent.
+	client, err := cmd.GRPCClient(&bmrpc.ClientConfig{
+		DisableTLS: true,
+		ConnectTo:  net.JoinHostPort("localhost", "8449"),
+		Timeout:    time.Second,
+	})
 	if err != nil {
 		return nil, err
 	}
 
+	return client.Request(req)
+}
+
+func run(command cmd.Command, args []string) (*rpc.BMRPCReply, error) {
 	// Make an rpc request out of the command.
 	req, err := command.RPC()
 	if err != nil {
 		return nil, err
 	}
 
-	// Translate the rpc request back into a command. (In the future,
-	// this step will actually query bmagent via rpc.)
-	command, err = cmd.BuildCommand(req)
+	// Send it to the server.
+	return request(req)
+}
+
+func try(cmdName string, args []string) string {
+	// Check if the command exists.
+	command, err := cmd.ReadCommand(cmdName, args)
 	if err != nil {
-		return nil, err
+		return err.Error()
 	}
 
-	response, err := command.Execute(&mockUser{})
+	// Try to send it to the server.
+	response, err := run(command, args)
 	if err != nil {
-		return nil, err
+		return err.Error()
 	}
 
-	return response.RPC(), nil
+	return rpc.Message(response)
 }
 
 func main() {
@@ -44,11 +60,5 @@ func main() {
 	name := os.Args[1]
 	args := os.Args[2:]
 
-	response, err := run(name, args)
-	if err != nil {
-		println(err.Error())
-		return
-	}
-
-	println(rpc.Message(response))
+	println(try(name, args))
 }

@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/DanielKrawisz/bmagent/bmrpc"
 	pb "github.com/DanielKrawisz/bmagent/cmd/rpc"
@@ -112,9 +113,27 @@ func GRPCServer(u User, cfg *rpc.Config) (*RPCServer, error) {
 	return bmaServer, nil
 }
 
+type RPCClient struct {
+	client pb.BMAgentRPCClient
+}
+
+func (r *RPCClient) Request(in *pb.BMRPCRequest) (*pb.BMRPCReply, error) {
+	return r.client.BMAgentRequest(context.Background(), in)
+}
+
 // GRPCClient creates the GRPC client.
-func GRPCClient(cfg *bmrpc.ClientConfig) (pb.BMAgentRPCClient, error) {
-	opts := []grpc.DialOption{grpc.WithInsecure()}
+func GRPCClient(cfg *bmrpc.ClientConfig) (*RPCClient, error) {
+	opts := []grpc.DialOption{grpc.WithTimeout(cfg.Timeout)}
+
+	if cfg.DisableTLS {
+		opts = append(opts, grpc.WithInsecure())
+	} else {
+		creds, err := credentials.NewClientTLSFromFile(cfg.CAFile, "")
+		if err != nil {
+			return nil, fmt.Errorf("Failed to create TLS credentials %v", err)
+		}
+		opts = append(opts, grpc.WithTransportCredentials(creds))
+	}
 
 	conn, err := grpc.Dial(cfg.ConnectTo, opts...)
 
@@ -123,7 +142,7 @@ func GRPCClient(cfg *bmrpc.ClientConfig) (pb.BMAgentRPCClient, error) {
 	}
 	bmd := pb.NewBMAgentRPCClient(conn)
 
-	return bmd, err
+	return &RPCClient{client: bmd}, err
 }
 
 // ØMQServer sets up the ØMQ Server

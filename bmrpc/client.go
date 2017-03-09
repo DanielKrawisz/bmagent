@@ -66,8 +66,8 @@ type Client struct {
 }
 
 // NewClient creates a new RPC connection to bmd.
-func NewClient(cfg *ClientConfig, msg, broadcast, getpubkey func(counter uint64, msg []byte)) (*Client, error) {
-
+func NewClient(cfg *ClientConfig, msg, broadcast,
+	getpubkey func(counter uint64, msg []byte)) (*Client, error) {
 	opts := []grpc.DialOption{
 		grpc.WithPerRPCCredentials(
 			pb.NewBasicAuthCredentials(cfg.Username, cfg.Password)),
