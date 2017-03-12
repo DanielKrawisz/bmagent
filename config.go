@@ -61,10 +61,10 @@ var (
 	defaultDataDir     = btcutil.AppDataDir("bmagent", false)
 	bmdDataDir         = btcutil.AppDataDir("bmd", false)
 	bmdHomedirCAFile   = filepath.Join(bmdDataDir, "rpc.cert")
-	defaultConfigFile  = filepath.Join(defaultDataDir, defaultConfigFilename)
 	defaultTLSKeyFile  = filepath.Join(defaultDataDir, "tls.key")
 	defaultTLSCertFile = filepath.Join(defaultDataDir, "tls.cert")
 	defaultLogDir      = filepath.Join(defaultDataDir, defaultLogDirname)
+	usageMessage       string
 )
 
 // Config contains the configuration information read from the command line and
@@ -137,6 +137,178 @@ func (cfg *Config) RPCConfig() *rpc.Config {
 		MaxClients: uint32(cfg.RPCMaxClients),
 		Listeners:  cfg.RPCListeners,
 	}
+}
+
+func (cfg *Config) Validate() error {
+	funcName := "Validate"
+
+	// If an alternate data directory was specified, and paths with defaults
+	// relative to the data dir are unchanged, modify each path to be
+	// relative to the new data dir.
+	if cfg.DataDir != defaultDataDir {
+		if cfg.RPCKey == defaultTLSKeyFile {
+			cfg.RPCKey = filepath.Join(cfg.DataDir, "rpc.key")
+		}
+		if cfg.RPCCert == defaultTLSCertFile {
+			cfg.RPCCert = filepath.Join(cfg.DataDir, "rpc.cert")
+		}
+		cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
+	}
+
+	// Ensure the data directory exists.
+	if err := checkCreateDir(cfg.DataDir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return err
+	}
+
+	// Expand environment variable and leading ~ for filepaths.
+	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
+
+	// Special show command to list supported subsystems and exit.
+	if cfg.DebugLevel == "show" {
+		fmt.Println("Supported subsystems", supportedSubsystems())
+		os.Exit(0)
+	}
+
+	// Initialize logging at the default logging level.
+	initSeelogLogger(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.LogConsole)
+	setLogLevels(defaultLogLevel)
+
+	// Parse, validate, and set debug log level(s).
+	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {
+		err := fmt.Errorf("%s: %v", "loadConfig", err.Error())
+		fmt.Fprintln(os.Stderr, err)
+		return err
+	}
+
+	// Verify proof-of-work parameters.
+	switch cfg.ProofOfWork {
+	case "sequential":
+		cfg.powHandler = pow.DoSequential
+	case "parallel":
+		if cfg.PowThreads < 2 {
+			err := errors.New("Number of threads for proof-of-work cannot be less than 2")
+			fmt.Fprintln(os.Stderr, err)
+			return err
+		}
+		cfg.powHandler = func(target pow.Target, hash []byte) pow.Nonce {
+			return pow.DoParallel(target, hash, cfg.PowThreads)
+		}
+	default:
+		err := errors.New("Unknown proof-of-work handler")
+		fmt.Fprintln(os.Stderr, err)
+		return err
+	}
+
+	// Username and password must be specified.
+	if cfg.Username == "" || cfg.Password == "" {
+		err := errors.New("Username and password cannot be left blank.")
+
+		fmt.Fprintln(os.Stderr, err)
+		return err
+	}
+
+	if cfg.RPCConnect == "" {
+		cfg.RPCConnect = "127.0.0.1"
+	}
+
+	// Add default port to connect flag if missing.
+	cfg.RPCConnect = normalizeAddress(cfg.RPCConnect, defaultBmdPort)
+
+	RPCHost, _, err := net.SplitHostPort(cfg.RPCConnect)
+	if err != nil {
+		return err
+	}
+	if cfg.DisableClientTLS {
+		if _, ok := localhostListeners[RPCHost]; !ok {
+			str := "%s: the --noclienttls option may not be used when" +
+				" connecting RPC to non localhost addresses: %s"
+			err := fmt.Errorf(str, funcName, cfg.RPCConnect)
+			fmt.Fprintln(os.Stderr, err)
+			fmt.Fprintln(os.Stderr, usageMessage)
+			return err
+		}
+	} else {
+		// If CAFile is unset, choose either the copy or local bmd cert.
+		if cfg.CAFile == "" {
+			cfg.CAFile = filepath.Join(cfg.DataDir, defaultCAFilename)
+
+			// If the CA copy does not exist, check if we're connecting to
+			// a local bmd and switch to its RPC cert if it exists.
+			if !fileExists(cfg.CAFile) {
+				if _, ok := localhostListeners[RPCHost]; ok {
+					if fileExists(bmdHomedirCAFile) {
+						cfg.CAFile = bmdHomedirCAFile
+					}
+				}
+			}
+		}
+		cfg.CAFile = cleanAndExpandPath(cfg.CAFile)
+	}
+
+	// Default RPC, IMAP, SMTP to listen on localhost only.
+	addrs, err := net.LookupHost("localhost")
+	if err != nil {
+		return err
+	}
+
+	if cfg.EnableRPC && len(cfg.RPCListeners) == 0 {
+		cfg.RPCListeners = make([]string, 0, len(addrs))
+		for _, addr := range addrs {
+			addr = net.JoinHostPort(addr, strconv.Itoa(defaultRPCPort))
+			cfg.RPCListeners = append(cfg.RPCListeners, addr)
+		}
+	}
+
+	if len(cfg.IMAPListeners) == 0 {
+		cfg.IMAPListeners = make([]string, 0, len(addrs))
+		for _, addr := range addrs {
+			addr = net.JoinHostPort(addr, strconv.Itoa(defaultIMAPPort))
+			cfg.IMAPListeners = append(cfg.IMAPListeners, addr)
+		}
+	}
+
+	if len(cfg.SMTPListeners) == 0 {
+		cfg.SMTPListeners = make([]string, 0, len(addrs))
+		for _, addr := range addrs {
+			addr = net.JoinHostPort(addr, strconv.Itoa(defaultSMTPPort))
+			cfg.SMTPListeners = append(cfg.SMTPListeners, addr)
+		}
+	}
+
+	// Add default port to all RPC, IMAP and SMTP listener addresses if needed
+	// and remove duplicate addresses.
+	cfg.RPCListeners = normalizeAddresses(cfg.RPCListeners, defaultRPCPort)
+	cfg.IMAPListeners = normalizeAddresses(cfg.IMAPListeners, defaultIMAPPort)
+	cfg.SMTPListeners = normalizeAddresses(cfg.SMTPListeners, defaultSMTPPort)
+
+	// Only allow server TLS to be disabled if the RPC is bound to localhost
+	// addresses.
+	if cfg.DisableServerTLS {
+		err = verifyListeners(cfg.RPCListeners, "RPC", funcName, usageMessage)
+		if err != nil {
+			return err
+		}
+		err = verifyListeners(cfg.IMAPListeners, "IMAP", funcName, usageMessage)
+		if err != nil {
+			return err
+		}
+		err = verifyListeners(cfg.SMTPListeners, "SMTP", funcName, usageMessage)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If the bmd username or password are unset, use the same auth as for
+	// the client.
+	if cfg.BmdUsername == "" {
+		cfg.BmdUsername = cfg.Username
+	}
+	if cfg.BmdPassword == "" {
+		cfg.BmdPassword = cfg.Password
+	}
+
+	return nil
 }
 
 // cleanAndExpandPath expands environement variables and leading ~ in the
@@ -344,6 +516,24 @@ func newConfigParser(cfg *Config, appName string, options flags.Options) *flags.
 	return p
 }
 
+func DefaultConfig() *Config {
+	// Default config.
+	return &Config{
+		DebugLevel:      defaultLogLevel,
+		ConfigFile:      defaultConfigFilename,
+		DataDir:         defaultDataDir,
+		LogDir:          defaultLogDir,
+		RPCKey:          defaultTLSKeyFile,
+		RPCCert:         defaultTLSCertFile,
+		PowThreads:      runtime.NumCPU(),
+		ProofOfWork:     defaultPowHandler,
+		MsgExpiry:       defaultMsgExpiry,
+		BroadcastExpiry: defaultBroadcastExpiry,
+		LogConsole:      defaultLogConsole,
+		GenKeys:         defaultGenKeys,
+	}
+}
+
 // loadConfig initializes and parses the config using a config file and command
 // line options.
 //
@@ -361,136 +551,10 @@ func loadConfig() (*Config, []string, error) {
 	appName := filepath.Base(os.Args[0])
 	appName = strings.TrimSuffix(appName, filepath.Ext(appName))
 
-	return LoadConfig(appName, os.Args[1:])
-}
+	cfg := DefaultConfig()
 
-// LoadConfig reads a Config type from the command-line options and config file.
-func LoadConfig(appName string, args []string) (*Config, []string, error) {
-	// Default config.
-	cfg := Config{
-		DebugLevel:      defaultLogLevel,
-		ConfigFile:      defaultConfigFile,
-		DataDir:         defaultDataDir,
-		LogDir:          defaultLogDir,
-		RPCKey:          defaultTLSKeyFile,
-		RPCCert:         defaultTLSCertFile,
-		PowThreads:      runtime.NumCPU(),
-		ProofOfWork:     defaultPowHandler,
-		MsgExpiry:       defaultMsgExpiry,
-		BroadcastExpiry: defaultBroadcastExpiry,
-		LogConsole:      defaultLogConsole,
-		GenKeys:         defaultGenKeys,
-	}
-
-	// Pre-parse the command line options to see if an alternative config
-	// file or the version flag was specified.
-	preCfg := cfg
-	preParser := newConfigParser(&preCfg, appName, flags.HelpFlag)
-	_, err := preParser.ParseArgs(args)
+	remaining, err := LoadConfig(appName, cfg, os.Args[1:])
 	if err != nil {
-		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
-			fmt.Fprintln(os.Stderr, err)
-			return nil, nil, err
-		}
-		return nil, nil, err
-	}
-
-	// Show the version and exit if the version flag was specified.
-	funcName := "loadConfig"
-	usageMessage := fmt.Sprintf("Use %s -h to show usage", appName)
-	if preCfg.ShowVersion {
-		fmt.Println(appName, "version", version())
-		os.Exit(0)
-	}
-
-	// Load additional config from file.
-	var configFileError error
-	parser := newConfigParser(&cfg, appName, flags.Default)
-	if preCfg.ConfigFile != defaultConfigFile || fileExists(preCfg.ConfigFile) {
-
-		err = flags.NewIniParser(parser).ParseFile(preCfg.ConfigFile)
-		if err != nil {
-			if _, ok := err.(*os.PathError); !ok {
-				fmt.Fprintln(os.Stderr, err)
-				parser.WriteHelp(os.Stderr)
-				return nil, nil, err
-			}
-			configFileError = err
-		}
-	}
-
-	// Parse command line options again to ensure they take precedence.
-	remainingArgs, err := parser.ParseArgs(args)
-	if err != nil {
-		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
-			parser.WriteHelp(os.Stderr)
-		}
-		return nil, nil, err
-	}
-
-	// Warn about missing config file after the final command line parse
-	// succeeds. This prevents the warning on help messages and invalid
-	// options.
-	if configFileError != nil {
-		log.Warnf("%v", configFileError)
-	}
-
-	// If an alternate data directory was specified, and paths with defaults
-	// relative to the data dir are unchanged, modify each path to be
-	// relative to the new data dir.
-	if cfg.DataDir != defaultDataDir {
-		if cfg.RPCKey == defaultTLSKeyFile {
-			cfg.RPCKey = filepath.Join(cfg.DataDir, "rpc.key")
-		}
-		if cfg.RPCCert == defaultTLSCertFile {
-			cfg.RPCCert = filepath.Join(cfg.DataDir, "rpc.cert")
-		}
-		cfg.DataDir = cleanAndExpandPath(cfg.DataDir)
-	}
-
-	// Ensure the data directory exists.
-	if err := checkCreateDir(cfg.DataDir); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return nil, nil, err
-	}
-
-	// Expand environment variable and leading ~ for filepaths.
-	cfg.LogDir = cleanAndExpandPath(cfg.LogDir)
-
-	// Special show command to list supported subsystems and exit.
-	if cfg.DebugLevel == "show" {
-		fmt.Println("Supported subsystems", supportedSubsystems())
-		os.Exit(0)
-	}
-
-	// Initialize logging at the default logging level.
-	initSeelogLogger(filepath.Join(cfg.LogDir, defaultLogFilename), cfg.LogConsole)
-	setLogLevels(defaultLogLevel)
-
-	// Parse, validate, and set debug log level(s).
-	if err := parseAndSetDebugLevels(cfg.DebugLevel); err != nil {
-		err := fmt.Errorf("%s: %v", "loadConfig", err.Error())
-		fmt.Fprintln(os.Stderr, err)
-		parser.WriteHelp(os.Stderr)
-		return nil, nil, err
-	}
-
-	// Verify proof-of-work parameters.
-	switch cfg.ProofOfWork {
-	case "sequential":
-		cfg.powHandler = pow.DoSequential
-	case "parallel":
-		if cfg.PowThreads < 2 {
-			err := errors.New("Number of threads for proof-of-work cannot be less than 2")
-			fmt.Fprintln(os.Stderr, err)
-			return nil, nil, err
-		}
-		cfg.powHandler = func(target pow.Target, hash []byte) pow.Nonce {
-			return pow.DoParallel(target, hash, cfg.PowThreads)
-		}
-	default:
-		err := errors.New("Unknown proof-of-work handler")
-		fmt.Fprintln(os.Stderr, err)
 		return nil, nil, err
 	}
 
@@ -514,12 +578,12 @@ func LoadConfig(appName string, args []string) (*Config, []string, error) {
 			return nil, nil, err
 		}
 
-		if cfg.GenKeys == 0 {
+		if cfg.GenKeys <= 0 {
 			cfg.GenKeys = 1
 		}
 
 		// Create databases.
-		if err := createDatabases(&cfg); err != nil {
+		if err := createDatabases(cfg); err != nil {
 			fmt.Fprintln(os.Stderr, "Unable to create data:", err)
 			return nil, nil, err
 		}
@@ -540,7 +604,7 @@ func LoadConfig(appName string, args []string) (*Config, []string, error) {
 		cfg.ImportKeyFile = cleanAndExpandPath(cfg.ImportKeyFile)
 
 		// We need to open the keyfile and store.
-		keymgr, store, _, err := openDatabases(&cfg)
+		keymgr, store, _, err := openDatabases(cfg)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Unable to open databases:", err)
 			return nil, nil, err
@@ -561,113 +625,69 @@ func LoadConfig(appName string, args []string) (*Config, []string, error) {
 		os.Exit(0)
 	}
 
-	// Username and password must be specified.
-	if cfg.Username == "" || cfg.Password == "" {
-		err := errors.New("Username and password cannot be left blank.")
+	return cfg, remaining, nil
+}
 
-		fmt.Fprintln(os.Stderr, err)
-		return nil, nil, err
-	}
+// LoadConfig reads a Config type from the command-line options and config file.
+func LoadConfig(appName string, cfg *Config, args []string) ([]string, error) {
 
-	if cfg.RPCConnect == "" {
-		cfg.RPCConnect = "127.0.0.1"
-	}
-
-	// Add default port to connect flag if missing.
-	cfg.RPCConnect = normalizeAddress(cfg.RPCConnect, defaultBmdPort)
-
-	RPCHost, _, err := net.SplitHostPort(cfg.RPCConnect)
+	// Pre-parse the command line options to see if an alternative config
+	// file or the version flag was specified.
+	preCfg := *cfg
+	preParser := newConfigParser(&preCfg, appName, flags.HelpFlag)
+	_, err := preParser.ParseArgs(args)
 	if err != nil {
-		return nil, nil, err
-	}
-	if cfg.DisableClientTLS {
-		if _, ok := localhostListeners[RPCHost]; !ok {
-			str := "%s: the --noclienttls option may not be used when" +
-				" connecting RPC to non localhost addresses: %s"
-			err := fmt.Errorf(str, funcName, cfg.RPCConnect)
+		if e, ok := err.(*flags.Error); ok && e.Type == flags.ErrHelp {
 			fmt.Fprintln(os.Stderr, err)
-			fmt.Fprintln(os.Stderr, usageMessage)
-			return nil, nil, err
+			return nil, err
 		}
-	} else {
-		// If CAFile is unset, choose either the copy or local bmd cert.
-		if cfg.CAFile == "" {
-			cfg.CAFile = filepath.Join(cfg.DataDir, defaultCAFilename)
+		return nil, err
+	}
 
-			// If the CA copy does not exist, check if we're connecting to
-			// a local bmd and switch to its RPC cert if it exists.
-			if !fileExists(cfg.CAFile) {
-				if _, ok := localhostListeners[RPCHost]; ok {
-					if fileExists(bmdHomedirCAFile) {
-						cfg.CAFile = bmdHomedirCAFile
-					}
-				}
+	// Show the version and exit if the version flag was specified.
+	usageMessage = fmt.Sprintf("Use %s -h to show usage", appName)
+	if preCfg.ShowVersion {
+		fmt.Println(appName, "version", version())
+		os.Exit(0)
+	}
+
+	// Load additional config from file.
+	var configFileError error
+	parser := newConfigParser(cfg, appName, flags.Default)
+	configFilename := filepath.Join(preCfg.DataDir, preCfg.ConfigFile)
+	if preCfg.ConfigFile != defaultConfigFilename || fileExists(configFilename) {
+
+		err = flags.NewIniParser(parser).ParseFile(configFilename)
+		if err != nil {
+			if _, ok := err.(*os.PathError); !ok {
+				fmt.Fprintln(os.Stderr, err)
+				parser.WriteHelp(os.Stderr)
+				return nil, err
 			}
+			configFileError = err
 		}
-		cfg.CAFile = cleanAndExpandPath(cfg.CAFile)
 	}
 
-	// Default RPC, IMAP, SMTP to listen on localhost only.
-	addrs, err := net.LookupHost("localhost")
+	// Parse command line options again to ensure they take precedence.
+	remainingArgs, err := parser.ParseArgs(args)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	if cfg.EnableRPC && len(cfg.RPCListeners) == 0 {
-		cfg.RPCListeners = make([]string, 0, len(addrs))
-		for _, addr := range addrs {
-			addr = net.JoinHostPort(addr, strconv.Itoa(defaultRPCPort))
-			cfg.RPCListeners = append(cfg.RPCListeners, addr)
+		if e, ok := err.(*flags.Error); !ok || e.Type != flags.ErrHelp {
+			parser.WriteHelp(os.Stderr)
 		}
+		return nil, err
 	}
 
-	if len(cfg.IMAPListeners) == 0 {
-		cfg.IMAPListeners = make([]string, 0, len(addrs))
-		for _, addr := range addrs {
-			addr = net.JoinHostPort(addr, strconv.Itoa(defaultIMAPPort))
-			cfg.IMAPListeners = append(cfg.IMAPListeners, addr)
-		}
+	// Warn about missing config file after the final command line parse
+	// succeeds. This prevents the warning on help messages and invalid
+	// options.
+	if configFileError != nil {
+		log.Warnf("%v", configFileError)
 	}
 
-	if len(cfg.SMTPListeners) == 0 {
-		cfg.SMTPListeners = make([]string, 0, len(addrs))
-		for _, addr := range addrs {
-			addr = net.JoinHostPort(addr, strconv.Itoa(defaultSMTPPort))
-			cfg.SMTPListeners = append(cfg.SMTPListeners, addr)
-		}
+	err = cfg.Validate()
+	if err != nil {
+		return nil, err
 	}
 
-	// Add default port to all RPC, IMAP and SMTP listener addresses if needed
-	// and remove duplicate addresses.
-	cfg.RPCListeners = normalizeAddresses(cfg.RPCListeners, defaultRPCPort)
-	cfg.IMAPListeners = normalizeAddresses(cfg.IMAPListeners, defaultIMAPPort)
-	cfg.SMTPListeners = normalizeAddresses(cfg.SMTPListeners, defaultSMTPPort)
-
-	// Only allow server TLS to be disabled if the RPC is bound to localhost
-	// addresses.
-	if cfg.DisableServerTLS {
-		err = verifyListeners(cfg.RPCListeners, "RPC", funcName, usageMessage)
-		if err != nil {
-			return nil, nil, err
-		}
-		err = verifyListeners(cfg.IMAPListeners, "IMAP", funcName, usageMessage)
-		if err != nil {
-			return nil, nil, err
-		}
-		err = verifyListeners(cfg.SMTPListeners, "SMTP", funcName, usageMessage)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	// If the bmd username or password are unset, use the same auth as for
-	// the client.
-	if cfg.BmdUsername == "" {
-		cfg.BmdUsername = cfg.Username
-	}
-	if cfg.BmdPassword == "" {
-		cfg.BmdPassword = cfg.Password
-	}
-
-	return &cfg, remainingArgs, nil
+	return remainingArgs, nil
 }

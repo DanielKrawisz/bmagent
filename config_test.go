@@ -8,69 +8,59 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 )
 
-// If config files exist while we are doing
-var oldDefaultConfigFile []byte
-var oldConfigFile []byte
-var oldConfigFilename *string
+// resetCfg is called to refresh configuration before every test. The returned
+// function is supposed to be called at the end of the test; to clear temp
+// directories.
+func resetCfg(cfg *Config) func() {
+	dir, err := ioutil.TempDir("", "bmagent")
+	if err != nil {
+		panic(fmt.Sprint("Failed to create temporary directory:", err))
+	}
+	cfg.DataDir = dir
+	cfg.LogDir = filepath.Join(cfg.DataDir, defaultLogDirname)
 
-func setup(defaultConfigContents, configFileContents, configFilename *string) error {
+	return func() {
+		os.RemoveAll(dir)
+	}
+}
+
+func setup(dataDir string, defaultConfigContents, configFileContents, configFilename *string) error {
 	var err error
 
-	// Check if a default config file exists. If so, save it and remove it.
-	if _, err = os.Stat(defaultConfigFile); !os.IsNotExist(err) {
-		oldDefaultConfigFile, err = ioutil.ReadFile(defaultConfigFile)
-
-		if err != nil {
-			return err
-		}
-
-		err = os.Remove(defaultConfigFile)
-		if err != nil {
-			oldDefaultConfigFile = nil
-			return err
-		}
-	}
+	defaultFile := filepath.Join(dataDir, defaultConfigFilename)
 
 	// Check if defaultConfigContents is set. If so, make a config file.
 	if defaultConfigContents != nil {
-		err = ioutil.WriteFile(defaultConfigFile, []byte(*defaultConfigContents), 0644)
+		err = ioutil.WriteFile(defaultFile, []byte(*defaultConfigContents), 0644)
 		if err != nil {
-			cleanup()
 			return nil
 		}
 	}
 
 	// Check if configFilePath is set and is not equal to the default
 	// path.
-	if configFilename == nil || *configFilename == defaultConfigFile {
+	if configFilename == nil || *configFilename == defaultFile {
 		return nil
 	}
 
-	oldConfigFilename = configFilename
+	configFile := filepath.Join(dataDir, *configFilename)
 
-	// If the file exists, save it.
-	if _, err = os.Stat(*configFilename); !os.IsNotExist(err) {
-		oldConfigFile, err = ioutil.ReadFile(*configFilename)
-
+	// If the file exists, remove it.
+	if _, err = os.Stat(configFile); !os.IsNotExist(err) {
+		err = os.Remove(configFile)
 		if err != nil {
-			return err
-		}
-
-		err = os.Remove(*configFilename)
-		if err != nil {
-			oldConfigFile = nil
 			return err
 		}
 	}
 
 	if configFileContents != nil {
-		err = ioutil.WriteFile(*configFilename, []byte(*configFileContents), 0644)
+		err = ioutil.WriteFile(configFile, []byte(*configFileContents), 0644)
 		if err != nil {
-			cleanup()
 			return nil
 		}
 	}
@@ -78,34 +68,14 @@ func setup(defaultConfigContents, configFileContents, configFilename *string) er
 	return nil
 }
 
-func cleanup() {
-	if oldConfigFile == nil {
-		if _, err := os.Stat(defaultConfigFile); !os.IsNotExist(err) {
-			os.Remove(defaultConfigFile)
-		}
-	} else {
-		ioutil.WriteFile(defaultConfigFile, oldDefaultConfigFile, 0644)
-	}
-
-	if oldConfigFilename != nil {
-		if oldConfigFile == nil {
-			os.Remove(*oldConfigFilename)
-		} else {
-			ioutil.WriteFile(*oldConfigFilename, oldDefaultConfigFile, 0644)
-		}
-	}
-
-	oldConfigFile = nil
-	oldConfigFilename = nil
-	oldDefaultConfigFile = nil
-}
-
 func testConfig(t *testing.T, testID int, expected int16, cmdLine *int16, defaultConfig *int16, config *int16, configFile *string) {
 	var defaultConfigContents *string
 	var configFileContents *string
 	commandLine := []string{"-u", "admin", "-P", "admin"}
 
-	defer cleanup()
+	// Ensures that the temp directory is deleted.
+	cfg := DefaultConfig()
+	defer resetCfg(cfg)()
 
 	// first construct the command-line arguments.
 	if cmdLine != nil {
@@ -128,14 +98,17 @@ func testConfig(t *testing.T, testID int, expected int16, cmdLine *int16, defaul
 	}
 
 	// Set up the test.
-	err := setup(defaultConfigContents, configFileContents, configFile)
+	err := setup(cfg.DataDir, defaultConfigContents, configFileContents, configFile)
 	if err != nil {
 		t.Fail()
 	}
 
-	cfg, _, err := LoadConfig("test", commandLine)
+	remaining, err := LoadConfig("test", cfg, commandLine)
+	if len(remaining) != 0 {
+		t.Errorf("Remaining options not read: %v", remaining)
+	}
 
-	if cfg == nil {
+	if err != nil {
 		t.Errorf("Error, test id %d: nil config returned! %s", testID, err.Error())
 		return
 	}
@@ -162,14 +135,14 @@ func TestLoadConfig(t *testing.T) {
 	// Test that an option is correctly set when specified
 	// in the default config file without a command line
 	// option set.
-	cfg := "altbmdagent.conf"
+	file := "altbmdagent.conf"
 	testConfig(t, 3, q, nil, &q, nil, nil)
-	testConfig(t, 4, q, nil, nil, &q, &cfg)
+	testConfig(t, 4, q, nil, nil, &q, &file)
 
 	// Test that an option is correctly set when specified
 	// on the command line and that it overwrites the
 	// option in the config file.
 	var z int16 = 39
 	testConfig(t, 5, q, &q, &z, nil, nil)
-	testConfig(t, 6, q, &q, nil, &z, &cfg)
+	testConfig(t, 6, q, &q, nil, &z, &file)
 }
