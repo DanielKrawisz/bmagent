@@ -61,7 +61,9 @@ func readHelpCommand(param []string) (Command, error) {
 }
 
 func buildHelpCommand(r *rpc.HelpRequest) (Command, error) {
-	if r == nil || r.Version == nil || *r.Version != 1 || r.Requests == nil {
+	rpcLog.Debug("Building help command: ", r.String())
+
+	if r == nil || r.Version == nil || *r.Version != 1 {
 		return nil, ErrInvalidRPCRequest
 	}
 

@@ -647,7 +647,9 @@ func (s *server) Stop() {
 	s.imapUser = nil // Prevent pointer cycle.
 
 	s.bmd.Stop()
-	s.rpcServer.Stop()
+	if s.rpcServer != nil {
+		s.rpcServer.Stop()
+	}
 	close(s.quit)
 }
 

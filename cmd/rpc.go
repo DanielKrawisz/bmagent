@@ -38,15 +38,19 @@ func BuildCommand(r *pb.BMRPCRequest) (Command, error) {
 
 // RPCCommand manages a request sent via an rpc interface.
 func RPCCommand(u User, request *pb.BMRPCRequest) (*pb.BMRPCReply, error) {
+	rpcLog.Info("Received rpc command ", request.String())
+
 	// Attempt to build a command from the request.
 	command, err := BuildCommand(request)
 	if err != nil {
+		rpcLog.Info("Could not build command: ", err.Error())
 		return nil, err
 	}
 
 	// Attempt to execute the command.
 	response, err := command.Execute(u)
 	if err != nil {
+		rpcLog.Info("Could not build command: ", err.Error())
 		return nil, err
 	}
 
@@ -65,7 +69,7 @@ func (s *RPCServer) BMAgentRequest(ctx context.Context, req *pb.BMRPCRequest) (*
 	s.Server.Lock()
 	defer s.Server.Unlock()
 
-	if s.Server.Running() {
+	if !s.Server.Running() {
 		return nil, ErrServerStopped
 	}
 
@@ -101,6 +105,8 @@ func newServer(u User, server *rpc.Server) *RPCServer {
 
 // GRPCServer creates a grpc GRPC server.
 func GRPCServer(u User, cfg *rpc.Config) (*RPCServer, error) {
+	rpcLog.Info("Creating rpc server. cfg = ", cfg.String())
+
 	rpcServer, err := rpc.NewRPCServer(cfg)
 	if err != nil {
 		return nil, err

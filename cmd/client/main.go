@@ -14,10 +14,11 @@ func request(req *rpc.BMRPCRequest) (*rpc.BMRPCReply, error) {
 	// Create an rpc connection to bmagent.
 	client, err := cmd.GRPCClient(&bmrpc.ClientConfig{
 		DisableTLS: true,
-		ConnectTo:  net.JoinHostPort("localhost", "8449"),
+		ConnectTo:  net.JoinHostPort("localhost", "8446"),
 		Timeout:    time.Second,
 	})
 	if err != nil {
+		println("request error...")
 		return nil, err
 	}
 
@@ -45,6 +46,7 @@ func try(cmdName string, args []string) string {
 	// Try to send it to the server.
 	response, err := run(command, args)
 	if err != nil {
+		println("response error")
 		return err.Error()
 	}
 

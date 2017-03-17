@@ -1,7 +1,7 @@
 package: github.com/DanielKrawisz/bmagent
 import:
 - package: github.com/DanielKrawisz/bmd
-  version: 336951b0ebed4af5e5028593a0335660d2de28db
+  version: 6ee46b2a3798b353a34c511f06a4e7aff47f5a4c
   subpackages:
   - rpcproto
 - package: github.com/DanielKrawisz/bmutil

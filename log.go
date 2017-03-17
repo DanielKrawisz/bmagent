@@ -13,6 +13,7 @@ import (
 	"os"
 
 	rpc "github.com/DanielKrawisz/bmagent/bmrpc"
+	"github.com/DanielKrawisz/bmagent/cmd"
 	"github.com/DanielKrawisz/bmagent/powmgr"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/btcsuite/btclog"
@@ -83,7 +84,7 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 	case "RPCS":
 		rpcsLog = logger
-		rpc.UseServerLogger(logger)
+		cmd.UseLogger(logger)
 
 	case "IMAP":
 		imapLog = logger

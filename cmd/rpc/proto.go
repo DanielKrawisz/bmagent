@@ -2,7 +2,10 @@ package rpc
 
 //go:generate protoc --go_out=plugins=grpc:. rpc.proto
 
-import "bytes"
+import (
+	"bytes"
+	"fmt"
+)
 
 func Message(r *BMRPCReply) string {
 	if r.Reply == nil {
@@ -21,6 +24,27 @@ func Message(r *BMRPCReply) string {
 	case *BMRPCReply_HelpReply:
 		return x.HelpReply.Message()
 	}
+}
+
+func (bi *BitmessageIdentity) Message() string {
+	var address, label, behavior, poo, last string
+	if bi.Address != nil {
+		address = *bi.Address
+		last = ", "
+	}
+	if bi.Label != nil {
+		label = fmt.Sprintf("%s\"%s\"", last, *bi.Label)
+		last = ", "
+	}
+	if bi.Behavior != nil {
+		behavior = fmt.Sprintf("%sbehavior:%d", last, *bi.Behavior)
+		last = ", "
+	}
+	if bi.Noncetrialsperbyte != nil && bi.Extrabytes != nil {
+		poo = fmt.Sprintf("%spow:{%d, %d}", last, *bi.Noncetrialsperbyte, *bi.Extrabytes)
+	}
+	return fmt.Sprintf("%s%s%s%s", address, label, behavior, poo)
+
 }
 
 func (r *ErrorReply) Message() string {
@@ -49,7 +73,7 @@ func (r *ListAddressesReply) Message() string {
 		if i != 0 {
 			b.Write([]byte("\n"))
 		}
-		b.Write([]byte(r.Addresses[i].String()))
+		b.Write([]byte(r.Addresses[i].Message()))
 	}
 
 	return b.String()
