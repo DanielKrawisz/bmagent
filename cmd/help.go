@@ -117,10 +117,19 @@ func (r *helpResponse) String() string {
 
 // RPC transforms the Response into the protobuf reply.
 func (r *helpResponse) RPC() *rpc.BMRPCReply {
-	instructions := make([]string, len(r.commands))
+	var write func(b *bytes.Buffer, cmd string, command command)
+	if r.long {
+		write = helpMessageLong
+	} else {
+		write = helpMessageShort
+	}
 
+	var b bytes.Buffer
+	instructions := make([]string, len(r.commands))
 	for i, cmdName := range r.commands {
-		instructions[i] = commands[cmdName].help
+		b.Reset()
+		write(&b, cmdName, commands[cmdName])
+		instructions[i] = b.String()
 	}
 
 	version := uint32(1)
@@ -129,7 +138,7 @@ func (r *helpResponse) RPC() *rpc.BMRPCReply {
 		Reply: &rpc.BMRPCReply_HelpReply{
 			HelpReply: &rpc.HelpReply{
 				Version:      &version,
-				Instructions: instructions,
+				Instructions: r.commands,
 			},
 		},
 	}
@@ -159,4 +168,5 @@ func helpMessagePattern(b *bytes.Buffer, cmd string, pattern Pattern) {
 // formatHelp writes a help message with formatting.
 func formatHelp(b *bytes.Buffer, help string, indent, firstIndent, lineWidth uint32) {
 	// TODO
+	b.Write([]byte(help))
 }

@@ -97,6 +97,7 @@ message NewAddressRequest {
     optional string label = 3;
     optional uint32 stream = 4;
     optional uint32 pow = 5;
+    optional uint32 noncetrialsperbyte = 11;
     optional uint32 extrabytes = 6;
     optional bool dml = 7;
     optional bool deterministic = 8;

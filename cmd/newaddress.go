@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/DanielKrawisz/bmagent/cmd/rpc"
 	"github.com/DanielKrawisz/bmutil/identity"
+	"github.com/DanielKrawisz/bmutil/pow"
 )
 
 // DefaultSendAck is set to true, which means that new addresses by default
@@ -21,8 +22,11 @@ type newAddressResponse struct {
 }
 
 type newAddressCommand struct {
-	ack   bool
-	label string // Currently unused, but should be used in the future.
+	ack     bool
+	label   *string // Currently unused, but should be used in the future.
+	pow     *pow.Data
+	version uint64
+	stream  uint64
 }
 
 func (r *newAddressCommand) Execute(u User) (Response, error) {
@@ -39,7 +43,7 @@ func (r *newAddressCommand) RPC() (*rpc.BMRPCRequest, error) {
 		Request: &rpc.BMRPCRequest_Newaddress{
 			Newaddress: &rpc.NewAddressRequest{
 				Version: &version,
-				Label:   &r.label,
+				Label:   r.label,
 			},
 		},
 	}, nil
@@ -64,18 +68,42 @@ func readNewAddressCommand(param []string) (Command, error) {
 	}
 
 	return &newAddressCommand{
-		ack: sendAck,
+		ack:     sendAck,
+		version: 4,
+		stream:  1,
 	}, nil
 }
 
 func buildNewAddressCommand(r *rpc.NewAddressRequest) (Command, error) {
-	if *r.Addressversion != uint32(4) {
+	if r.Addressversion != nil && *r.Addressversion != uint32(4) {
 		return nil, errors.New("Address version must be 4")
+	}
+	if r.Stream != nil && *r.Stream != uint32(1) {
+		return nil, errors.New("Stream must be 1")
+	}
+
+	var ack bool
+	if r.Ack != nil {
+		ack = *r.Ack
+	} else {
+		ack = true
+	}
+
+	var p pow.Data
+	if r.Noncetrialsperbyte != nil {
+		if r.Extrabytes != nil {
+			return nil, errors.New("Must provide both nonce trials per byte and extra bytes.")
+		}
+
+		p = pow.Data{uint64(*r.Noncetrialsperbyte), uint64(*r.Extrabytes)}
 	}
 
 	return &newAddressCommand{
-		ack:   *r.Ack,
-		label: *r.Label,
+		ack:     ack,
+		label:   r.Label,
+		pow:     &p,
+		version: 4,
+		stream:  1,
 	}, nil
 }
 
@@ -89,7 +117,27 @@ var newAddress = command{
 		},
 		Pattern{
 			key:  []Key{KeyBoolean},
-			help: "Create a new unnamed address.",
+			help: "Create a new named address.",
+			read: readNewAddressCommand,
+		},
+		Pattern{
+			key:  []Key{KeyBoolean, KeyNatural, KeyNatural},
+			help: "Create a new named address.",
+			read: readNewAddressCommand,
+		},
+		Pattern{
+			key:  []Key{KeyString},
+			help: "Create a new named address.",
+			read: readNewAddressCommand,
+		},
+		Pattern{
+			key:  []Key{KeyString, KeyBoolean},
+			help: "Create a new named address.",
+			read: readNewAddressCommand,
+		},
+		Pattern{
+			key:  []Key{KeyString, KeyBoolean, KeyNatural, KeyNatural},
+			help: "Create a new named address.",
 			read: readNewAddressCommand,
 		},
 	},
