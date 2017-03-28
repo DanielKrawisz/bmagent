@@ -15,8 +15,7 @@ import (
 // Loggers initialized with no output filters. This means the package will not
 // perform any logging by default until the caller requests it.
 var (
-	clientLog btclog.Logger
-	serverLog btclog.Logger
+	log btclog.Logger
 )
 
 // The default amount of logging is none.
@@ -27,20 +26,12 @@ func init() {
 // DisableLog disables all library log output. Logging output is disabled by
 // default until either UseLogger or SetLogWriter are called.
 func DisableLog() {
-	clientLog = btclog.Disabled
-	serverLog = btclog.Disabled
+	log = btclog.Disabled
 }
 
-// UseClientLogger uses a specified Logger to output client logging info.
+// UseLogger uses a specified Logger to output logging info.
 // This should be used in preference to SetLogWriter if the caller is also
 // using btclog.
-func UseClientLogger(logger btclog.Logger) {
-	clientLog = logger
-}
-
-// UseServerLogger uses a specified Logger to output client logging info.
-// This should be used in preference to SetLogWriter if the caller is also
-// using btclog.
-func UseServerLogger(logger btclog.Logger) {
-	serverLog = logger
+func UseLogger(logger btclog.Logger) {
+	log = logger
 }

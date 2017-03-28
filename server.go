@@ -233,11 +233,14 @@ func (s *server) newMessage(counter uint64, object []byte) {
 	// Is this an ack message we are expecting?
 	if len(object) == cipher.AckLength {
 		for _, u := range s.imapUser {
-			err = u.DeliverAckReply(hash.InventoryHash(object))
+			h := hash.InventoryHash(object)
+			err = u.DeliverAckReply(h)
 			if err != user.ErrUnrecognizedAck {
 				if err != nil {
 					serverLog.Errorf("Error returned receiving ack: %v", err)
 				}
+
+				serverLog.Infof("Delivered ack with hash %s", h.String())
 				return
 			}
 		}
@@ -296,7 +299,7 @@ func (s *server) newMessage(counter uint64, object []byte) {
 		return
 	}
 
-	rpccLog.Trace("Bitmessage received from " + bmsg.From + " to " + bmsg.To)
+	rpccLog.Info("Bitmessage received from " + bmsg.From + " to " + bmsg.To)
 
 	err = s.imapUser[id].DeliverFromBMNet(bmsg)
 	if err != nil {
@@ -327,6 +330,7 @@ func (s *server) newMessage(counter uint64, object []byte) {
 		return
 	}
 
+	rpccLog.Info("There was an ack included and sent back.")
 }
 
 // newBroadcast is called when a new broadcast is received by the RPC client.
@@ -428,7 +432,7 @@ func (s *server) newGetpubkey(counter uint64, object []byte) {
 	}
 
 	addr := privID.Address()
-	serverLog.Infof("Received a getpubkey request for %s, sending out the pubkey.", addr)
+	serverLog.Infof("Received a getpubkey request for %s; sending out the pubkey.", addr)
 
 	// Generate a pubkey message.
 	pkMsg, err := cipher.GeneratePubKey(privID.Private, defaultPubkeyExpiry)

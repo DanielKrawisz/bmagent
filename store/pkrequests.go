@@ -48,7 +48,7 @@ func (r *PKRequests) New(addr string) (uint32, error) {
 	k := []byte(addr)
 	var count uint32
 
-	clientLog.Debug("New pk request recorded for ", addr)
+	log.Debug("New pk request recorded for ", addr)
 
 	err := r.db.Update(func(tx *bolt.Tx) error {
 		bucket := tx.Bucket(pkRequestsBucket)

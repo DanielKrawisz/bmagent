@@ -38,6 +38,7 @@ func (s *BitmessageStore) Authenticate(username string, password string) (mailst
 
 	// TODO Use constant time comparisons.
 	if username != s.cfg.Username || password != s.cfg.Password {
+		email.IMAPLog.Trace("authentication failure")
 		return nil, errors.New("Invalid credentials")
 	}
 

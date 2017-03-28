@@ -15,6 +15,7 @@ import (
 	rpc "github.com/DanielKrawisz/bmagent/bmrpc"
 	"github.com/DanielKrawisz/bmagent/cmd"
 	"github.com/DanielKrawisz/bmagent/powmgr"
+	"github.com/DanielKrawisz/bmagent/store"
 	"github.com/DanielKrawisz/bmagent/user/email"
 	"github.com/btcsuite/btclog"
 	"github.com/btcsuite/seelog"
@@ -77,6 +78,7 @@ func useLogger(subsystemID string, logger btclog.Logger) {
 
 	case "SRVR":
 		serverLog = logger
+		store.UseLogger(logger)
 
 	case "RPCC":
 		rpccLog = logger

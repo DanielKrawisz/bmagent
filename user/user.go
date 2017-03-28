@@ -74,6 +74,7 @@ func NewUser(username string, privateIds keys.Manager, expiration ObjectExpirati
 		keys:     privateIds,
 		acks:     make(map[hash.Sha]uint64),
 	}
+	email.IMAPLog.Tracef("User created with folders %v", folderNames)
 
 	// The user is allowed to save in some mailboxes but not others.
 	for _, name := range folderNames {
@@ -109,6 +110,7 @@ func (u *User) Mailboxes() []mailstore.Mailbox {
 	for _, mbox := range u.boxes {
 		mboxes = append(mboxes, mbox)
 	}
+	email.IMAPLog.Tracef("Mailboxes command called; returning %d boxes", len(u.boxes))
 	return mboxes
 }
 

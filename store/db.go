@@ -161,13 +161,12 @@ func (l *Loader) IsEncrypted() bool {
 
 // Construct creates a new Store from the given file.
 func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
-
 	if l.db == nil {
 		return nil, nil, errors.New("Closed database.")
 	}
 
 	if pass == nil {
-		clientLog.Warn("Unencrypted database opened.")
+		log.Warn("Unencrypted database opened.")
 	}
 
 	var masterKey [keySize]byte
@@ -316,6 +315,7 @@ func (l *Loader) Construct(pass []byte) (*Store, *PKRequests, error) {
 
 func (s *Store) addUser(username string) (*User, error) {
 	uname := append(userPrefix, []byte(username)...)
+	log.Infof("adding user %s", username)
 
 	broadcast, err := newBroadcastsStore(s.db, username)
 	if err != nil {

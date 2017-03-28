@@ -64,6 +64,8 @@ func (u *User) process(bmsg *email.Bmail) error {
 				if err != nil {
 					return err
 				}
+				
+				email.SMTPLog.Infof("Created bitmessage with hash %s", obj.InventoryHash(object).String())
 
 				u.server.Send(completed)
 
@@ -115,14 +117,18 @@ func (u *User) process(bmsg *email.Bmail) error {
 				email.SMTPLog.Debugf("process: could not generate ack: %v", err)
 				return err
 			}
+			
+			h := obj.InventoryHash(ack)
 
 			// Save the ack.
-			u.acks[*obj.InventoryHash(ack)] = bmsg.ImapData.UID
+			u.acks[*h] = bmsg.ImapData.UID
 
 			sendPow(u.pm)(ack, powData, func(completed []byte) {
 				err := func() error {
 					// Add the ack to the message.
 					bmsg.Ack = completed
+					
+					email.SMTPLog.Infof("Created ack message with hash %s", h.String())
 
 					// Attempt to generate object again. This time it
 					// should work so we return every error.
