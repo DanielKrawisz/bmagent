@@ -56,7 +56,7 @@ func Initialize(u data.Folders, k keys.Manager, genkeys uint32) error {
 	if err != nil {
 		return err
 	}
-	inbox, err := newMailbox(mbox, tags)
+	inbox, err := newMailbox(InboxFolderName, mbox, tags)
 	if err != nil {
 		return err
 	}

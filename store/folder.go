@@ -30,7 +30,6 @@ type folders struct {
 }
 
 func newFolders(user *User) (*folders, error) {
-
 	folderNames, err := initializeFolders(user.db, user.username, user.bucketID)
 	if err != nil {
 		return nil, err
@@ -106,7 +105,7 @@ func (f *folders) Names() []string {
 
 	names := make([]string, 0, len(f.folders))
 
-	for name := range names {
+	for name := range f.folders {
 		names = append(names, string(name))
 	}
 
@@ -226,7 +225,6 @@ func newFolder(masterKey *[keySize]byte, db *bolt.DB, username string, name stri
 
 // initializes a folder.
 func (f *folder) initialize(name string) error {
-
 	err := f.db.Update(func(tx *bolt.Tx) error {
 		// Get bucket for mailbox.
 		bucket := tx.Bucket(f.userID).Bucket(foldersBucket).Bucket([]byte(name))
@@ -262,7 +260,6 @@ func (f *folder) initialize(name string) error {
 			binary.BigEndian.PutUint64(next, 1)
 			data.Put(folderNextIDKey, next)
 		} else {
-			// TODO get all the folder data here.
 			data := bucket.Bucket(folderDataBucket)
 			f.nextID = binary.BigEndian.Uint64(data.Get(folderNextIDKey))
 

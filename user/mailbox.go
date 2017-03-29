@@ -782,7 +782,7 @@ func (box *mailbox) NewMessage() mailstore.Message {
 }
 
 // newMailbox returns a new mailbox.
-func newMailbox(mbox data.Folder, addresses map[string]string) (*mailbox, error) {
+func newMailbox(name string, mbox data.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}
@@ -790,6 +790,7 @@ func newMailbox(mbox data.Folder, addresses map[string]string) (*mailbox, error)
 	m := &mailbox{
 		mbox:      mbox,
 		addresses: addresses,
+		name:      name,
 	}
 
 	// Populate various data fields.
@@ -800,7 +801,7 @@ func newMailbox(mbox data.Folder, addresses map[string]string) (*mailbox, error)
 }
 
 // newDrafts returns a new Drafts folder.
-func newDrafts(mbox data.Folder, addresses map[string]string) (*mailbox, error) {
+func newDrafts(name string, mbox data.Folder, addresses map[string]string) (*mailbox, error) {
 	if mbox == nil {
 		return nil, errors.New("Nil mailbox.")
 	}
@@ -809,6 +810,7 @@ func newDrafts(mbox data.Folder, addresses map[string]string) (*mailbox, error) 
 		mbox:      mbox,
 		addresses: addresses,
 		drafts:    true,
+		name:      name,
 	}
 
 	// Populate various data fields.

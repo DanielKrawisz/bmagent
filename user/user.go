@@ -86,9 +86,9 @@ func NewUser(username string, privateIds keys.Manager, expiration ObjectExpirati
 		}
 		switch name {
 		case DraftsFolderName:
-			mb, err = newDrafts(folder, u.keys.Names())
+			mb, err = newDrafts(name, folder, u.keys.Names())
 		default:
-			mb, err = newMailbox(folder, u.keys.Names())
+			mb, err = newMailbox(name, folder, u.keys.Names())
 		}
 		if err != nil {
 			return nil, err
@@ -110,7 +110,7 @@ func (u *User) Mailboxes() []mailstore.Mailbox {
 	for _, mbox := range u.boxes {
 		mboxes = append(mboxes, mbox)
 	}
-	email.IMAPLog.Tracef("Mailboxes command called; returning %d boxes", len(u.boxes))
+
 	return mboxes
 }
 

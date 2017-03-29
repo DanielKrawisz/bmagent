@@ -336,7 +336,6 @@ func (s *Store) addUser(username string) (*User, error) {
 }
 
 func initializeFolders(db *bolt.DB, username string, bucketID []byte) ([]string, error) {
-
 	// Verify passphrase, or create it if necessary.
 	err := db.Update(func(tx *bolt.Tx) error {
 
@@ -401,6 +400,7 @@ func initializeFolders(db *bolt.DB, username string, bucketID []byte) ([]string,
 	err = db.View(func(tx *bolt.Tx) error {
 
 		return tx.Bucket(bucketID).Bucket(foldersBucket).ForEach(func(name, _ []byte) error {
+
 			folders = append(folders, string(name))
 			return nil
 		})

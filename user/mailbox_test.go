@@ -257,7 +257,7 @@ func (tc *MailboxTestContext) MakeMailbox(name string, emails []uint64, nextID u
 		fmt.Println("Err constructing Mailbox: ", err)
 		return nil
 	}
-	mb, err := newMailbox(f, make(map[string]string))
+	mb, err := newMailbox("Mooop", f, make(map[string]string))
 	if err != nil {
 		return nil
 	}
