@@ -1,9 +1,6 @@
 bmagent
 ========
 
-[![Build Status](https://travis-ci.org/monetas/bmclient.png?branch=master)]
-(https://travis-ci.org/monetas/bmclient)
-
 bmagent is a daemon handling Bitmessage identities for a single user. It acts
 as an RPC client to bmd and an IMAP and SMTP server for interfacing with
 traditional e-mail clients like Thunderbird, Outlook and Mail. It extensively
@@ -15,7 +12,7 @@ on disk using a key derived from the passphrase.
 
 bmagent is not a network node and requires connection to a running instance of
 bmd using JSON-RPC over websockets. Full bmd installation instructions can be
-found [here](https://github.com/monetas/bmd).
+found [here](https://github.com/DanielKrawisz/bmd).
 
 No graphical frontends are planned as of right now. All communication between
 the user and bmagent can be done using IMAP/SMTP or JSON-RPC over websockets
@@ -31,8 +28,8 @@ for the more advanced users or use cases.
 - Run the following commands to obtain and install bm and all
   dependencies:
 ```bash
-$ go get -u -v github.com/monetas/bmd/...
-$ go get -u -v github.com/monetas/bmagent/...
+$ go get -u -v github.com/DanielKrawisz/bmd/...
+$ go get -u -v github.com/DanielKrawisz/bmagent/...
 ```
 
 - bmd and bmagent will now be installed in either ```$GOROOT/bin``` or
@@ -46,8 +43,8 @@ $ go get -u -v github.com/monetas/bmagent/...
 - Run the following commands to update bmagent, all dependencies, and install it:
 
 ```bash
-$ go get -u -v github.com/monetas/bmd/...
-$ go get -u -v github.com/monetas/bmagent/...
+$ go get -u -v github.com/DanielKrawisz/bmd/...
+$ go get -u -v github.com/DanielKrawisz/bmagent/...
 ```
 
 ## Getting Started
@@ -91,11 +88,6 @@ $ $EDITOR ~/.bmd/bmd.conf
 $ $EDITOR ~/.bmclient/bmclient.conf
 ```
 
-## Issue Tracker
-
-The [integrated github issue tracker](https://github.com/DanielKrawisz/bmagent/issues)
-is used for this project.
-
 ## License
 
 bmagent is licensed under the liberal ISC License.
@@ -103,10 +95,10 @@ bmagent is licensed under the liberal ISC License.
 ## TODO
 
 bmagent should only take what it needs from each object to determine whether it can
-be decrypted. Get the whole object if it can be decrypted. 
+be decrypted. Get the whole object if it can be decrypted.
 
-There needs to be an implementation of email.IMAPMailbox for draft messages. 
+There needs to be an implementation of email.IMAPMailbox for draft messages.
 
-rpc interface. 
+rpc interface.
 
 Allow multiple users.
