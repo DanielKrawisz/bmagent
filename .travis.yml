@@ -9,7 +9,7 @@ install:
   - go get -v $gotools/cmd/cover
   - go get -v $gotools/cmd/vet
   - go get -v github.com/bradfitz/goimports
-  - go get -v github.com/golang/lint/golint
+  - go get -v golang.org/x/lint/golint
 script:
   - export PATH=$PATH:$HOME/gopath/bin
   - ./goclean.sh
